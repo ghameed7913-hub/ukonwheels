@@ -1,302 +1,307 @@
 import { useState, useEffect } from "react";
-import { useParams, useLocation } from "wouter";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import { useGetBooking, useCreateBooking, useUpdateBooking, getGetBookingQueryKey, getListBookingsQueryKey, getGetDashboardQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Save, Loader2, MapPin, CarFront, Calendar, Truck, User } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useLocation, useParams } from "wouter";
+import { useGetBooking, useCreateBooking, useUpdateBooking } from "@workspace/api-client-react";
+import { 
+  ArrowLeft, 
+  MapPin, 
+  CarFront, 
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  Clock,
+  Truck,
+  FileText,
+  CreditCard,
+  User,
+  ShieldAlert,
+  Loader2,
+  Save,
+  Check
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// Zod schemas matching OpenAPI specs
-const createBookingSchema = z.object({
-  customer: z.string().min(2, "Customer name is required"),
-  vehicle: z.string().min(2, "Vehicle details are required"),
-  registration: z.string().optional(),
-  pickup: z.string().min(2, "Pickup address is required"),
-  destination: z.string().min(2, "Destination address is required"),
-  collectionDate: z.string().min(1, "Collection date is required"),
-  amount: z.coerce.number().min(0, "Amount must be positive"),
-  driver: z.string().optional(),
-});
-
-type CreateBookingValues = z.infer<typeof createBookingSchema>;
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { getListBookingsQueryKey, getGetBookingQueryKey } from "@workspace/api-client-react";
 
 export default function BookingDetailPage() {
   const params = useParams();
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  
   const isNew = !params.id || params.id === "new";
-  const bookingId = isNew ? null : Number(params.id);
+  const id = isNew ? 0 : parseInt(params.id!);
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
 
-  const { data: booking, isLoading: isLoadingBooking } = useGetBooking(bookingId!, {
+  const { data: booking, isLoading } = useGetBooking(id, {
     query: {
-      enabled: !isNew && bookingId !== null,
-      queryKey: getGetBookingQueryKey(bookingId!)
+      enabled: !isNew,
+      queryKey: getGetBookingQueryKey(id),
     }
   });
 
   const createBooking = useCreateBooking();
   const updateBooking = useUpdateBooking();
 
-  const form = useForm<CreateBookingValues>({
-    resolver: zodResolver(createBookingSchema),
-    defaultValues: {
-      customer: "",
-      vehicle: "",
-      registration: "",
-      pickup: "",
-      destination: "",
-      collectionDate: new Date().toISOString().split('T')[0],
-      amount: 0,
-      driver: "",
-    }
+  // Form State
+  const [formData, setFormData] = useState({
+    customer: "",
+    vehicle: "",
+    registration: "",
+    pickup: "",
+    destination: "",
+    collectionDate: new Date().toISOString().split('T')[0],
+    amount: 0,
+    driver: "",
   });
 
-  // For updates that don't need full form validation (status/driver)
-  const [quickStatus, setQuickStatus] = useState<string>("");
-  const [quickDriver, setQuickDriver] = useState<string>("");
+  // Quick Action State
+  const [quickStatus, setQuickStatus] = useState<string>("Pending");
+  const [quickDriver, setQuickDriver] = useState("");
 
   useEffect(() => {
     if (booking && !isNew) {
-      form.reset({
+      setFormData({
         customer: booking.customer,
         vehicle: booking.vehicle,
         registration: booking.registration || "",
         pickup: booking.pickup,
         destination: booking.destination,
-        collectionDate: new Date(booking.collectionDate).toISOString().split('T')[0],
+        collectionDate: booking.collectionDate,
         amount: booking.amount,
         driver: booking.driver || "",
       });
       setQuickStatus(booking.status);
       setQuickDriver(booking.driver || "");
     }
-  }, [booking, isNew, form]);
+  }, [booking, isNew]);
 
-  const onSubmit = (values: CreateBookingValues) => {
+  const handleSave = () => {
     if (isNew) {
-      createBooking.mutate({ data: values }, {
-        onSuccess: (data) => {
-          toast({ title: "Booking created successfully", description: `Reference: ${data.reference}` });
+      createBooking.mutate({
+        data: formData
+      }, {
+        onSuccess: () => {
+          toast.success("Booking created successfully");
           queryClient.invalidateQueries({ queryKey: getListBookingsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
-          setLocation(`/bookings/${data.id}`);
+          setLocation("/bookings");
         },
         onError: () => {
-          toast({ title: "Failed to create booking", variant: "destructive" });
+          toast.error("Failed to create booking");
         }
       });
     } else {
-      updateBooking.mutate({ id: bookingId!, data: values }, {
-        onSuccess: (data) => {
-          toast({ title: "Booking updated successfully" });
-          queryClient.setQueryData(getGetBookingQueryKey(bookingId!), data);
+      updateBooking.mutate({
+        id,
+        data: {
+          status: quickStatus as any,
+          driver: formData.driver,
+          amount: formData.amount
+        }
+      }, {
+        onSuccess: (updatedData) => {
+          toast.success("Booking updated successfully");
+          queryClient.setQueryData(getGetBookingQueryKey(id), updatedData);
           queryClient.invalidateQueries({ queryKey: getListBookingsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
         },
         onError: () => {
-          toast({ title: "Failed to update booking", variant: "destructive" });
+          toast.error("Failed to update booking");
         }
       });
     }
   };
 
   const handleQuickUpdate = () => {
-    if (!bookingId) return;
+    if (isNew) return;
     
-    // Type casting to handle the specific status enum
-    const updateData: any = {};
-    if (quickStatus && quickStatus !== booking?.status) updateData.status = quickStatus;
-    if (quickDriver !== booking?.driver) updateData.driver = quickDriver;
-
-    if (Object.keys(updateData).length === 0) return;
-
-    updateBooking.mutate({ id: bookingId, data: updateData }, {
-      onSuccess: (data) => {
-        toast({ title: "Status updated successfully" });
-        queryClient.setQueryData(getGetBookingQueryKey(bookingId), data);
+    updateBooking.mutate({
+      id,
+      data: {
+        status: quickStatus as any,
+        driver: quickDriver || undefined
+      }
+    }, {
+      onSuccess: (updatedData) => {
+        toast.success("Status updated");
+        setFormData(prev => ({ ...prev, driver: quickDriver }));
+        queryClient.setQueryData(getGetBookingQueryKey(id), updatedData);
         queryClient.invalidateQueries({ queryKey: getListBookingsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
       },
       onError: () => {
-        toast({ title: "Failed to update status", variant: "destructive" });
+        toast.error("Failed to update status");
       }
     });
   };
 
-  if (!isNew && isLoadingBooking) {
-    return <div className="p-8 text-center text-muted-foreground flex items-center justify-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading booking details...</div>;
+  if (isLoading && !isNew) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  const isSaving = createBooking.isPending || updateBooking.isPending;
-
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={() => setLocation("/bookings")}
-          className="p-2 -ml-2 rounded-full hover:bg-slate-100 text-muted-foreground transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            {isNew ? "Create New Booking" : `Booking ${booking?.reference}`}
-          </h1>
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setLocation("/bookings")}
+            className="p-1.5 -ml-1.5 text-muted-foreground hover:text-foreground rounded-sm hover:bg-muted transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                {isNew ? "New Booking" : booking?.reference}
+              </h1>
+              {!isNew && booking && (
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded-sm text-[10px] font-medium uppercase tracking-wider",
+                  booking.status === "Delivered" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                  booking.status === "In Transit" ? "bg-blue-50 text-blue-700 border border-blue-100" :
+                  booking.status === "Collected" ? "bg-indigo-50 text-indigo-700 border border-indigo-100" :
+                  booking.status === "Assigned" ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                  booking.status === "Cancelled" ? "bg-red-50 text-red-700 border border-red-100" :
+                  "bg-slate-50 text-slate-700 border border-slate-200"
+                )}>
+                  {booking.status}
+                </span>
+              )}
+            </div>
+            {!isNew && booking && (
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Created on {booking.createdAt}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           {!isNew && (
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Created {new Date(booking!.createdAt).toLocaleDateString()}
-            </p>
+            <button className="text-[13px] font-medium text-foreground hover:bg-muted px-3 py-1.5 rounded-sm border border-border transition-colors shadow-sm">
+              Print Job Sheet
+            </button>
           )}
+          <button 
+            onClick={handleSave}
+            disabled={createBooking.isPending || updateBooking.isPending}
+            className="flex items-center gap-2 text-[13px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-1.5 rounded-sm transition-colors shadow-sm disabled:opacity-50"
+          >
+            {createBooking.isPending || updateBooking.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            Save Details
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Form Area */}
         <div className="lg:col-span-2 space-y-6">
-          <form id="booking-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 bg-white p-6 rounded-xl border border-border shadow-sm">
-            <h2 className="text-lg font-semibold border-b border-border pb-3">Booking Details</h2>
+          
+          {/* Customer & Vehicle */}
+          <div className="bg-card rounded-sm border border-border shadow-sm p-5 space-y-5">
+            <h2 className="text-sm font-semibold flex items-center gap-2 border-b border-border pb-3">
+              <User className="w-4 h-4 text-muted-foreground" />
+              Customer & Vehicle Details
+            </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Customer Name</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
-                  <input 
-                    {...form.register("customer")} 
-                    className="w-full pl-9 pr-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-ring/20 focus:border-ring"
-                    placeholder="e.g. Acme Corp"
-                  />
-                </div>
-                {form.formState.errors.customer && <p className="text-xs text-destructive">{form.formState.errors.customer.message}</p>}
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Customer Name</label>
+                <input 
+                  value={formData.customer}
+                  onChange={e => setFormData({...formData, customer: e.target.value})}
+                  className="w-full px-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  placeholder="e.g. Acme Dealerships"
+                />
               </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Collection Date</label>
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Vehicle Model</label>
                 <div className="relative">
-                  <Calendar className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                  <CarFront className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
                   <input 
-                    type="date"
-                    {...form.register("collectionDate")} 
-                    className="w-full pl-9 pr-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-ring/20 focus:border-ring"
-                  />
-                </div>
-                {form.formState.errors.collectionDate && <p className="text-xs text-destructive">{form.formState.errors.collectionDate.message}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Vehicle Make/Model</label>
-                <div className="relative">
-                  <CarFront className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
-                  <input 
-                    {...form.register("vehicle")} 
-                    className="w-full pl-9 pr-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-ring/20 focus:border-ring"
+                    value={formData.vehicle}
+                    onChange={e => setFormData({...formData, vehicle: e.target.value})}
+                    className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                     placeholder="e.g. Ford Transit Custom"
                   />
                 </div>
-                {form.formState.errors.vehicle && <p className="text-xs text-destructive">{form.formState.errors.vehicle.message}</p>}
               </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Registration <span className="text-muted-foreground font-normal">(Optional)</span></label>
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Registration</label>
                 <input 
-                  {...form.register("registration")} 
-                  className="w-full px-3 py-2 border border-border rounded-md text-sm font-mono uppercase focus:ring-2 focus:ring-ring/20 focus:border-ring"
+                  value={formData.registration}
+                  onChange={e => setFormData({...formData, registration: e.target.value})}
+                  className="w-full px-3 py-1.5 bg-background border border-border rounded-sm text-[13px] font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary uppercase"
                   placeholder="AB12 CDE"
                 />
               </div>
             </div>
+          </div>
 
-            <div className="space-y-4 pt-4 border-t border-border">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Route</h3>
-              
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Pickup Address</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                    <input 
-                      {...form.register("pickup")} 
-                      className="w-full pl-9 pr-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-ring/20 focus:border-ring"
-                      placeholder="Full pickup address"
-                    />
-                  </div>
-                  {form.formState.errors.pickup && <p className="text-xs text-destructive">{form.formState.errors.pickup.message}</p>}
-                </div>
-                
-                <div className="pl-5 py-1 flex">
-                  <div className="w-px h-6 bg-slate-300 border-l border-dashed border-slate-300"></div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Destination Address</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-primary" />
-                    <input 
-                      {...form.register("destination")} 
-                      className="w-full pl-9 pr-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-ring/20 focus:border-ring"
-                      placeholder="Full delivery address"
-                    />
-                  </div>
-                  {form.formState.errors.destination && <p className="text-xs text-destructive">{form.formState.errors.destination.message}</p>}
-                </div>
+          {/* Route Details */}
+          <div className="bg-card rounded-sm border border-border shadow-sm p-5 space-y-5">
+            <h2 className="text-sm font-semibold flex items-center gap-2 border-b border-border pb-3">
+              <MapPin className="w-4 h-4 text-muted-foreground" />
+              Route & Logistics
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Collection Location</label>
+                <textarea 
+                  value={formData.pickup}
+                  onChange={e => setFormData({...formData, pickup: e.target.value})}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary resize-none"
+                  placeholder="Full pickup address..."
+                />
               </div>
-            </div>
-
-            <div className="space-y-4 pt-4 border-t border-border">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Financials</h3>
-              
-              <div className="space-y-2 max-w-xs">
-                <label className="text-sm font-medium">Agreed Amount (£)</label>
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Delivery Destination</label>
+                <textarea 
+                  value={formData.destination}
+                  onChange={e => setFormData({...formData, destination: e.target.value})}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary resize-none"
+                  placeholder="Full delivery address..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Collection Date</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-muted-foreground">£</span>
+                  <CalendarIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
                   <input 
-                    type="number"
-                    step="0.01"
-                    {...form.register("amount")} 
-                    className="w-full pl-8 pr-3 py-2 border border-border rounded-md text-sm font-medium focus:ring-2 focus:ring-ring/20 focus:border-ring"
+                    type="date"
+                    value={formData.collectionDate}
+                    onChange={e => setFormData({...formData, collectionDate: e.target.value})}
+                    className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
-                {form.formState.errors.amount && <p className="text-xs text-destructive">{form.formState.errors.amount.message}</p>}
               </div>
             </div>
-
-            <div className="pt-6 border-t border-border flex justify-end">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-2.5 rounded-md font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-70"
-              >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {isNew ? "Create Booking" : "Save Changes"}
-              </button>
-            </div>
-          </form>
+          </div>
+          
         </div>
 
-        {!isNew && booking && (
-          <div className="space-y-6">
-            <div className="bg-white p-5 rounded-xl border border-border shadow-sm space-y-5">
-              <h2 className="text-base font-semibold border-b border-border pb-2">Status & Assignment</h2>
+        {/* Sidebar Status & Finance */}
+        <div className="space-y-6">
+          
+          {!isNew && (
+            <div className="bg-muted/30 p-5 rounded-sm border border-border space-y-4">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-muted-foreground" />
+                Operational Status
+              </h2>
               
-              <div className="space-y-3">
+              <div className="space-y-4 pt-2">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Current Status</label>
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Current Phase</label>
                   <select 
                     value={quickStatus}
                     onChange={(e) => setQuickStatus(e.target.value)}
-                    className={cn(
-                      "w-full px-3 py-2 border border-border rounded-md text-sm font-semibold focus:ring-2 focus:ring-ring/20 focus:border-ring",
-                      quickStatus === "Delivered" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                      quickStatus === "In Transit" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                      quickStatus === "Collected" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
-                      quickStatus === "Assigned" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                      quickStatus === "Cancelled" ? "bg-red-50 text-red-700 border-red-200" :
-                      "bg-slate-50 text-slate-700"
-                    )}
+                    className="w-full px-3 py-1.5 bg-background border border-border rounded-sm text-[13px] font-medium focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   >
                     <option value="Pending">Pending</option>
                     <option value="Assigned">Assigned</option>
@@ -308,48 +313,72 @@ export default function BookingDetailPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Assigned Driver</label>
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Assigned Driver</label>
                   <div className="relative">
-                    <Truck className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                    <Truck className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
                     <input 
                       value={quickDriver}
                       onChange={(e) => setQuickDriver(e.target.value)}
                       placeholder="Unassigned"
-                      className="w-full pl-9 pr-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-ring/20 focus:border-ring"
+                      className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                     />
                   </div>
                 </div>
 
                 <button
                   onClick={handleQuickUpdate}
-                  disabled={updateBooking.isPending || (quickStatus === booking.status && quickDriver === (booking.driver || ""))}
-                  className="w-full mt-2 bg-slate-900 text-white px-4 py-2 rounded-md font-medium text-sm hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={updateBooking.isPending || (quickStatus === booking?.status && quickDriver === (booking?.driver || ""))}
+                  className="w-full flex justify-center items-center gap-2 bg-foreground text-background px-4 py-1.5 rounded-sm font-medium text-[13px] hover:bg-foreground/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
+                  {updateBooking.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   Update Status
                 </button>
               </div>
             </div>
+          )}
 
-            <div className="bg-slate-50 p-5 rounded-xl border border-border space-y-4">
-              <h2 className="text-sm font-semibold text-slate-700">Quick Actions</h2>
-              <div className="space-y-2">
-                <button className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors">
+          <div className="bg-card rounded-sm border border-border shadow-sm p-5 space-y-4">
+            <h2 className="text-sm font-semibold flex items-center gap-2 border-b border-border pb-3">
+              <CreditCard className="w-4 h-4 text-muted-foreground" />
+              Finance
+            </h2>
+            
+            <div className="space-y-1.5">
+              <label className="text-[12px] font-medium text-foreground">Agreed Amount (£)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 font-medium text-[13px]">£</span>
+                <input 
+                  type="number"
+                  value={formData.amount}
+                  onChange={e => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
+                  className="w-full pl-7 pr-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                />
+              </div>
+            </div>
+          </div>
+
+          {!isNew && (
+            <div className="bg-card rounded-sm border border-border shadow-sm p-4 space-y-3">
+              <h2 className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider">Quick Actions</h2>
+              <div className="space-y-1">
+                <button className="w-full text-left px-3 py-1.5 rounded-sm text-[13px] font-medium text-foreground hover:bg-muted transition-colors">
                   Generate Invoice
                 </button>
-                <button className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors">
-                  Send Driver Instructions
+                <button className="w-full text-left px-3 py-1.5 rounded-sm text-[13px] font-medium text-foreground hover:bg-muted transition-colors">
+                  Email Driver Instructions
                 </button>
-                <button className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors">
+                <button className="w-full text-left px-3 py-1.5 rounded-sm text-[13px] font-medium text-foreground hover:bg-muted transition-colors">
                   View Route Map
                 </button>
-                <div className="h-px bg-slate-200 my-2"></div>
-                <button className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-destructive hover:bg-red-50 hover:text-red-700 transition-colors">
+                <div className="h-px bg-border my-2"></div>
+                <button className="w-full text-left px-3 py-1.5 rounded-sm text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors">
                   Cancel Booking
                 </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+        </div>
       </div>
     </div>
   );

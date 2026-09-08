@@ -1,55 +1,37 @@
-import { Users, FileText, Plus } from "lucide-react";
+import { Users, Search, Plus } from "lucide-react";
 
 export default function HRPage() {
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">HR Records</h1>
-          <p className="text-muted-foreground mt-1">Manage employee documents, leaves, and compliance.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">HR Records</h1>
+          <p className="text-sm text-muted-foreground mt-1">Company staff and personnel management.</p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-4 py-2">
-          <Plus className="w-4 h-4" />
+        <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm text-[13px] font-medium bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 h-8 px-4 py-1.5 transition-colors">
+          <Plus className="w-3.5 h-3.5" />
           Add Employee
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl border border-border shadow-sm">
-          <div className="p-4 border-b border-border">
-            <h2 className="font-semibold text-lg">Staff Directory</h2>
-          </div>
-          <div className="p-0">
-             <div className="p-8 text-center border-b border-border/50">
-               <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
-                 <Users className="w-6 h-6 text-slate-400" />
-               </div>
-               <p className="text-foreground font-medium">Directory functionality coming soon</p>
-               <p className="text-sm text-muted-foreground mt-1">View and manage all internal staff members here.</p>
-             </div>
+      <div className="bg-card rounded-sm border border-border shadow-sm flex flex-col">
+        <div className="p-3 border-b border-border flex flex-col sm:flex-row items-center gap-3 bg-muted/10">
+          <div className="relative flex-1 w-full max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
+            <input 
+              type="text" 
+              placeholder="Search personnel..." 
+              className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-shadow"
+            />
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-            <h2 className="font-semibold text-lg mb-4">Compliance Alerts</h2>
-            <div className="space-y-3">
-              <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg flex items-start gap-3">
-                <FileText className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-semibold text-amber-900">Driver License Expiry</h4>
-                  <p className="text-xs text-amber-700 mt-1">D. Miller's CPC certification expires in 14 days.</p>
-                </div>
-              </div>
-              <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-start gap-3">
-                <FileText className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-semibold text-red-900">Missing Documentation</h4>
-                  <p className="text-xs text-red-700 mt-1">S. Jenkins right-to-work check pending.</p>
-                </div>
-              </div>
-            </div>
+        <div className="p-16 flex flex-col items-center justify-center text-center">
+          <div className="w-10 h-10 rounded-full bg-muted/50 flex items-center justify-center mb-3">
+            <Users className="w-5 h-5 text-muted-foreground" />
           </div>
+          <h3 className="text-sm font-medium text-foreground">No personnel records</h3>
+          <p className="text-[13px] text-muted-foreground mt-1 mb-4 max-w-sm">Employee records and documents will appear here.</p>
         </div>
       </div>
     </div>

@@ -1,17 +1,12 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useListBookings } from "@workspace/api-client-react";
 import { 
   Search, 
   Filter, 
   Plus, 
   MoreVertical, 
-  MapPin, 
   CarFront, 
-  Calendar as CalendarIcon,
-  CheckCircle2,
-  Clock,
-  Truck,
   ArrowRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,38 +23,38 @@ export default function BookingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Bookings</h1>
-          <p className="text-muted-foreground mt-1">Manage vehicle collections and deliveries.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Bookings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage vehicle collections and deliveries.</p>
         </div>
         <button 
           onClick={() => setLocation("/bookings/new")}
-          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-4 py-2"
+          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm text-[13px] font-medium bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 h-8 px-4 py-1.5 transition-colors"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5" />
           Create Booking
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col">
-        <div className="p-4 border-b border-border flex flex-col sm:flex-row items-center gap-4">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      <div className="bg-card rounded-sm border border-border shadow-sm flex flex-col">
+        <div className="p-3 border-b border-border flex flex-col sm:flex-row items-center gap-3 bg-muted/10">
+          <div className="relative flex-1 w-full max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
             <input 
               type="text" 
-              placeholder="Search by reference, customer or vehicle..." 
+              placeholder="Search references, customers, vehicles..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring"
+              className="w-full pl-8 pr-3 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-shadow"
             />
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative w-full sm:w-48">
+            <div className="relative w-full sm:w-40">
               <select 
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full appearance-none pl-3 pr-8 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring"
+                className="w-full appearance-none pl-3 pr-8 py-1.5 bg-background border border-border rounded-sm text-[13px] focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-shadow"
               >
                 <option value="">All Statuses</option>
                 <option value="Pending">Pending</option>
@@ -69,96 +64,100 @@ export default function BookingsPage() {
                 <option value="Delivered">Delivered</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
-              <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Filter className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60 pointer-events-none" />
             </div>
           </div>
         </div>
 
         {isLoading ? (
-          <div className="p-8 text-center text-muted-foreground">Loading bookings...</div>
-        ) : bookings?.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
-              <CarFront className="w-6 h-6 text-muted-foreground" />
+          <div className="p-12 flex items-center justify-center">
+            <div className="animate-pulse flex flex-col items-center gap-3">
+              <div className="w-8 h-8 rounded-sm bg-muted"></div>
+              <div className="h-4 w-24 bg-muted rounded"></div>
             </div>
-            <h3 className="text-lg font-medium text-foreground">No bookings found</h3>
-            <p className="text-sm text-muted-foreground mt-1 mb-4">We couldn't find any bookings matching your criteria.</p>
-            <button 
-              onClick={() => { setSearchTerm(""); setStatusFilter(""); }}
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Clear filters
-            </button>
+          </div>
+        ) : bookings?.length === 0 ? (
+          <div className="p-16 flex flex-col items-center justify-center text-center">
+            <div className="w-10 h-10 rounded-full bg-muted/50 flex items-center justify-center mb-3">
+              <CarFront className="w-5 h-5 text-muted-foreground" />
+            </div>
+            <h3 className="text-sm font-medium text-foreground">No bookings found</h3>
+            <p className="text-[13px] text-muted-foreground mt-1 mb-4 max-w-sm">We couldn't find any bookings matching your current filters.</p>
+            {(searchTerm || statusFilter) && (
+              <button 
+                onClick={() => { setSearchTerm(""); setStatusFilter(""); }}
+                className="text-[13px] font-medium text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 text-muted-foreground text-xs uppercase font-medium">
+            <table className="w-full text-left text-[13px]">
+              <thead className="bg-muted/30 border-b border-border text-muted-foreground text-xs font-medium">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Reference</th>
-                  <th className="px-6 py-4 font-semibold">Customer & Vehicle</th>
-                  <th className="px-6 py-4 font-semibold">Route</th>
-                  <th className="px-6 py-4 font-semibold">Date</th>
-                  <th className="px-6 py-4 font-semibold">Status</th>
-                  <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                  <th className="px-4 py-2.5 font-medium w-[120px]">Reference</th>
+                  <th className="px-4 py-2.5 font-medium">Customer & Vehicle</th>
+                  <th className="px-4 py-2.5 font-medium">Route</th>
+                  <th className="px-4 py-2.5 font-medium w-[140px]">Status</th>
+                  <th className="px-4 py-2.5 font-medium w-[120px] text-right">Price</th>
+                  <th className="px-4 py-2.5 font-medium w-[80px]"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {bookings?.map((booking) => (
-                  <tr key={booking.id} className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => setLocation(`/bookings/${booking.id}`)}>
-                    <td className="px-6 py-4">
-                      <div className="font-semibold text-foreground">{booking.reference}</div>
-                      <div className="text-xs text-muted-foreground mt-1">£{booking.amount}</div>
+                  <tr key={booking.id} className="hover:bg-muted/20 transition-colors group">
+                    <td className="px-4 py-3 align-top">
+                      <div className="font-medium text-foreground">{booking.reference}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">{booking.collectionDate}</div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 align-top">
                       <div className="font-medium text-foreground">{booking.customer}</div>
-                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-0.5">
                         <CarFront className="w-3 h-3" />
-                        {booking.vehicle}
-                        {booking.registration && <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono border border-slate-200">{booking.registration}</span>}
+                        <span>{booking.vehicle}</span>
+                        {booking.registration && (
+                          <span className="bg-muted px-1.5 py-0.5 rounded-[2px] font-mono text-[10px] ml-1 border border-border">
+                            {booking.registration}
+                          </span>
+                        )}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                        <div className="flex items-start gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" />
-                          <span className="truncate max-w-[180px]">{booking.pickup}</span>
+                    <td className="px-4 py-3 align-top max-w-[280px]">
+                      <div className="flex flex-col gap-1">
+                        <div className="truncate text-foreground" title={booking.pickup}>{booking.pickup}</div>
+                        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground truncate" title={booking.destination}>
+                          <ArrowRight className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{booking.destination}</span>
                         </div>
-                        <div className="flex items-start gap-1.5">
-                          <ArrowRight className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" />
-                          <span className="truncate max-w-[180px]">{booking.destination}</span>
-                        </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <CalendarIcon className="w-3.5 h-3.5" />
-                        {new Date(booking.collectionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 align-top">
                       <span className={cn(
-                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold",
-                        booking.status === "Delivered" ? "bg-emerald-100 text-emerald-700" :
-                        booking.status === "In Transit" ? "bg-blue-100 text-blue-700" :
-                        booking.status === "Collected" ? "bg-indigo-100 text-indigo-700" :
-                        booking.status === "Assigned" ? "bg-amber-100 text-amber-700" :
-                        booking.status === "Cancelled" ? "bg-red-100 text-red-700" :
-                        "bg-slate-100 text-slate-700"
+                        "inline-flex items-center px-1.5 py-0.5 rounded-sm text-[11px] font-medium",
+                        booking.status === "Delivered" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                        booking.status === "In Transit" ? "bg-blue-50 text-blue-700 border border-blue-100" :
+                        booking.status === "Collected" ? "bg-indigo-50 text-indigo-700 border border-indigo-100" :
+                        booking.status === "Assigned" ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                        booking.status === "Cancelled" ? "bg-red-50 text-red-700 border border-red-100" :
+                        "bg-slate-50 text-slate-700 border border-slate-200"
                       )}>
-                        {booking.status === "Pending" && <Clock className="w-3 h-3" />}
-                        {booking.status === "Delivered" && <CheckCircle2 className="w-3 h-3" />}
-                        {(booking.status === "In Transit" || booking.status === "Collected") && <Truck className="w-3 h-3" />}
                         {booking.status}
                       </span>
+                      {booking.driver && (
+                        <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
+                          Driver: {booking.driver}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setLocation(`/bookings/${booking.id}`); }}
-                        className="inline-flex p-2 hover:bg-slate-100 rounded-md transition-colors text-muted-foreground hover:text-foreground"
-                      >
+                    <td className="px-4 py-3 align-top text-right">
+                      <div className="font-medium text-foreground">£{booking.amount.toFixed(2)}</div>
+                    </td>
+                    <td className="px-4 py-3 align-top text-right">
+                      <Link href={`/bookings/${booking.id}`} className="inline-flex p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors opacity-0 group-hover:opacity-100">
                         <MoreVertical className="w-4 h-4" />
-                      </button>
+                      </Link>
                     </td>
                   </tr>
                 ))}

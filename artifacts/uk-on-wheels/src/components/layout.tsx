@@ -7,8 +7,6 @@ import {
   Users, 
   Briefcase, 
   Wallet, 
-  BarChart3, 
-  UserCircle, 
   MessageSquare, 
   Settings,
   ChevronDown,
@@ -28,7 +26,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   {
-    title: "Overview Dashboard",
+    title: "Overview",
     icon: LayoutDashboard,
     href: "/",
   },
@@ -59,7 +57,7 @@ const NAV_ITEMS: NavItem[] = [
     ]
   },
   {
-    title: "Communications",
+    title: "Messages",
     icon: MessageSquare,
     href: "/messages"
   },
@@ -79,12 +77,12 @@ function NavGroup({ item, currentPath }: { item: NavItem; currentPath: string })
     return (
       <Link href={item.href || "#"}>
         <div className={cn(
-          "flex items-center gap-3 px-4 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer group",
+          "flex items-center gap-3 px-3 py-2 text-[13px] transition-colors cursor-pointer group rounded-sm",
           isActive 
-            ? "bg-primary text-primary-foreground shadow-sm" 
-            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            ? "text-sidebar-primary font-medium" 
+            : "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
         )}>
-          <item.icon className={cn("w-5 h-5", isActive ? "text-primary-foreground" : "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground")} />
+          <item.icon className={cn("w-4 h-4", isActive ? "text-sidebar-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground")} />
           {item.title}
         </div>
       </Link>
@@ -92,34 +90,34 @@ function NavGroup({ item, currentPath }: { item: NavItem; currentPath: string })
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer group",
+          "w-full flex items-center justify-between gap-3 px-3 py-2 text-[13px] transition-colors cursor-pointer group rounded-sm",
           isActive && !isOpen
-            ? "text-sidebar-foreground" 
-            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            ? "text-sidebar-foreground font-medium" 
+            : "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
         )}
       >
         <div className="flex items-center gap-3">
-          <item.icon className={cn("w-5 h-5", "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground")} />
+          <item.icon className={cn("w-4 h-4", (isActive && !isOpen) ? "text-sidebar-foreground" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground")} />
           {item.title}
         </div>
-        {isOpen ? <ChevronDown className="w-4 h-4 text-sidebar-foreground/50" /> : <ChevronRight className="w-4 h-4 text-sidebar-foreground/50" />}
+        {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-sidebar-foreground/40" /> : <ChevronRight className="w-3.5 h-3.5 text-sidebar-foreground/40" />}
       </button>
       
       {isOpen && (
-        <div className="pl-11 pr-2 py-1 space-y-1">
+        <div className="pl-9 pr-2 py-0.5 space-y-0.5">
           {item.children.map((child) => {
             const isChildItemActive = currentPath === child.href || (child.href !== "/" && currentPath.startsWith(child.href));
             return (
               <Link key={child.href} href={child.href}>
                 <div className={cn(
-                  "block px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
+                  "block px-3 py-1.5 text-[13px] transition-colors cursor-pointer rounded-sm border-l-2 -ml-[13px] pl-[11px]",
                   isChildItemActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
-                    : "text-sidebar-foreground/80 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/50"
+                    ? "text-sidebar-primary font-medium border-sidebar-primary"
+                    : "text-sidebar-foreground/70 hover:text-sidebar-foreground border-transparent hover:border-sidebar-foreground/20"
                 )}>
                   {child.title}
                 </div>
@@ -137,93 +135,89 @@ export function Layout({ children }: { children: ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { data: health } = useHealthCheck();
 
-  // Close mobile menu on navigate
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col md:flex-row w-full overflow-hidden">
+    <div className="min-h-[100dvh] bg-background flex flex-col md:flex-row w-full overflow-hidden font-sans">
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between p-4 bg-sidebar text-sidebar-foreground border-b border-sidebar-border">
-        <div className="flex items-center gap-2 font-bold text-lg tracking-tight">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground">
+        <div className="flex items-center gap-2 font-medium text-sm tracking-tight">
+          <div className="w-6 h-6 rounded-sm bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold">
             W
           </div>
           UK On Wheels
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2">
-          <Menu className="w-6 h-6" />
+        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 -mr-2">
+          <Menu className="w-5 h-5 text-sidebar-foreground/80" />
         </button>
       </div>
 
       {/* Sidebar */}
       <aside className={cn(
-        "bg-sidebar border-r border-sidebar-border w-full md:w-64 lg:w-72 flex-shrink-0 transition-transform flex flex-col",
+        "bg-sidebar border-r border-sidebar-border w-full md:w-56 flex-shrink-0 transition-transform flex flex-col",
         isMobileMenuOpen ? "block" : "hidden md:flex",
         "fixed md:static inset-0 z-50 md:z-auto h-full"
       )}>
-        <div className="p-5 flex items-center gap-3 font-bold text-xl tracking-tight text-white border-b border-sidebar-border">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-sm">
+        <div className="h-14 flex items-center gap-2.5 px-4 font-medium text-sm tracking-tight text-white border-b border-sidebar-border">
+          <div className="w-6 h-6 rounded-sm bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold">
             W
           </div>
           UK On Wheels
         </div>
 
-        <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+        <div className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
           {NAV_ITEMS.map((item, index) => (
             <NavGroup key={index} item={item} currentPath={location} />
           ))}
         </div>
 
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent cursor-pointer transition-colors">
-            <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center border border-sidebar-border">
-              <span className="text-sm font-semibold text-sidebar-foreground">JS</span>
+        <div className="p-3 border-t border-sidebar-border">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-sm hover:bg-sidebar-accent cursor-pointer transition-colors group">
+            <div className="w-7 h-7 rounded-sm bg-sidebar-accent flex items-center justify-center border border-sidebar-border group-hover:border-sidebar-foreground/20">
+              <span className="text-xs font-medium text-sidebar-foreground">JS</span>
             </div>
             <div className="flex-1 overflow-hidden">
-              <p className="text-sm font-medium text-white truncate">John Smith</p>
-              <p className="text-xs text-sidebar-foreground/70 truncate">Operations Manager</p>
+              <p className="text-[13px] font-medium text-white truncate">John Smith</p>
+              <p className="text-[11px] text-sidebar-foreground/60 truncate">Ops Manager</p>
             </div>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
         {/* Topbar */}
-        <header className="h-16 bg-white border-b border-border flex items-center justify-between px-6 shrink-0 z-10">
+        <header className="h-14 bg-background border-b border-border flex items-center justify-between px-6 shrink-0 z-10">
           <div className="flex-1 flex items-center">
-            <div className="relative w-full max-w-md hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <div className="relative w-full max-w-sm hidden sm:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
               <input 
                 type="text" 
-                placeholder="Search bookings, customers, or drivers..." 
-                className="w-full pl-9 pr-4 py-2 bg-muted/50 border-transparent focus:bg-white focus:border-ring focus:ring-2 focus:ring-ring/20 rounded-lg text-sm transition-all outline-none"
+                placeholder="Search..." 
+                className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border-transparent focus:bg-background focus:border-border focus:ring-0 rounded-sm text-[13px] transition-all outline-none"
               />
             </div>
           </div>
           <div className="flex items-center gap-4">
             {health?.status === "ok" ? (
-              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium border border-emerald-100">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80"></span>
                 System OK
               </div>
             ) : null}
-            <button className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-full border border-white"></span>
-            </button>
-            <div className="h-8 w-px bg-border"></div>
-            <button className="text-sm font-medium text-foreground hover:text-primary transition-colors hidden sm:block">
-              Help & Support
+            <div className="h-4 w-px bg-border mx-1"></div>
+            <button className="text-muted-foreground hover:text-foreground transition-colors relative">
+              <Bell className="w-4 h-4" />
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-destructive rounded-full"></span>
             </button>
           </div>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-          <div className="mx-auto max-w-7xl">
+        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+          <div className="mx-auto max-w-6xl">
             {children}
           </div>
         </main>

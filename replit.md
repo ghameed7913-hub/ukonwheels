@@ -33,6 +33,13 @@ A full operations portal for UK vehicle collection and delivery workflows, cover
 - Operational data is persisted in PostgreSQL rather than browser storage.
 - Parent navigation groups and child links use separate visual treatments so the sidebar hierarchy remains clear.
 
+## Visual guardrails
+
+- Preserve the established navy, teal and red brand palette; do not replace it with a generic dashboard color scheme.
+- Parent sidebar items must remain unboxed, using spacing, icons and text color for hierarchy. Nested links may use a subtle active treatment.
+- Keep typography restrained and lightweight. Reserve heavier weights for page titles and critical values rather than applying bold text throughout.
+- Prefer crisp, subtle surfaces and compact radii over oversized rounded cards or old-style admin-panel decoration.
+
 ## Product
 
 - Live dashboard summaries and recent operational activity
