@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "UK On Wheels Portal"
+description = "A full operations portal for UK On Wheels covering admin, staff, client and driver workflows, including bookings, vehicle tracking, business accounts, payments, invoices, HR records and operational reporting."
+version = "1.0.0"
+id = "artifacts/uk-on-wheels"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26264
+
+[services.development]
+run = "pnpm --filter @workspace/uk-on-wheels run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/uk-on-wheels", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/uk-on-wheels/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26264"
+BASE_PATH = "/"

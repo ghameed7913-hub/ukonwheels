@@ -1,0 +1,248 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 1.0.0
+  description: UK On Wheels operations portal API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+  - name: dashboard
+  - name: bookings
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Portal dashboard overview
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /bookings:
+    get:
+      operationId: listBookings
+      tags: [bookings]
+      summary: List bookings
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Booking list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+    post:
+      operationId: createBooking
+      tags: [bookings]
+      summary: Create a booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingInput"
+      responses:
+        "201":
+          description: Booking created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+  /bookings/{id}:
+    get:
+      operationId: getBooking
+      tags: [bookings]
+      parameters:
+        - $ref: "#/components/parameters/BookingId"
+      responses:
+        "200":
+          description: Booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateBooking
+      tags: [bookings]
+      parameters:
+        - $ref: "#/components/parameters/BookingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingUpdate"
+      responses:
+        "200":
+          description: Booking updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "404":
+          description: Not found
+components:
+  parameters:
+    BookingId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: integer
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+    DashboardMetric:
+      type: object
+      required: [label, value, change]
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+        change:
+          type: string
+    StatusCount:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+    Activity:
+      type: object
+      required: [id, title, detail, occurredAt, tone]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        detail:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        tone:
+          type: string
+          enum: [success, warning, info]
+    Dashboard:
+      type: object
+      required: [metrics, statusCounts, recentBookings, activity]
+      properties:
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardMetric"
+        statusCounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatusCount"
+        recentBookings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/Activity"
+    Booking:
+      type: object
+      required: [id, reference, customer, vehicle, pickup, destination, collectionDate, status, amount, driver, createdAt]
+      properties:
+        id:
+          type: integer
+        reference:
+          type: string
+        customer:
+          type: string
+        vehicle:
+          type: string
+        registration:
+          type: string
+        pickup:
+          type: string
+        destination:
+          type: string
+        collectionDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [Pending, Assigned, Collected, In Transit, Delivered, Cancelled]
+        amount:
+          type: number
+        driver:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    BookingInput:
+      type: object
+      required: [customer, vehicle, pickup, destination, collectionDate, amount]
+      properties:
+        customer:
+          type: string
+          minLength: 2
+        vehicle:
+          type: string
+          minLength: 2
+        registration:
+          type: string
+        pickup:
+          type: string
+          minLength: 2
+        destination:
+          type: string
+          minLength: 2
+        collectionDate:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        driver:
+          type: string
+    BookingUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Pending, Assigned, Collected, In Transit, Delivered, Cancelled]
+        driver:
+          type: string
+        amount:
+          type: number
+          minimum: 0
