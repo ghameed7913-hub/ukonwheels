@@ -117,6 +117,187 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
  body.driver-mode .content{padding:0!important}
  body.driver-mode .app{display:block!important}
 }
+
+/* ---------- Portal shell refresh ---------- */
+:root{
+ --shell-sidebar:#073f42;
+ --shell-sidebar-deep:#063538;
+ --shell-sidebar-soft:#0d5655;
+ --shell-accent:#e2131f;
+ --shell-mint:#d7f4e9;
+ --shell-bg:#f5f8f8;
+ --shell-ink:#17343a;
+}
+body{background:var(--shell-bg)}
+.shell{background:var(--shell-bg)}
+.sidebar{
+ width:248px;
+ padding:18px 13px 14px;
+ background:linear-gradient(180deg,var(--shell-sidebar) 0%,#063c40 72%,#053238 100%);
+ box-shadow:8px 0 24px #092e3314;
+ scrollbar-width:thin;
+ scrollbar-color:#72aaa4 transparent;
+ z-index:10;
+}
+.brand{
+ padding:4px 10px 20px;
+ border:0;
+ display:flex;
+ align-items:center;
+ gap:11px;
+ line-height:1.05;
+ letter-spacing:.01em;
+}
+.brand .brandLogo{
+ width:42px;
+ height:42px;
+ margin:0;
+ border-radius:12px;
+ border:1px solid #ffffff2e;
+ background:#ffffff12;
+}
+.brandText{display:flex;flex-direction:column;gap:4px}
+.brandText strong{font-size:15px;letter-spacing:.08em}
+.brandText strong span{color:#f0646a}
+.brandText small{font-size:10px;color:#9ec5c1;letter-spacing:.02em}
+.sidebarRule{height:1px;background:#ffffff1d;margin:0 8px 17px}
+.nav{gap:4px;margin-top:0}
+.navSectionLabel{
+ padding:0 11px 7px;
+ color:#82aeaa;
+ font-size:10px;
+ font-weight:800;
+ letter-spacing:.13em;
+ text-transform:uppercase;
+}
+.nav button{
+ color:#b9d3d0;
+ border-radius:9px;
+ padding:10px 11px;
+ min-height:39px;
+ font-size:12.5px;
+ font-weight:600;
+ transition:background .16s ease,color .16s ease,transform .16s ease;
+}
+.nav button:hover{background:#ffffff12;color:#fff;transform:translateX(1px)}
+.navItem.active,.navParent.active{
+ background:linear-gradient(90deg,#e2131f,#ce2631);
+ color:#fff;
+ box-shadow:0 6px 14px #310b1033;
+}
+.navParent{
+ background:#ffffff0a;
+ border:1px solid #ffffff10;
+}
+.navParent .navChevron{color:#8db9b5;opacity:1}
+.navGroup.open>.navParent{
+ background:#0b5555;
+ border-color:#ffffff20;
+ color:#fff;
+}
+.navChildren{
+ position:relative;
+ margin:4px 0 5px 18px;
+ padding-left:10px;
+ border-left:1px solid #ffffff25;
+}
+.navGroup.open .navChildren{max-height:520px}
+.navChild{
+ width:calc(100% - 1px)!important;
+ min-height:32px!important;
+ padding:7px 9px 7px 12px!important;
+ border-radius:7px!important;
+ color:#94bcb8!important;
+ font-size:11.5px!important;
+ font-weight:500!important;
+}
+.navChild:hover{background:#ffffff10!important;color:#fff!important}
+.navChild.active{
+ background:#ffffff18!important;
+ color:#fff!important;
+ box-shadow:inset 3px 0 0 #f06b70;
+}
+.sidebarFooter{
+ margin:18px 7px 0;
+ padding:11px 10px;
+ border-top:1px solid #ffffff1a;
+ color:#8eb4b0;
+ font-size:10px;
+ line-height:1.45;
+}
+.main{margin-left:248px;width:calc(100% - 248px)}
+.top{
+ height:70px;
+ padding:0 28px;
+ background:#fff;
+ border-bottom:1px solid #e4ecec;
+ box-shadow:0 2px 12px #153f4308;
+}
+.top h2{display:none}
+.topbarStart{display:flex;align-items:center;gap:12px;min-width:240px}
+.topbarEyebrow{color:#779193;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.topSearch{
+ width:min(360px,34vw);
+ height:38px;
+ display:flex;
+ align-items:center;
+ gap:9px;
+ padding:0 13px;
+ border:1px solid #e2eaea;
+ border-radius:10px;
+ background:#f8fbfb;
+ color:#94a6a8;
+}
+.topSearch svg{width:15px;height:15px}
+.topSearch input{width:100%;border:0;outline:0;background:transparent;color:var(--shell-ink);font-size:12px}
+.topSearch input::placeholder{color:#9aabab}
+.topbarActions{display:flex;align-items:center;gap:7px}
+.topIconBtn{
+ width:34px;height:34px;padding:0!important;
+ display:grid!important;place-items:center;
+ border:1px solid #e5ecec!important;
+ border-radius:9px!important;
+ background:#fff!important;
+ color:#5d7779!important;
+}
+.topIconBtn:hover{background:#f0f8f6!important;color:#073f42!important}
+.topDivider{height:27px;width:1px;background:#e5ecec;margin:0 8px}
+.profileChip{display:flex;align-items:center;gap:9px;padding-left:4px}
+.profileAvatar{
+ width:31px;height:31px;border-radius:50%;
+ display:grid;place-items:center;
+ background:#d8f1e8;color:#08714d;font-size:11px;font-weight:800;
+ border:2px solid #e9f7f2;
+}
+.profileInfo{display:flex;flex-direction:column;gap:2px}
+.profileInfo strong{font-size:11px;color:#1b3a3d}
+.profileInfo small{font-size:9px;color:#8a9b9d}
+.content{padding:27px 29px 36px;max-width:1600px;margin:0 auto}
+.content>h1,.content>h2{color:var(--shell-ink)}
+.panel,.card{
+ border:1px solid #e3ecec;
+ border-radius:14px;
+ box-shadow:0 5px 18px #1c53570a;
+}
+.panel{padding:19px}
+.card{padding:17px}
+.card strong{color:var(--shell-ink)}
+.btn{border-radius:9px}
+.primary{background:var(--shell-accent)}
+.tabs button{border-radius:8px}
+@media(max-width:900px){
+ .sidebar{width:220px}.main{margin-left:220px;width:calc(100% - 220px)}
+ .top{padding:0 16px}.topSearch{width:min(300px,38vw)}.profileInfo{display:none}
+ .content{padding:20px 16px 30px}
+}
+@media(max-width:700px){
+ .sidebar{position:relative;width:100%;max-height:none;padding-bottom:10px}
+ .main{margin-left:0;width:100%}
+ .top{height:auto;min-height:64px;gap:10px;padding:11px 14px;flex-wrap:wrap}
+ .topbarStart{min-width:0;flex:1}.topSearch{width:100%}.topbarActions{margin-left:auto}
+ .topIconBtn:nth-child(-n+2),.topDivider,.profileInfo{display:none!important}
+ .content{padding:14px}
+}
 </style>
 </head>
 <body>
@@ -549,7 +730,43 @@ function hasPermission(key){
 function render(){
  if(typeof checkDocumentExpiries==="function")checkDocumentExpiries();
  const title=role==="driver"?"Driver Mobile App":role==="client"?"Client Portal":role==="staff"?(currentStaffUser?.role||"Staff Portal"):"Admin Portal";
- app.innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand"><img class="brandLogo" src="${LOGO_IMG}" alt="">UK <span>ON</span> WHEELS<br><small>${title}</small></div><div class="nav">${renderNav()}</div></aside><main class="main"><div class="top"><h2>${title}</h2><div>${role==="client"&&currentUser.userName?`${currentUser.userName} · ${currentUser.name}`:currentUser.name}${role==="staff"?` · <span class="badge">${currentStaffUser?.role||"Staff"}</span>`:""}</div></div><div class="content" id="content"></div></main></div>`;
+ const displayName=role==="client"&&currentUser.userName?currentUser.userName:currentUser.name;
+ const accountName=role==="client"&&currentUser.userName?currentUser.name:title;
+ const initials=String(displayName||"UK").split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
+ const alertPage=role==="client"?"clientSettings":"notifications";
+ const settingsPage=role==="client"?"clientSettings":"settings";
+ app.innerHTML=`
+  <div class="shell">
+   <aside class="sidebar">
+    <div class="brand">
+     <img class="brandLogo" src="${LOGO_IMG}" alt="UK On Wheels">
+     <div class="brandText"><strong>UK <span>ON</span> WHEELS</strong><small>${title}</small></div>
+    </div>
+    <div class="sidebarRule"></div>
+    <div class="nav"><div class="navSectionLabel">Workspace</div>${renderNav()}</div>
+    <div class="sidebarFooter">Connected operations portal<br>Secure account workspace</div>
+   </aside>
+   <main class="main">
+    <div class="top">
+     <div class="topbarStart">
+      <div class="topSearch">
+       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+       <input aria-label="Search portal" placeholder="Search bookings, users or vehicles…">
+      </div>
+     </div>
+     <div class="topbarActions">
+      <button class="topIconBtn" title="Notifications" onclick="go('${alertPage}')">${ICONS.bell}</button>
+      <button class="topIconBtn" title="Settings" onclick="go('${settingsPage}')">${ICONS.gear}</button>
+      <div class="topDivider"></div>
+      <div class="profileChip">
+       <div class="profileInfo"><strong>${displayName}</strong><small>${accountName}</small></div>
+       <div class="profileAvatar">${initials}</div>
+      </div>
+     </div>
+    </div>
+    <div class="content" id="content"></div>
+   </main>
+  </div>`;
  draw();
 }
 function go(p){
