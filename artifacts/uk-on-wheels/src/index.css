@@ -61,7 +61,7 @@
 
   --border: 220 13% 91%;
   --input: 220 13% 91%;
-  --ring: 175 84% 32%; /* Teal */
+  --ring: 356 83% 48%; /* UK On Wheels Red */
 
   --card: 0 0% 100%;
   --card-foreground: 226 60% 10%;
@@ -70,17 +70,17 @@
   --sidebar: 226 60% 10%; /* Navy Sidebar */
   --sidebar-foreground: 210 40% 98%;
   --sidebar-border: 226 60% 15%;
-  --sidebar-primary: 175 84% 32%;
+  --sidebar-primary: 356 83% 48%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 226 60% 18%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 175 84% 32%;
+  --sidebar-ring: 356 83% 48%;
 
   --popover: 0 0% 100%;
   --popover-foreground: 226 60% 10%;
   --popover-border: 220 13% 91%;
 
-  --primary: 175 84% 32%; /* Teal */
+  --primary: 356 83% 48%; /* UK On Wheels Red #e2131f */
   --primary-foreground: 0 0% 100%;
 
   --secondary: 214 32% 91%;
@@ -89,7 +89,7 @@
   --muted: 214 32% 91%;
   --muted-foreground: 215 16% 47%;
 
-  --accent: 175 84% 32%;
+  --accent: 356 83% 48%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 347 77% 50%; /* Red */
@@ -107,7 +107,7 @@
 
   --border: 226 60% 15%;
   --input: 226 60% 15%;
-  --ring: 175 84% 32%;
+  --ring: 356 83% 48%;
 
   --card: 226 60% 8%;
   --card-foreground: 210 40% 98%;
@@ -116,17 +116,17 @@
   --sidebar: 226 60% 8%;
   --sidebar-foreground: 210 40% 98%;
   --sidebar-border: 226 60% 15%;
-  --sidebar-primary: 175 84% 32%;
+  --sidebar-primary: 356 83% 48%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 226 60% 15%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 175 84% 32%;
+  --sidebar-ring: 356 83% 48%;
 
   --popover: 226 60% 8%;
   --popover-foreground: 210 40% 98%;
   --popover-border: 226 60% 15%;
 
-  --primary: 175 84% 32%;
+  --primary: 356 83% 48%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 226 60% 15%;

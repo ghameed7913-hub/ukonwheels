@@ -3,12 +3,19 @@ import { Link, useLocation } from "wouter";
 import { useHealthCheck } from "@workspace/api-client-react";
 import { 
   LayoutDashboard, 
-  CarFront, 
+  CalendarPlus,
   Users, 
-  Briefcase, 
+  Building2,
+  UserRoundCheck,
+  RefreshCw,
+  Route,
+  MapPin,
+  BriefcaseBusiness,
   Wallet, 
-  MessageSquare, 
+  Banknote,
+  MessageSquareText,
   Settings,
+  LogOut,
   ChevronDown,
   ChevronRight,
   Menu,
@@ -24,47 +31,103 @@ interface NavItem {
   children?: { title: string; href: string }[];
 }
 
+const LOGO_SRC = `${import.meta.env.BASE_URL}uk-on-wheels-logo.jpg`;
+
 const NAV_ITEMS: NavItem[] = [
   {
-    title: "Overview",
+    title: "Desktop",
     icon: LayoutDashboard,
     href: "/",
   },
   {
-    title: "Operations",
-    icon: CarFront,
+    title: "Create Booking",
+    icon: CalendarPlus,
+    href: "/bookings/new",
+  },
+  {
+    title: "Users",
+    icon: Users,
     children: [
-      { title: "Bookings", href: "/bookings" },
-      { title: "Drivers", href: "/drivers" },
+      { title: "Create Users", href: "/businesses?view=create-users" },
+      { title: "Assign User Roles", href: "/businesses?view=user-roles" },
     ]
   },
   {
-    title: "Customers",
-    icon: Briefcase,
+    title: "Businesses",
+    icon: Building2,
     href: "/businesses"
   },
   {
-    title: "Finance",
-    icon: Wallet,
-    href: "/accounts"
+    title: "Assign Driver",
+    icon: UserRoundCheck,
+    href: "/drivers"
   },
   {
-    title: "Company",
-    icon: Users,
+    title: "Status Update",
+    icon: RefreshCw,
     children: [
-      { title: "HR Records", href: "/hr" },
-      { title: "Reports", href: "/reports" },
+      { title: "Single Booking Update", href: "/bookings?view=status-update" },
+      { title: "Update Approvals", href: "/bookings?view=approvals" },
     ]
   },
   {
-    title: "Messages",
-    icon: MessageSquare,
+    title: "Update Miles",
+    icon: Route,
+    href: "/bookings?view=miles"
+  },
+  {
+    title: "Update Amount",
+    icon: Banknote,
+    href: "/bookings?view=amount"
+  },
+  {
+    title: "Update Destination",
+    icon: MapPin,
+    href: "/bookings?view=destination"
+  },
+  {
+    title: "Accounts",
+    icon: Wallet,
+    children: [
+      { title: "Add Expenses", href: "/accounts?view=expenses" },
+      { title: "Generate Invoices", href: "/accounts?view=invoices" },
+      { title: "Cash / Bank Transactions", href: "/accounts?view=transactions" },
+      { title: "Pending Payments", href: "/accounts?view=pending" },
+      { title: "Reports", href: "/reports" },
+      { title: "Profit & Loss", href: "/reports?view=profit-loss" },
+    ]
+  },
+  {
+    title: "HR",
+    icon: BriefcaseBusiness,
+    children: [
+      { title: "Employee Registration", href: "/hr?view=employees" },
+      { title: "Holidays", href: "/hr?view=holidays" },
+      { title: "Payslips", href: "/hr?view=payslips" },
+      { title: "Non-Resident Records", href: "/hr?view=non-resident" },
+      { title: "Share Codes", href: "/hr?view=share-codes" },
+      { title: "DVLA Records", href: "/hr?view=dvla" },
+    ]
+  },
+  {
+    title: "WhatsApp / Text Messages",
+    icon: MessageSquareText,
     href: "/messages"
+  },
+  {
+    title: "Notifications",
+    icon: Bell,
+    href: "/messages?view=notifications"
   },
   {
     title: "Settings",
     icon: Settings,
     href: "/settings"
+  },
+  {
+    title: "Logout",
+    icon: LogOut,
+    href: "/logout"
   }
 ];
 
@@ -77,10 +140,10 @@ function NavGroup({ item, currentPath }: { item: NavItem; currentPath: string })
     return (
       <Link href={item.href || "#"}>
         <div className={cn(
-          "flex items-center gap-3 px-3 py-2 text-[13px] transition-colors cursor-pointer group rounded-sm",
+          "flex items-center gap-3 px-3 py-2 text-[13px] transition-colors cursor-pointer group",
           isActive 
             ? "text-sidebar-primary font-medium" 
-            : "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            : "text-sidebar-foreground/80 hover:text-sidebar-foreground"
         )}>
           <item.icon className={cn("w-4 h-4", isActive ? "text-sidebar-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground")} />
           {item.title}
@@ -94,10 +157,10 @@ function NavGroup({ item, currentPath }: { item: NavItem; currentPath: string })
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "w-full flex items-center justify-between gap-3 px-3 py-2 text-[13px] transition-colors cursor-pointer group rounded-sm",
+          "w-full flex items-center justify-between gap-3 px-3 py-2 text-[13px] transition-colors cursor-pointer group",
           isActive && !isOpen
             ? "text-sidebar-foreground font-medium" 
-            : "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            : "text-sidebar-foreground/80 hover:text-sidebar-foreground"
         )}
       >
         <div className="flex items-center gap-3">
@@ -142,12 +205,10 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col md:flex-row w-full overflow-hidden font-sans">
       {/* Mobile Header */}
-      <div className="md:hidden flex items-center justify-between p-4 bg-sidebar text-sidebar-foreground border-b border-sidebar-border">
-        <div className="flex items-center gap-2 font-medium text-sm tracking-tight">
-          <div className="w-6 h-6 rounded-sm bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold">
-            W
-          </div>
-          UK On Wheels
+        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-sidebar text-sidebar-foreground border-b border-sidebar-border">
+        <div className="flex items-center gap-2.5 font-medium text-sm tracking-tight">
+          <img src={LOGO_SRC} alt="UK On Wheels" className="w-9 h-9 rounded-full object-cover" />
+          UK ON WHEELS
         </div>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 -mr-2">
           <Menu className="w-5 h-5 text-sidebar-foreground/80" />
@@ -156,18 +217,22 @@ export function Layout({ children }: { children: ReactNode }) {
 
       {/* Sidebar */}
       <aside className={cn(
-        "bg-sidebar border-r border-sidebar-border w-full md:w-56 flex-shrink-0 transition-transform flex flex-col",
+        "bg-sidebar border-r border-sidebar-border w-full md:w-64 flex-shrink-0 transition-transform flex flex-col",
         isMobileMenuOpen ? "block" : "hidden md:flex",
         "fixed md:static inset-0 z-50 md:z-auto h-full"
       )}>
-        <div className="h-14 flex items-center gap-2.5 px-4 font-medium text-sm tracking-tight text-white border-b border-sidebar-border">
-          <div className="w-6 h-6 rounded-sm bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold">
-            W
+        <div className="h-20 flex items-center gap-3 px-4 font-medium text-sm tracking-tight text-white border-b border-sidebar-border">
+          <img src={LOGO_SRC} alt="UK On Wheels" className="w-12 h-12 rounded-full object-cover ring-1 ring-white/15" />
+          <div>
+            <div>UK ON WHEELS</div>
+            <div className="mt-0.5 text-[10px] font-normal tracking-wide text-sidebar-foreground/50">Operations Portal</div>
           </div>
-          UK On Wheels
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
+          <div className="px-3 pb-2 text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/40">
+            Workspace
+          </div>
           {NAV_ITEMS.map((item, index) => (
             <NavGroup key={index} item={item} currentPath={location} />
           ))}
