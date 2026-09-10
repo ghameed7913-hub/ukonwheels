@@ -4,13 +4,7 @@
   "outputDirectory": "artifacts/uk-on-wheels/dist/public",
   "framework": null,
   "rewrites": [
-    { "source": "/bookings/:path*", "destination": "/index.html" },
-    { "source": "/businesses/:path*", "destination": "/index.html" },
-    { "source": "/drivers/:path*", "destination": "/index.html" },
-    { "source": "/accounts/:path*", "destination": "/index.html" },
-    { "source": "/reports/:path*", "destination": "/index.html" },
-    { "source": "/hr/:path*", "destination": "/index.html" },
-    { "source": "/messages/:path*", "destination": "/index.html" },
-    { "source": "/settings/:path*", "destination": "/index.html" }
+    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/:path*", "destination": "/index.html" }
   ]
 }
