@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router } from "express";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { db, bookingsTable } from "@workspace/db";
 import {
@@ -13,7 +13,7 @@ import {
   UpdateBookingResponse,
 } from "@workspace/api-zod";
 
-const router: IRouter = Router();
+const router = Router();
 
 const serializeBooking = (row: typeof bookingsTable.$inferSelect) => ({
   ...row,

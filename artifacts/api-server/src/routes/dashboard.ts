@@ -1,9 +1,9 @@
-import { Router, type IRouter } from "express";
+import { Router } from "express";
 import { count, desc, eq, sql, sum } from "drizzle-orm";
 import { db, bookingsTable } from "@workspace/db";
 import { GetDashboardResponse } from "@workspace/api-zod";
 
-const router: IRouter = Router();
+const router = Router();
 
 router.get("/dashboard", async (_req, res): Promise<void> => {
   const [totalRow] = await db
