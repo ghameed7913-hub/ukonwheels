@@ -85,6 +85,82 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
  body{background:#fff}.sidebar,.top,.noPrint{display:none!important}.main{margin:0!important;width:100%!important}.content{padding:0!important}.invoiceSheet{border:0;box-shadow:none;max-width:none}
 }
 
+/* Client and Driver phone experience */
+@media(max-width:800px){
+ body.client-mode{overflow-x:hidden}
+ body.client-mode .shell{height:auto;min-height:100dvh;overflow:visible}
+ body.client-mode .sidebar{position:sticky;top:0;z-index:80;width:100%;height:auto;padding:8px 10px 7px;background:var(--shell-sidebar);overflow:hidden}
+ body.client-mode .brand{padding:2px 4px 7px;border:0;gap:9px}
+ body.client-mode .brand .brandLogo{width:32px;height:32px}
+ body.client-mode .brandText strong{font-size:13px}
+ body.client-mode .brandText small{font-size:9px}
+ body.client-mode .nav{margin:0;display:flex;flex-direction:row;gap:7px;overflow-x:auto;padding:2px 0 3px;scrollbar-width:none;overscroll-behavior-x:contain;scroll-snap-type:x proximity}
+ body.client-mode .nav::-webkit-scrollbar{display:none}
+ body.client-mode .navSectionLabel{display:none}
+ body.client-mode .nav button{flex:0 0 auto;width:auto;min-height:42px;padding:9px 12px;border-color:rgba(148,163,184,.28);white-space:nowrap;scroll-snap-align:start}
+ body.client-mode .nav .ico-wrap{display:flex}
+ body.client-mode .main{height:auto;min-height:calc(100dvh - 92px)}
+ body.client-mode .top{position:sticky;top:91px;height:52px;padding:0 12px;z-index:70}
+ body.client-mode .topbarStart{display:none}
+ body.client-mode .topbarActions{width:100%;justify-content:flex-end;gap:8px}
+ body.client-mode .topIconBtn{width:40px;height:40px}
+ body.client-mode .profileInfo{display:none}
+ body.client-mode .topDivider{display:none}
+ body.client-mode .content{overflow:visible;padding:12px 10px 28px}
+ body.client-mode .panel{border-radius:12px;margin-bottom:10px}
+ body.client-mode .panel h2{font-size:20px;margin-top:2px}
+ body.client-mode .panel h3{font-size:16px;padding:14px}
+ body.client-mode .cards,body.client-mode .clientStats{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+ body.client-mode .card{padding:13px!important;min-width:0}
+ body.client-mode .card strong{font-size:22px}
+ body.client-mode .form{grid-template-columns:1fr!important;gap:8px}
+ body.client-mode .form input,body.client-mode .form select,body.client-mode .form textarea,
+ body.client-mode #clientTrackRef{min-height:48px;font-size:16px;padding:12px}
+ body.client-mode .actions{display:grid;grid-template-columns:1fr;gap:8px}
+ body.client-mode .actions .btn,body.client-mode .form + .actions .btn{width:100%;min-height:48px;font-size:15px}
+ body.client-mode .scroll{overflow:visible}
+ body.client-mode table.mobileCardTable{display:block;width:100%;min-width:0!important}
+ body.client-mode table.mobileCardTable tbody{display:block}
+ body.client-mode table.mobileCardTable tr{display:grid;grid-template-columns:1fr 1fr;gap:9px 12px;margin:10px 0;padding:14px;background:#fff;border:1px solid var(--shell-border);border-radius:12px;box-shadow:0 2px 8px rgba(15,23,42,.05)}
+ body.client-mode table.mobileCardTable tr:first-child{display:none}
+ body.client-mode table.mobileCardTable td{display:block;padding:0;border:0;min-width:0;overflow-wrap:anywhere}
+ body.client-mode table.mobileCardTable td::before{content:attr(data-label);display:block;margin-bottom:3px;color:var(--shell-text-muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+ body.client-mode table.mobileCardTable td:first-child{grid-column:1/-1;font-size:16px;padding-bottom:8px;border-bottom:1px solid var(--shell-border)}
+ body.client-mode table.mobileCardTable td[colspan]{grid-column:1/-1}
+ body.client-mode table.mobileCardTable td .btn{width:100%;min-height:44px;margin:3px 0}
+ body.client-mode .event{padding:12px;margin:8px 0}
+}
+
+@media(max-width:420px){
+ body.client-mode .cards,body.client-mode .clientStats{grid-template-columns:1fr 1fr!important}
+ body.client-mode table.mobileCardTable tr{grid-template-columns:1fr}
+ body.client-mode table.mobileCardTable td:first-child{grid-column:1}
+}
+
+@media(max-width:700px){
+ body.driver-mode{background:#eef2f7;overscroll-behavior-y:none}
+ body.driver-mode .driverApp{max-width:none;min-height:100dvh;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+ body.driver-mode .driverHeader{padding:calc(14px + env(safe-area-inset-top)) 16px 16px;border-radius:0 0 20px 20px}
+ body.driver-mode .driverHeader h2{font-size:22px}
+ body.driver-mode .driverSummary{gap:8px}
+ body.driver-mode .driverSummary div{padding:11px 8px}
+ body.driver-mode .driverBody{padding:12px 10px}
+ body.driver-mode .driverJob{padding:14px 12px;border-radius:16px}
+ body.driver-mode .driverRoute{font-size:14px;line-height:1.5;padding:12px}
+ body.driver-mode .step{padding:14px 0;margin:14px 0}
+ body.driver-mode .btn{min-height:48px;font-size:15px;touch-action:manipulation}
+ body.driver-mode .actions,body.driver-mode .camActions{display:grid;grid-template-columns:1fr;gap:8px}
+ body.driver-mode .actions .btn,body.driver-mode .camActions .btn,body.driver-mode .step>.btn{width:100%}
+ body.driver-mode .cameraBox{padding:12px;border-radius:12px;background:#f8fafc}
+ body.driver-mode .cameraBox video,body.driver-mode .cameraBox canvas{width:100%;max-height:none;aspect-ratio:4/3;object-fit:cover;border-radius:10px}
+ body.driver-mode .signaturePad{width:100%;height:170px;touch-action:none}
+ body.driver-mode input,body.driver-mode select,body.driver-mode textarea{min-height:48px;font-size:16px;width:100%}
+ body.driver-mode label{line-height:1.45}
+ body.driver-mode input[type=checkbox]{width:22px;height:22px;min-height:22px;vertical-align:middle;margin-right:8px}
+ body.driver-mode .driverBottomNav{width:100%;padding-bottom:max(6px,env(safe-area-inset-bottom));box-shadow:0 -5px 20px rgba(15,23,42,.08)}
+ body.driver-mode .driverBottomNav button{min-height:58px;padding:8px 3px;touch-action:manipulation}
+}
+
 .evidenceGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .evidenceCard{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}
 .evidenceCard img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
@@ -894,12 +970,15 @@ document.addEventListener("DOMContentLoaded",()=>{
  }
  const li=document.getElementById("loginLogoImg");
  if(li)li.src=LOGO_IMG;
- const localUiPreview=new URLSearchParams(location.search).has("ui-preview") && (location.hostname==="localhost"||location.hostname==="127.0.0.1");
+  const previewParams=new URLSearchParams(location.search);
+  const previewRole=previewParams.get("ui-preview");
+  const localUiPreview=previewParams.has("ui-preview") && (location.hostname==="localhost"||location.hostname==="127.0.0.1");
  if(localUiPreview){
    STORE_CACHE=defaults();
    storeReady=true;
-   role="admin";
-   currentUser={name:"System Admin"};
+    role=["client","driver"].includes(previewRole)?previewRole:"admin";
+    currentUser=role==="client"?{name:"Prestige Motors Ltd",userName:"Client User"}:role==="driver"?{name:"James Wilson"}:{name:"System Admin"};
+    page=role==="driver"?"driver":(previewParams.get("ui-page")||"desktop");
    showAuthenticatedPortal();
    document.body.classList.remove("auth-checking");
    return;
@@ -1061,7 +1140,8 @@ function showAuthenticatedPortal(){
  loginEl.classList.add("hidden");
  appEl.classList.remove("hidden");
  if(role!=="driver")document.body.classList.remove("driver-mode");
- page=role==="driver"?"driver":"desktop";
+  const localPreviewPage=(location.hostname==="localhost"||location.hostname==="127.0.0.1")?new URLSearchParams(location.search).get("ui-page"):null;
+  page=role==="driver"?"driver":(localPreviewPage||"desktop");
  render();
 }
 
@@ -1481,6 +1561,8 @@ function hasPermission(key){
  return (currentStaffUser?.permissions||[]).includes(key);
 }
 function render(){
+ document.body.classList.toggle("client-mode",role==="client");
+ document.body.classList.toggle("driver-mode",role==="driver");
  if(typeof checkDocumentExpiries==="function")checkDocumentExpiries();
  const title=role==="driver"?"Driver Mobile App":role==="client"?"Client Portal":role==="staff"?(currentStaffUser?.role||"Staff Portal"):"Admin Portal";
  const displayName=role==="client"&&currentUser.userName?currentUser.userName:currentUser.name;
@@ -1540,6 +1622,7 @@ function enhancePortalUsability(){
  });
  const fieldNames={customerType:"Customer type",biz:"Business",service:"Service type",miles:"Estimated miles",dropoff:"Latest drop-off time",amount:"Customer charge (£)",msgProvider:"Messaging provider"};
  document.querySelectorAll("#content .form input:not([type=hidden]):not([type=checkbox]):not([type=radio]),#content .form select,#content .form textarea").forEach(el=>{
+  if(getComputedStyle(el).display==="none"){if(el.previousElementSibling?.classList.contains("autoFieldLabel"))el.previousElementSibling.remove();return}
   if(el.previousElementSibling?.classList.contains("autoFieldLabel")||el.closest("label")||el.type==="date")return;
   const text=fieldNames[el.id]||el.placeholder||el.getAttribute("aria-label");
   if(!text)return;
@@ -1552,6 +1635,16 @@ function enhancePortalUsability(){
   tr.classList.add("clickableBookingRow");tr.title="Click anywhere to open "+ref;
   tr.addEventListener("click",e=>{if(e.target.closest("button,a,input,select,textarea"))return;openBookingFromRow(ref)});
  });
+ if(role==="client"){
+  document.querySelectorAll("#content table").forEach(table=>{
+   table.classList.add("mobileCardTable");
+   const headings=[...table.querySelectorAll("tr:first-child th")].map(th=>th.textContent.trim());
+   table.querySelectorAll("tr").forEach((tr,rowIndex)=>{
+    if(!rowIndex)return;
+    [...tr.children].forEach((cell,index)=>{if(cell.tagName==="TD"&&!cell.dataset.label)cell.dataset.label=headings[index]||"Details"});
+   });
+  });
+ }
 }
 
 function openBookingFromRow(ref){
@@ -2013,7 +2106,7 @@ function ensureClientPortalSettings(){
  return getStore();
 }
 function clientInvoiceAccessEnabled(){
- const s=ensureClientPortalSettings();
+  const s=getStore();
  const business=currentUser?.name||"Prestige Motors Ltd";
  return s.clientPortalSettings?.[business]?.invoiceAccess!==false;
 }
@@ -4221,6 +4314,7 @@ function toggleCustomerTypeFields(){
  if(mobileEl)mobileEl.style.display=isPrivate?"block":"none";
  if(emailEl)emailEl.style.display=isPrivate?"block":"none";
  if(isPrivate && tariffEl)tariffEl.innerHTML="";
+ setTimeout(enhancePortalUsability,0);
 }
 function showBusinessTariff(){
  const s=getStore();
