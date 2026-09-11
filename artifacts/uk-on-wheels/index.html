@@ -4537,11 +4537,18 @@ function drawAssign(c){
    </div>
  </div>`).join(""):`<div class="panel"><p class="muted">No new booked vehicles are waiting for driver assignment.</p></div>`}`;
 }
-function assignSpecificDriver(ref){
+async function assignSpecificDriver(ref){
  let s=getStore();
  const b=s.bookings.find(x=>x.ref===ref);
  const driverName=document.getElementById("driver_"+ref).value;
  if(!b||!driverName)return alert("Please select a driver for this booking.");
+ if(b._normalizedId){
+  const dp=portalProfiles.find(x=>String(x.role).toLowerCase()==="driver"&&(x.full_name===driverName||x.name===driverName));
+  if(!dp)return alert("This driver does not yet have a Driver account in Supabase. Change their role to Driver in Settings first.");
+  const notes=document.getElementById("driverNotes_"+ref).value.trim();
+  const {error}=await sb.rpc("assign_booking_driver",{p_booking_id:b._normalizedId,p_driver_id:dp.id,p_notes:notes||null});
+  if(error)return alert("Driver assignment failed: "+error.message);
+ }
 
  b.driver=driverName;
  b.status="Driver Assigned";
@@ -4562,6 +4569,7 @@ function assignSpecificDriver(ref){
  });
 
  saveStore(s);
+ await loadNormalizedPortalData();
  alert(driverName+" assigned successfully to "+ref+".");
  drawAssign(document.getElementById("content"));
 }
