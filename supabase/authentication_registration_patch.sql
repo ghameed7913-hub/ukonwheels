@@ -43,7 +43,7 @@ begin
     ),
     new.raw_user_meta_data ->> 'phone',
     'client',
-    'Disabled',
+    'Active',
     coalesce(new.raw_user_meta_data ->> 'account_type', 'private'),
     false
   )

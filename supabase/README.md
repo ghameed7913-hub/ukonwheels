@@ -22,8 +22,8 @@ In Supabase:
 
 ## Account rules
 
-- Every public signup starts as `client` with `Disabled` status, which represents awaiting Admin approval.
-- Newly registered clients cannot enter the shared legacy portal until Admin activates them.
+- Every public signup starts immediately as an active `client`.
+- Admin approval is not required. Email confirmation depends on the Supabase Email provider setting.
 - A client cannot promote themselves.
 - Admin promotes an existing user through `admin_set_user_role`.
 - Admin can create accounts through Supabase Auth and then assign their role.

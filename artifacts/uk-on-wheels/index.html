@@ -823,7 +823,7 @@ table tr:hover td { background: #fafcff; }
     </div>
     <div id="signUpView" class="authView hidden">
       <div class="authTitle">Create your account</div>
-      <div class="authSubtitle">All public registrations start as Client accounts and require Admin approval.</div>
+      <div class="authSubtitle">Create a Client account to manage your bookings securely.</div>
       <form onsubmit="event.preventDefault();signUpNow()">
         <input id="signUpName" placeholder="Full name" autocomplete="name" required>
         <input id="signUpPhone" type="tel" placeholder="Mobile number" autocomplete="tel" required>
@@ -1130,8 +1130,8 @@ async function signUpNow(){
    if(error)throw error;
    if(data.session)await sb.auth.signOut();
    showAuthView("signin",data.session
-     ?"Your Client account was created and is awaiting Admin approval."
-     :"Account created. Confirm your email, then wait for Admin approval before signing in.","success");
+     ?"Your Client account was created. You can now sign in."
+     :"Account created. Confirm your email, then sign in.","success");
    const emailInput=document.getElementById("email");
    if(emailInput)emailInput.value=email;
  }catch(error){
