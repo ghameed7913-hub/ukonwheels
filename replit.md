@@ -4,38 +4,34 @@ A full operations portal for UK vehicle collection and delivery workflows, cover
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server
 - `pnpm --filter @workspace/uk-on-wheels run dev` — run the web portal
-- `pnpm run typecheck` — check the entire workspace
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API clients after editing OpenAPI
-- `pnpm --filter @workspace/db run push` — apply development database schema changes
-- Required env: `DATABASE_URL`
+- `pnpm --filter @workspace/uk-on-wheels run build` — build the production portal
+- Vercel deploys the static portal and serves it through `portal.ukonwheels.org`
 
 ## Stack
 
-- Frontend: React, TypeScript, Vite, Tailwind CSS, Wouter and TanStack Query
-- Backend: Express, TypeScript, Zod validation and an OpenAPI-generated contract
-- Database: PostgreSQL with Drizzle ORM
+- Frontend: connected single-page HTML portal built with Vite
+- Authentication: Supabase Auth with persistent browser sessions
+- Backend: Supabase tables, realtime updates and row-level security
+- Operational store: the existing `app_store` JSON document and `profiles` table
 
 ## Where things live
 
-- `artifacts/uk-on-wheels/` — responsive portal frontend
-- `artifacts/api-server/` — shared REST API
-- `lib/api-spec/openapi.yaml` — source of truth for API contracts
-- `lib/db/src/schema/` — PostgreSQL schema
-- `lib/api-client-react/` — generated frontend API hooks
-- `lib/api-zod/` — generated server validators
+- `artifacts/uk-on-wheels/index.html` — production portal UI, Supabase integration and module behavior
+- `artifacts/uk-on-wheels/vite.config.ts` — local and production build configuration
+- `vercel.json` — static custom-domain deployment configuration
 
 ## Architecture decisions
 
-- The former single-file HTML application is separated into independently maintainable frontend, API, contract and database packages.
-- API contracts are authored in OpenAPI first, then generated into typed React Query hooks and Zod validators.
-- Operational data is persisted in PostgreSQL rather than browser storage.
+- Preserve the existing Supabase backend, authentication, profiles, permissions and `app_store` data model. Do not replace or migrate them without explicit approval.
+- The portal loads protected operational data only after Supabase authentication so row-level security remains effective.
+- Refresh restores the Supabase session; logout must call Supabase sign-out rather than reload the page.
 - Parent navigation groups and child links use separate visual treatments so the sidebar hierarchy remains clear.
+- On desktop, the sidebar and main workspace scroll independently.
 
 ## Visual guardrails
 
-- Preserve the established navy, teal and red brand palette; do not replace it with a generic dashboard color scheme.
+- Preserve the established navy and red brand palette; use brand red rather than green/teal for primary actions and active navigation.
 - Parent sidebar items must remain unboxed, using spacing, icons and text color for hierarchy. Nested links may use a subtle active treatment.
 - Keep typography restrained and lightweight. Reserve heavier weights for page titles and critical values rather than applying bold text throughout.
 - Prefer crisp, subtle surfaces and compact radii over oversized rounded cards or old-style admin-panel decoration.
