@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { db, bookingsTable } from "@workspace/db";
 import {
@@ -21,7 +21,7 @@ const serializeBooking = (row: typeof bookingsTable.$inferSelect) => ({
   createdAt: row.createdAt.toISOString(),
 });
 
-router.get("/bookings", async (req, res): Promise<void> => {
+router.get("/bookings", async (req: Request, res: Response): Promise<void> => {
   const parsed = ListBookingsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -50,7 +50,7 @@ router.get("/bookings", async (req, res): Promise<void> => {
   res.json(ListBookingsResponse.parse(rows.map(serializeBooking)));
 });
 
-router.post("/bookings", async (req, res): Promise<void> => {
+router.post("/bookings", async (req: Request, res: Response): Promise<void> => {
   const parsed = CreateBookingBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -71,7 +71,7 @@ router.post("/bookings", async (req, res): Promise<void> => {
   res.status(201).json(CreateBookingResponse.parse(serializeBooking(row)));
 });
 
-router.get("/bookings/:id", async (req, res): Promise<void> => {
+router.get("/bookings/:id", async (req: Request, res: Response): Promise<void> => {
   const params = GetBookingParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -88,7 +88,7 @@ router.get("/bookings/:id", async (req, res): Promise<void> => {
   res.json(GetBookingResponse.parse(serializeBooking(row)));
 });
 
-router.patch("/bookings/:id", async (req, res): Promise<void> => {
+router.patch("/bookings/:id", async (req: Request, res: Response): Promise<void> => {
   const params = UpdateBookingParams.safeParse(req.params);
   const body = UpdateBookingBody.safeParse(req.body);
   if (!params.success) {

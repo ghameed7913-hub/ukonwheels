@@ -1,11 +1,11 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { count, desc, eq, sql, sum } from "drizzle-orm";
 import { db, bookingsTable } from "@workspace/db";
 import { GetDashboardResponse } from "@workspace/api-zod";
 
 const router = Router();
 
-router.get("/dashboard", async (_req, res): Promise<void> => {
+router.get("/dashboard", async (_req: Request, res: Response): Promise<void> => {
   const [totalRow] = await db
     .select({ count: count(), value: sum(bookingsTable.amount) })
     .from(bookingsTable);
