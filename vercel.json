@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @workspace/uk-on-wheels run build",
+  "buildCommand": "pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/uk-on-wheels run build",
   "outputDirectory": "artifacts/uk-on-wheels/dist/public",
   "framework": null,
   "rewrites": [
