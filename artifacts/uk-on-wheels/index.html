@@ -17,6 +17,7 @@ h1{font-weight:800}h2{font-weight:700}h3{font-weight:700}
 .top h2{font-size:19px;font-weight:700}
 button,input,select,textarea{font:inherit}.hidden{display:none!important}.btn{border:0;border-radius:8px;padding:11px 14px;font-weight:800;cursor:pointer;transition:.12s background ease}.primary{background:var(--brand-red);color:#fff}.primary:hover{background:var(--brand-red-dark)}.secondary{background:#edf3fb;color:#17416e}.secondary:hover{background:#e1ecfa}.danger{background:#ffe8eb;color:#b31d2c}.warn{background:#fff4db;color:#966000}
 .login{min-height:100vh;display:grid;place-items:center;background:var(--shell-sidebar)}.login-card{width:min(440px,92vw);background:white;border-radius:16px;padding:40px;box-shadow:0 10px 40px rgba(0,0,0,0.2)}.loginLogo{display:block;width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid var(--line);margin:0 auto 20px}.logo{font-size:22px;font-weight:800;text-align:center;margin-bottom:6px;color:var(--shell-ink)}.logo span{color:var(--shell-accent)}.login-card p{text-align:center;color:var(--shell-text-muted);font-size:14px;margin-bottom:32px;margin-top:0}.roles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0}.roles button{background:#f3f6fa;color:#22364f;border:1px solid var(--line)}.roles button.active{background:var(--blue);color:#fff}.login-card input{width:100%;padding:14px;margin:8px 0;border:1px solid var(--line);border-radius:10px;font-size:14px;transition:border-color .15s}.login-card input:focus{border-color:#94a3b8;outline:none}.login-card .btn{width:100%;margin-top:16px;padding:14px;font-size:15px}.demo{font-size:12px;color:var(--shell-text-muted);line-height:1.5;margin-top:24px;text-align:center}
+.login-card p{margin-bottom:24px}.login-card input,.login-card select{width:100%;padding:14px;margin:8px 0;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;transition:border-color .15s}.login-card input:focus,.login-card select:focus{border-color:#94a3b8;outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.08)}.login-card form{margin:0}.authActions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.authLink{appearance:none;border:0;background:transparent;color:#3459a5;font:inherit;font-size:12px;font-weight:700;padding:4px 0;cursor:pointer}.authLink:hover{text-decoration:underline;color:var(--shell-accent)}.authLink.center{display:block;margin:14px auto 0}.authDivider{display:flex;align-items:center;gap:12px;color:#94a3b8;font-size:11px;margin:18px 0 0}.authDivider:before,.authDivider:after{content:"";height:1px;flex:1;background:#e5eaf1}.authNotice{display:none;margin:12px 0 4px;padding:11px 12px;border-radius:9px;font-size:12px;line-height:1.45}.authNotice.show{display:block}.authNotice.info{color:#1e4f8f;background:#edf5ff;border:1px solid #d7e8ff}.authNotice.success{color:#177047;background:#ecf9f2;border:1px solid #ceeddb}.authNotice.error{color:#a2212c;background:#fff0f1;border:1px solid #ffd8dc}.authTitle{text-align:center;color:#111d31;font-size:20px;font-weight:800;margin:2px 0 7px}.authSubtitle{text-align:center;color:#718096;font-size:12px;line-height:1.5;margin:0 0 18px}.login-card .secondaryAuth{background:#fff;color:#17243a;border:1px solid #dbe2ea;box-shadow:none}.login-card .secondaryAuth:hover{background:#f8fafc}
 .shell{display:flex;min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:255px;background:var(--navy);color:#fff;padding:16px 13px;overflow:auto}.brand{font-weight:800;font-size:17px;padding:10px 8px 18px;border-bottom:1px solid #ffffff18}.brand .brandLogo{display:block;width:34px;height:34px;object-fit:cover;border-radius:9px;margin-bottom:8px}.brand span{color:var(--brand-red)}
 .nav{display:grid;gap:2px;margin-top:14px}
 .nav button{background:transparent;color:#c3cee0;text-align:left;font-size:13.5px;font-weight:500;border-radius:8px;padding:9px 10px;width:100%;display:flex;align-items:center;gap:10px}
@@ -692,23 +693,16 @@ table tr:hover td { background: #fafcff; }
  overflow: hidden;
 }
 .dashboardHeroMain { display: flex; align-items: center; gap: 16px; }
-.dashboardHero .mark {
+.dashboardHeroLogo {
  width: 54px;
  height: 54px;
  flex: none;
- border-radius: 15px;
- display: grid;
- place-items: center;
- color: #fff;
- background: rgba(255,255,255,.08);
- border: 1px solid rgba(255,255,255,.14);
+ border-radius: 50%;
+ object-fit: cover;
+ background: #fff;
+ border: 2px solid rgba(255,255,255,.24);
  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
- font-size: 12px;
- font-weight: 900;
- line-height: 1.05;
- text-align: center;
 }
-.dashboardHero .mark span { color: #ff4753; }
 .dashboardHero h1 {
  margin: 0;
  color: #fff;
@@ -814,9 +808,55 @@ table tr:hover td { background: #fafcff; }
     <img class="loginLogo" id="loginLogoImg" alt="UK On Wheels">
     <div class="logo">UK <span>ON</span> WHEELS</div>
     <p>Car Delivery Across the UK — Connected Portal</p>
-    <input id="email" placeholder="Email" autocomplete="username">
-    <input id="password" type="password" onkeydown="if(event.key===\'Enter\')loginNow()" placeholder="Password" autocomplete="current-password">
-    <button id="signInBtn" class="btn primary" type="button" onclick="loginNow()">Sign In</button>
+    <div id="authNotice" class="authNotice" role="status" aria-live="polite"></div>
+    <div id="signInView" class="authView">
+      <form onsubmit="event.preventDefault();loginNow()">
+        <input id="email" type="email" placeholder="Email address" autocomplete="username" required>
+        <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <div class="authActions">
+          <button class="authLink" type="button" onclick="showAuthView('forgot')">Forgot password?</button>
+        </div>
+        <button id="signInBtn" class="btn primary" type="submit">Sign In</button>
+      </form>
+      <div class="authDivider">New to UK On Wheels?</div>
+      <button class="btn secondaryAuth" type="button" onclick="showAuthView('signup')">Create Account</button>
+    </div>
+    <div id="signUpView" class="authView hidden">
+      <div class="authTitle">Create your account</div>
+      <div class="authSubtitle">All public registrations start as Client accounts and require Admin approval.</div>
+      <form onsubmit="event.preventDefault();signUpNow()">
+        <input id="signUpName" placeholder="Full name" autocomplete="name" required>
+        <input id="signUpPhone" type="tel" placeholder="Mobile number" autocomplete="tel" required>
+        <select id="signUpAccountType" aria-label="Account type">
+          <option value="private">Private client</option>
+          <option value="business">Business client</option>
+        </select>
+        <input id="signUpEmail" type="email" placeholder="Email address" autocomplete="email" required>
+        <input id="signUpPassword" type="password" placeholder="Create password (minimum 8 characters)" autocomplete="new-password" minlength="8" required>
+        <input id="signUpConfirmPassword" type="password" placeholder="Confirm password" autocomplete="new-password" minlength="8" required>
+        <button id="signUpBtn" class="btn primary" type="submit">Create Client Account</button>
+      </form>
+      <button class="authLink center" type="button" onclick="showAuthView('signin')">Already have an account? Sign in</button>
+    </div>
+    <div id="forgotView" class="authView hidden">
+      <div class="authTitle">Reset your password</div>
+      <div class="authSubtitle">Enter your account email and we’ll send you a secure recovery link.</div>
+      <form onsubmit="event.preventDefault();sendPasswordReset()">
+        <input id="forgotEmail" type="email" placeholder="Email address" autocomplete="email" required>
+        <button id="forgotBtn" class="btn primary" type="submit">Send Recovery Link</button>
+      </form>
+      <button class="authLink center" type="button" onclick="showAuthView('signin')">Back to sign in</button>
+    </div>
+    <div id="recoveryView" class="authView hidden">
+      <div class="authTitle">Choose a new password</div>
+      <div class="authSubtitle">Use at least 8 characters for your new password.</div>
+      <form onsubmit="event.preventDefault();finishPasswordReset()">
+        <input type="email" autocomplete="username" aria-hidden="true" tabindex="-1" style="display:none">
+        <input id="recoveryPassword" type="password" placeholder="New password" autocomplete="new-password" minlength="8" required>
+        <input id="recoveryConfirmPassword" type="password" placeholder="Confirm new password" autocomplete="new-password" minlength="8" required>
+        <button id="recoveryBtn" class="btn primary" type="submit">Update Password</button>
+      </form>
+    </div>
     <div class="demo" id="loginHint">
       Your role, name and permissions are determined automatically by your account after sign in.
     </div>
@@ -838,6 +878,13 @@ const sb = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_AN
 // Secondary client used only for creating NEW accounts (staff/client/driver) so that
 // signUp() doesn't hijack the currently logged-in admin's session.
 const sbAuthOnly = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth:{persistSession:false,storageKey:"ukow-admin-user-creation"}}) : null;
+const PASSWORD_RECOVERY_LINK = location.hash.includes("type=recovery") || new URLSearchParams(location.search).get("type")==="recovery";
+
+if(sb){
+ sb.auth.onAuthStateChange((event)=>{
+   if(event==="PASSWORD_RECOVERY")setTimeout(()=>showAuthView("recovery","Your recovery link is verified. Choose a new password.","info"),0);
+ });
+}
 
 document.addEventListener("DOMContentLoaded",()=>{
  const hint=document.getElementById("loginHint");
@@ -856,6 +903,11 @@ document.addEventListener("DOMContentLoaded",()=>{
    document.body.classList.remove("auth-checking");
    return;
  }
+  if(PASSWORD_RECOVERY_LINK){
+    showAuthView("recovery","Your recovery link is being verified. Choose a new password.","info");
+    document.body.classList.remove("auth-checking");
+    return;
+  }
  if(SUPABASE_CONFIGURED)restoreSupabaseSession();
  else{
    initStoreFromSupabase();
@@ -1029,6 +1081,110 @@ async function logoutNow(){
  if(loginEl)loginEl.classList.remove("hidden");
  const passwordEl=document.getElementById("password");
  if(passwordEl)passwordEl.value="";
+ showAuthView("signin");
+}
+
+function setAuthNotice(message="",type="info"){
+ const notice=document.getElementById("authNotice");
+ if(!notice)return;
+ notice.textContent=message;
+ notice.className="authNotice"+(message?" show "+type:"");
+}
+
+function showAuthView(view,message="",type="info"){
+ const views={signin:"signInView",signup:"signUpView",forgot:"forgotView",recovery:"recoveryView"};
+ Object.values(views).forEach(id=>document.getElementById(id)?.classList.add("hidden"));
+ document.getElementById(views[view]||views.signin)?.classList.remove("hidden");
+ setAuthNotice(message,type);
+ if(view==="forgot"){
+   const currentEmail=(document.getElementById("email")?.value||"").trim();
+   const forgotEmail=document.getElementById("forgotEmail");
+   if(forgotEmail&&!forgotEmail.value)forgotEmail.value=currentEmail;
+ }
+}
+
+async function signUpNow(){
+ if(!SUPABASE_CONFIGURED)return setAuthNotice("Account creation requires the Supabase connection.","error");
+ const fullName=(document.getElementById("signUpName")?.value||"").trim();
+ const phone=(document.getElementById("signUpPhone")?.value||"").trim();
+ const accountType=document.getElementById("signUpAccountType")?.value||"private";
+ const email=(document.getElementById("signUpEmail")?.value||"").trim().toLowerCase();
+ const password=document.getElementById("signUpPassword")?.value||"";
+ const confirmPassword=document.getElementById("signUpConfirmPassword")?.value||"";
+ const button=document.getElementById("signUpBtn");
+ if(!fullName||!phone||!email)return setAuthNotice("Please complete all required fields.","error");
+ if(password.length<8)return setAuthNotice("Your password must contain at least 8 characters.","error");
+ if(password!==confirmPassword)return setAuthNotice("The passwords do not match.","error");
+ button.disabled=true;
+ button.textContent="Creating account…";
+ setAuthNotice("");
+ try{
+   const {data,error}=await sb.auth.signUp({
+     email,
+     password,
+     options:{
+       emailRedirectTo:location.origin+location.pathname,
+       data:{full_name:fullName,name:fullName,phone,account_type:accountType}
+     }
+   });
+   if(error)throw error;
+   if(data.session)await sb.auth.signOut();
+   showAuthView("signin",data.session
+     ?"Your Client account was created and is awaiting Admin approval."
+     :"Account created. Confirm your email, then wait for Admin approval before signing in.","success");
+   const emailInput=document.getElementById("email");
+   if(emailInput)emailInput.value=email;
+ }catch(error){
+   setAuthNotice("Account creation failed: "+(error?.message||"Please try again."),"error");
+ }finally{
+   button.disabled=false;
+   button.textContent="Create Client Account";
+ }
+}
+
+async function sendPasswordReset(){
+ if(!SUPABASE_CONFIGURED)return setAuthNotice("Password recovery requires the Supabase connection.","error");
+ const email=(document.getElementById("forgotEmail")?.value||"").trim().toLowerCase();
+ const button=document.getElementById("forgotBtn");
+ if(!email)return setAuthNotice("Please enter your email address.","error");
+ button.disabled=true;
+ button.textContent="Sending…";
+ setAuthNotice("");
+ try{
+   const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+   if(error)throw error;
+   setAuthNotice("If an account exists for that email, a recovery link has been sent. Check your inbox and spam folder.","success");
+ }catch(error){
+   setAuthNotice("The recovery email could not be sent: "+(error?.message||"Please try again."),"error");
+ }finally{
+   button.disabled=false;
+   button.textContent="Send Recovery Link";
+ }
+}
+
+async function finishPasswordReset(){
+ if(!SUPABASE_CONFIGURED)return setAuthNotice("Password recovery requires the Supabase connection.","error");
+ const password=document.getElementById("recoveryPassword")?.value||"";
+ const confirmPassword=document.getElementById("recoveryConfirmPassword")?.value||"";
+ const button=document.getElementById("recoveryBtn");
+ if(password.length<8)return setAuthNotice("Your password must contain at least 8 characters.","error");
+ if(password!==confirmPassword)return setAuthNotice("The passwords do not match.","error");
+ button.disabled=true;
+ button.textContent="Updating…";
+ try{
+   const {data:sessionData}=await sb.auth.getSession();
+   if(!sessionData.session)throw new Error("This recovery link has expired. Request a new link.");
+   const {error}=await sb.auth.updateUser({password});
+   if(error)throw error;
+   await sb.auth.signOut();
+   history.replaceState({},document.title,location.pathname);
+   showAuthView("signin","Your password was updated. Sign in with your new password.","success");
+ }catch(error){
+   setAuthNotice(error?.message||"The password could not be updated.","error");
+ }finally{
+   button.disabled=false;
+   button.textContent="Update Password";
+ }
 }
 
 async function loginNow(){
@@ -1949,7 +2105,7 @@ function drawAdminDashboard(c){
  c.innerHTML=`
  <div class="dashboardHero">
   <div class="dashboardHeroMain">
-   <div class="mark">UK<br><span>ON</span></div>
+   <img class="dashboardHeroLogo" src="${LOGO_IMG}" alt="UK On Wheels">
    <div><h1>Welcome to UK On Wheels Portal</h1><p>Live operational control for bookings, drivers and deliveries.</p></div>
   </div>
   <div class="liveOperations">Operations connected</div>

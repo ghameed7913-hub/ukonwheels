@@ -22,7 +22,8 @@ In Supabase:
 
 ## Account rules
 
-- Every public signup starts as `client`.
+- Every public signup starts as `client` with `Pending` status.
+- Pending clients cannot enter the shared legacy portal until Admin activates them.
 - A client cannot promote themselves.
 - Admin promotes an existing user through `admin_set_user_role`.
 - Admin can create accounts through Supabase Auth and then assign their role.

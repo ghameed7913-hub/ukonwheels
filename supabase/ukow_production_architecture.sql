@@ -396,7 +396,7 @@ begin
     coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name'),
     new.raw_user_meta_data ->> 'phone',
     'client',
-    'Active',
+    'Pending',
     coalesce(new.raw_user_meta_data ->> 'account_type', 'private'),
     false
   )
