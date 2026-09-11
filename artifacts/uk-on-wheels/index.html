@@ -18,6 +18,7 @@ h1{font-weight:800}h2{font-weight:700}h3{font-weight:700}
 button,input,select,textarea{font:inherit}.hidden{display:none!important}.btn{border:0;border-radius:8px;padding:11px 14px;font-weight:800;cursor:pointer;transition:.12s background ease}.primary{background:var(--brand-red);color:#fff}.primary:hover{background:var(--brand-red-dark)}.secondary{background:#edf3fb;color:#17416e}.secondary:hover{background:#e1ecfa}.danger{background:#ffe8eb;color:#b31d2c}.warn{background:#fff4db;color:#966000}
 .login{min-height:100vh;display:grid;place-items:center;background:var(--shell-sidebar)}.login-card{width:min(440px,92vw);background:white;border-radius:16px;padding:40px;box-shadow:0 10px 40px rgba(0,0,0,0.2)}.loginLogo{display:block;width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid var(--line);margin:0 auto 20px}.logo{font-size:22px;font-weight:800;text-align:center;margin-bottom:6px;color:var(--shell-ink)}.logo span{color:var(--shell-accent)}.login-card p{text-align:center;color:var(--shell-text-muted);font-size:14px;margin-bottom:32px;margin-top:0}.roles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0}.roles button{background:#f3f6fa;color:#22364f;border:1px solid var(--line)}.roles button.active{background:var(--blue);color:#fff}.login-card input{width:100%;padding:14px;margin:8px 0;border:1px solid var(--line);border-radius:10px;font-size:14px;transition:border-color .15s}.login-card input:focus{border-color:#94a3b8;outline:none}.login-card .btn{width:100%;margin-top:16px;padding:14px;font-size:15px}.demo{font-size:12px;color:var(--shell-text-muted);line-height:1.5;margin-top:24px;text-align:center}
 .login-card p{margin-bottom:24px}.login-card input,.login-card select{width:100%;padding:14px;margin:8px 0;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;transition:border-color .15s}.login-card input:focus,.login-card select:focus{border-color:#94a3b8;outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.08)}.login-card form{margin:0}.authActions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.authLink{appearance:none;border:0;background:transparent;color:#3459a5;font:inherit;font-size:12px;font-weight:700;padding:4px 0;cursor:pointer}.authLink:hover{text-decoration:underline;color:var(--shell-accent)}.authLink.center{display:block;margin:14px auto 0}.authDivider{display:flex;align-items:center;gap:12px;color:#94a3b8;font-size:11px;margin:18px 0 0}.authDivider:before,.authDivider:after{content:"";height:1px;flex:1;background:#e5eaf1}.authNotice{display:none;margin:12px 0 4px;padding:11px 12px;border-radius:9px;font-size:12px;line-height:1.45}.authNotice.show{display:block}.authNotice.info{color:#1e4f8f;background:#edf5ff;border:1px solid #d7e8ff}.authNotice.success{color:#177047;background:#ecf9f2;border:1px solid #ceeddb}.authNotice.error{color:#a2212c;background:#fff0f1;border:1px solid #ffd8dc}.authTitle{text-align:center;color:#111d31;font-size:20px;font-weight:800;margin:2px 0 7px}.authSubtitle{text-align:center;color:#718096;font-size:12px;line-height:1.5;margin:0 0 18px}.login-card .secondaryAuth{background:#fff;color:#17243a;border:1px solid #dbe2ea;box-shadow:none}.login-card .secondaryAuth:hover{background:#f8fafc}
+.autoFieldLabel{display:block;color:#536176;font-size:11px;font-weight:700;margin:4px 0 -4px}.clickableBookingRow{cursor:pointer;transition:background .15s}.clickableBookingRow:hover{background:#f0f6ff!important;box-shadow:inset 3px 0 #e2131f}.portalUsersTable select{min-width:130px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .shell{display:flex;min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:255px;background:var(--navy);color:#fff;padding:16px 13px;overflow:auto}.brand{font-weight:800;font-size:17px;padding:10px 8px 18px;border-bottom:1px solid #ffffff18}.brand .brandLogo{display:block;width:34px;height:34px;object-fit:cover;border-radius:9px;margin-bottom:8px}.brand span{color:var(--brand-red)}
 .nav{display:grid;gap:2px;margin-top:14px}
 .nav button{background:transparent;color:#c3cee0;text-align:left;font-size:13.5px;font-weight:500;border-radius:8px;padding:9px 10px;width:100%;display:flex;align-items:center;gap:10px}
@@ -920,6 +921,7 @@ const LOGO_IMG="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFB
 const KEY="ukow_connected_v1";
 let role="admin", currentUser=null, currentStaffUser=null, page="desktop";
 let STORE_CACHE=null, storeReady=false, currentSession=null;
+let normalizedBookings=[],portalProfiles=[],normalizedChannel=null;
 
 // One shared row (id='main') in the app_store table holds all booking/business/driver
 // data as JSON. getStore()/saveStore() below read/write this in-memory cache, which is
@@ -975,6 +977,25 @@ function saveStore(s){
    .then(({error})=>{if(error)console.error("Supabase save failed (change is still visible locally):",error)});
 }
 function currency(v){return "£"+Number(v||0).toFixed(2)}
+function normalizedBookingToPortal(b,pm={},bm={}){
+ const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
+ return {_normalizedId:b.id,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+}
+async function loadNormalizedPortalData(){
+ if(!sb||!currentSession)return;
+ try{
+  const [br,pr,cr]=await Promise.all([sb.from("bookings").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("id,name,full_name,email,role,status,business_name,business_id"),sb.from("businesses").select("id,legal_name,trading_name")]);
+  if(br.error)throw br.error;
+  portalProfiles=pr.data||[];
+  const pm=Object.fromEntries(portalProfiles.map(x=>[x.id,x])),bm=Object.fromEntries((cr.data||[]).map(x=>[x.id,x]));
+  normalizedBookings=(br.data||[]).map(x=>normalizedBookingToPortal(x,pm,bm));
+  const s=getStore(),legacy=(s.bookings||[]).filter(x=>!normalizedBookings.some(n=>n.ref===x.ref));
+  s.bookings=[...normalizedBookings,...legacy];STORE_CACHE=s;
+  if(!normalizedChannel){
+   normalizedChannel=sb.channel("ukow-live-bookings").on("postgres_changes",{event:"*",schema:"public",table:"bookings"},async()=>{await loadNormalizedPortalData();if(!document.getElementById("app")?.classList.contains("hidden"))render()}).subscribe();
+  }
+ }catch(e){console.warn("Normalized portal data unavailable:",e.message||e)}
+}
 
 function migrateClientData(){
  let s=getStore(),changed=false;
@@ -1024,7 +1045,7 @@ function applyAuthenticatedProfile(profile,session){
    currentStaffUser={name:profile.name,role:profile.staff_role||"Staff",permissions:profile.permissions||[],status:profile.status||"Active",email:profile.email};
    currentUser={name:profile.name};
  }else if(role==="client"){
-   currentUser={name:profile.business_name||profile.name,userName:profile.client_user_name||profile.name,email:profile.email,clientUserId:profile.id,clientAccess:profile.client_access||"Full Access"};
+    currentUser={name:profile.business_name||profile.name,userName:profile.client_user_name||profile.name,email:profile.email,clientUserId:profile.id,clientAccess:profile.client_access||"Full Access",businessId:profile.business_id||null,accountType:profile.account_type||"private"};
    migrateClientData();
  }else if(role==="driver"){
    currentUser={name:profile.driver_name||profile.name};
@@ -1053,8 +1074,9 @@ async function restoreSupabaseSession(){
      await sb.auth.signOut();
      return;
    }
-   await initStoreFromSupabase();
-   applyAuthenticatedProfile(profile,data.session);
+    await initStoreFromSupabase();
+    applyAuthenticatedProfile(profile,data.session);
+    await loadNormalizedPortalData();
    showAuthenticatedPortal();
  }catch(e){
    console.error("Could not restore Supabase session:",e);
@@ -1217,8 +1239,9 @@ async function loginNow(){
        await sb.auth.signOut();
        return;
      }
-      await initStoreFromSupabase();
-      applyAuthenticatedProfile(profile,authData.session);
+       await initStoreFromSupabase();
+       applyAuthenticatedProfile(profile,authData.session);
+       await loadNormalizedPortalData();
    }catch(e){
      alert("Could not reach Supabase. Check your internet connection and SUPABASE_URL/ANON_KEY.");
      return;
@@ -1498,6 +1521,51 @@ function render(){
    </main>
   </div>`;
  draw();
+ setTimeout(enhancePortalUsability,0);
+}
+
+function enhancePortalUsability(){
+ const labels={
+  bdate:"Booking date",ddate:"Requested delivery date",clientReportFrom:"Report from date",clientReportTo:"Report to date",
+  exDate:"Expense date",invDate:"Invoice date",invDue:"Invoice due date",invoicePaidDate:"Payment date",pDate:"Transaction date",
+  rFrom:"Report from date",rTo:"Report to date",holFrom:"Holiday start date",holTo:"Holiday end date",
+  drvHolFrom:"Holiday start date",drvHolTo:"Holiday end date"
+ };
+ document.querySelectorAll('input[type="date"]').forEach(el=>{
+  if(!el.getAttribute("aria-label"))el.setAttribute("aria-label",labels[el.id]||el.title||"Select date");
+  if(!el.previousElementSibling?.classList.contains("autoFieldLabel")&&!el.closest("label")){
+   const label=document.createElement("label");label.className="autoFieldLabel";label.htmlFor=el.id;label.textContent=labels[el.id]||el.title||"Select date";el.before(label);
+  }
+  if(!el.dataset.pickerReady){el.dataset.pickerReady="1";el.addEventListener("click",()=>{try{el.showPicker?.()}catch(_){}})}
+ });
+ const fieldNames={customerType:"Customer type",biz:"Business",service:"Service type",miles:"Estimated miles",dropoff:"Latest drop-off time",amount:"Customer charge (£)",msgProvider:"Messaging provider"};
+ document.querySelectorAll("#content .form input:not([type=hidden]):not([type=checkbox]):not([type=radio]),#content .form select,#content .form textarea").forEach(el=>{
+  if(el.previousElementSibling?.classList.contains("autoFieldLabel")||el.closest("label")||el.type==="date")return;
+  const text=fieldNames[el.id]||el.placeholder||el.getAttribute("aria-label");
+  if(!text)return;
+  const label=document.createElement("label");label.className="autoFieldLabel";label.htmlFor=el.id;label.textContent=text.replace(/\s*\\*$/,"");el.before(label);
+ });
+ document.querySelectorAll("table tr").forEach(tr=>{
+  if(tr.querySelector("th")||tr.classList.contains("clickableBookingRow"))return;
+  const ref=[...tr.querySelectorAll("td")].map(td=>td.textContent.trim()).find(v=>/^(BK\\d+|UKOW-)/i.test(v));
+  if(!ref)return;
+  tr.classList.add("clickableBookingRow");tr.title="Click anywhere to open "+ref;
+  tr.addEventListener("click",e=>{if(e.target.closest("button,a,input,select,textarea"))return;openBookingFromRow(ref)});
+ });
+}
+
+function openBookingFromRow(ref){
+ const b=(getStore().bookings||[]).find(x=>x.ref===ref);
+ if(!b)return;
+ if(role==="client"){page="clientBookings";render();setTimeout(()=>clientViewBooking(ref),0);return}
+ selectedStatusPage=b.status;page="statusPage";render();setTimeout(()=>viewStatusBooking(ref),0);
+}
+
+async function persistNormalizedStatus(b,status,note=""){
+ if(!b?._normalizedId||!sb)return true;
+ const {error}=await sb.rpc("update_booking_status",{p_booking_id:b._normalizedId,p_status:status,p_notes:note||null,p_latitude:null,p_longitude:null,p_accuracy_metres:null});
+ if(error){alert("Status could not be shared with Admin: "+error.message);return false}
+ await loadNormalizedPortalData();return true;
 }
 function go(p){
  if(p==="logout"){logoutNow();return}
@@ -3769,7 +3837,35 @@ function drawSettings(c){
    <tr><th>Date/Time</th><th>Booking Ref</th><th>Receiver</th><th>Mobile</th><th>Event</th><th>Channel</th><th>Status</th><th>Message</th></tr>
    ${(s.messageLog||[]).slice().reverse().map(x=>`<tr><td>${x.createdAt}</td><td>${x.bookingRef}</td><td>${x.receiverName||"—"}</td><td>${x.mobile||"—"}</td><td>${x.event}</td><td>${x.channel}</td><td><span class="badge ${x.status==="Queued / Simulated"?"amber":"green"}">${x.status}</span></td><td>${x.message}</td></tr>`).join("")}
   </table></div>
- </div>`;
+  </div>
+  <div id="portalUserDirectory"></div>`;
+  loadAdminUserDirectory();
+}
+
+async function loadAdminUserDirectory(){
+ const box=document.getElementById("portalUserDirectory");
+ if(!box||role!=="admin")return;
+ box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Portal Users</h3><p class="muted">Loading all registered accounts…</p></div>`;
+ try{
+  const {data,error}=await sb.from("profiles").select("id,name,full_name,email,role,status,created_at").order("created_at",{ascending:false});
+  if(error)throw error;
+  portalProfiles=data||[];
+  const active=portalProfiles.filter(x=>String(x.status).toLowerCase()==="active").length;
+  box.innerHTML=`<div class="panel" style="margin-top:12px">
+   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h3 style="margin:0">Portal Users</h3><p class="muted">Every account registered through Supabase.</p></div><div><span class="badge">${portalProfiles.length} total accounts</span> <span class="badge green">${active} active</span></div></div>
+   <div class="scroll"><table class="portalUsersTable"><tr><th>Name</th><th>Email</th><th>Current Role</th><th>Status</th><th>Change Role</th></tr>
+   ${portalProfiles.map((u,i)=>`<tr><td><b>${u.full_name||u.name||"Unnamed user"}</b></td><td>${u.email||"—"}</td><td><span class="badge">${u.role||"client"}</span></td><td><span class="badge ${String(u.status).toLowerCase()==="active"?"green":"amber"}">${u.status||"Active"}</span></td><td><select id="profileRole_${i}" onchange="changePortalUserRole(${i},this.value)">${["client","staff","driver","admin"].map(r=>`<option value="${r}" ${String(u.role).toLowerCase()===r?"selected":""}>${r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select></td></tr>`).join("")}
+   </table></div></div>`;
+  enhancePortalUsability();
+ }catch(e){box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Portal Users</h3><p class="muted">Could not load profiles: ${e.message||e}</p></div>`}
+}
+
+async function changePortalUserRole(index,newRole){
+ const u=portalProfiles[index];if(!u)return;
+ if(!confirm(`Change ${u.email||u.full_name||"this account"} to ${newRole}?`)){loadAdminUserDirectory();return}
+ const {error}=await sb.rpc("admin_set_user_role",{p_user_id:u.id,p_role:newRole,p_staff_role:newRole==="staff"?"Staff":null,p_permissions:[]});
+ if(error){alert("Role change failed: "+error.message);loadAdminUserDirectory();return}
+ alert("User role updated.");loadAdminUserDirectory();
 }
 
 function saveMessagingSettings(){
@@ -4134,7 +4230,7 @@ function showBusinessTariff(){
  if(!b){if(tariffEl)tariffEl.innerHTML="";return}
  tariffEl.innerHTML=`<div class="panel" style="padding:10px"><b>Assigned Tariff:</b> ${b.tariffType||"Not set"} ${b.perMile?`· £${Number(b.perMile).toFixed(2)} per mile`:""} ${b.minimumCharge?`· Minimum £${Number(b.minimumCharge).toFixed(2)}`:""} · Invoice: ${b.invoiceCycle||"Not set"}</div>`;
 }
-function createBooking(){
+async function createBooking(){
  let s=getStore();
  const type=role==="client"?"Business":(document.getElementById("customerType")?.value||"Business");
 
@@ -4202,7 +4298,20 @@ function createBooking(){
   timeline:[{title:"Booking Created",text:"Booking created at "+new Date().toLocaleString()+" by "+(role==="client"?(currentUser?.userName||currentUser?.name||"Client"):(currentUser?.name||"Admin"))}]
  };
 
- s.bookings.unshift(booking);
+  if(SUPABASE_CONFIGURED&&currentSession&&role==="client"){
+   const parts=vehicle.split(/\s+/);
+   const {data,error}=await sb.rpc("create_portal_booking",{
+    p_customer_type:type,p_business_id:currentUser?.businessId||null,p_vehicle_make:parts.shift()||vehicle,p_vehicle_model:parts.join(" "),
+    p_vehicle_registration:regValue,p_vehicle_type:null,p_service_type:booking.service,p_pickup_address:pickupValue,p_pickup_postcode:null,
+    p_destination_address:destinationValue,p_destination_postcode:null,p_receiver_name:receiverValue,p_receiver_mobile:receiverMobileValue,
+    p_requested_delivery_date:booking.deliveryDate||null,p_client_notes:document.getElementById("notes")?.value.trim()||null
+   });
+   if(error)return alert("Booking could not be shared with the operations team: "+error.message);
+   await loadNormalizedPortalData();
+   alert("Booking created successfully. Admin and authorised Staff can now see it.");
+   page="clientBookings";render();return;
+  }
+  s.bookings.unshift(booking);
  s.notifications=s.notifications||[];
  s.notifications.unshift({title:"New Booking",text:`${ref} created for ${role==="client"?business:(type==="Private"?privateCustomerNameValue:business)}.`});
  saveStore(s);
@@ -4859,7 +4968,7 @@ async function captureCamera(ref,id){
  if(cameraStreams[key]){cameraStreams[key].getTracks().forEach(t=>t.stop());delete cameraStreams[key]}
  video.style.display="none";
 }
-function completePickup(ref){
+async function completePickup(ref){
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
  if(!document.getElementById("ready_"+ref).checked)return alert("Confirm Ready to Pickup.");
  for(let i=0;i<7;i++){
@@ -4882,10 +4991,11 @@ function completePickup(ref){
  };
  b.timeline.unshift({title:"Picked Up",text:"Live camera pickup evidence, timestamp, GPS and declaration completed at "+new Date().toLocaleString()});
  s.notifications.unshift({title:"Picked Up",text:b.ref+" has been picked up by "+b.driver+" with live camera and GPS evidence."});
- saveStore(s);
+  saveStore(s);
+  if(!await persistNormalizedStatus(b,"Picked Up","Pickup evidence completed"))return;
  draw();
-}function onRouteSteps(b){return `<div class="step"><h4>Start Journey</h4><button class="btn primary" onclick="startJourney('${b.ref}')">Start Journey — On Route</button></div>`}
-function startJourney(ref){let s=getStore(),b=s.bookings.find(x=>x.ref===ref);b.status="On Route";b.timeline.unshift({title:"On Route",text:"Journey started at "+new Date().toLocaleString()});saveStore(s);queueCustomerStatusMessage(b,"onRoute");draw()}
+ }function onRouteSteps(b){return `<div class="step"><h4>Start Journey</h4><button class="btn primary" onclick="startJourney('${b.ref}')">Start Journey — On Route</button></div>`}
+ async function startJourney(ref){let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,"On Route","Journey started"))return;b.status="On Route";b.timeline.unshift({title:"On Route",text:"Journey started at "+new Date().toLocaleString()});saveStore(s);queueCustomerStatusMessage(b,"onRoute");draw()}
 function journeySteps(b){
  const deliveryPhotos=["Front at Delivery","Rear at Delivery","Left Side at Delivery","Right Side at Delivery","Interior at Delivery","Dashboard / Mileage at Delivery"];
  return `<div class="grid2"><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn warn" onclick="incident('${b.ref}','Fault On Route')">Vehicle Fault</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Accident</button><button class="btn secondary" onclick="incident('${b.ref}','Assigned AA on Route')">AA Assistance</button></div>
@@ -4965,8 +5075,8 @@ function initSignaturePad(id){
  signaturePads[id]=true;
 }
 function clearSignature(id){const c=document.getElementById(id);if(!c)return;const ctx=c.getContext("2d");ctx.clearRect(0,0,c.width,c.height);c.dataset.signed="";}
-function incident(ref,status){let note=prompt("Add location / notes for "+status,"");let s=getStore(),b=s.bookings.find(x=>x.ref===ref);b.status=status;b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
-function deliver(ref){
+async function incident(ref,status){let note=prompt("Add location / notes for "+status,"");let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,status,note||"No notes"))return;b.status=status;b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
+async function deliver(ref){
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
  if(!b)return;
  for(let i=0;i<6;i++){
@@ -4990,7 +5100,8 @@ function deliver(ref){
  if(!b.paymentStatus)b.paymentStatus="Pending";
  b.timeline.unshift({title:"Delivered",text:"Vehicle delivered with delivery photographs, receiver signature and driver signature at "+new Date().toLocaleString()});
  s.notifications.unshift({title:"Delivered",text:b.ref+" has been delivered with signed delivery evidence."});
- saveStore(s);queueCustomerStatusMessage(b,"delivered");draw();
+  if(!await persistNormalizedStatus(b,"Delivered","Delivery evidence and signatures completed"))return;
+  saveStore(s);queueCustomerStatusMessage(b,"delivered");draw();
 }
 window.addEventListener("storage",()=>{if(!app.classList.contains("hidden"))draw()});
 window.addEventListener("ukowupdate",()=>{if(!app.classList.contains("hidden"))draw()});
