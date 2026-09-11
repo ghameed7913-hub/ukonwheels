@@ -676,6 +676,122 @@ table tr:hover td { background: #fafcff; }
  border-radius: 22px;
  box-shadow: 0 30px 80px rgba(0,0,0,.35);
 }
+.dashboardHero {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 24px;
+ margin-bottom: 16px;
+ padding: 22px 24px;
+ border-radius: 20px;
+ color: #fff;
+ background:
+  radial-gradient(circle at 88% 20%,rgba(226,19,31,.32),transparent 24%),
+  linear-gradient(120deg,#07162b 0%,#0c2749 62%,#122f53 100%);
+ box-shadow: 0 20px 44px rgba(7,18,36,.16);
+ overflow: hidden;
+}
+.dashboardHeroMain { display: flex; align-items: center; gap: 16px; }
+.dashboardHero .mark {
+ width: 54px;
+ height: 54px;
+ flex: none;
+ border-radius: 15px;
+ display: grid;
+ place-items: center;
+ color: #fff;
+ background: rgba(255,255,255,.08);
+ border: 1px solid rgba(255,255,255,.14);
+ box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+ font-size: 12px;
+ font-weight: 900;
+ line-height: 1.05;
+ text-align: center;
+}
+.dashboardHero .mark span { color: #ff4753; }
+.dashboardHero h1 {
+ margin: 0;
+ color: #fff;
+ font-size: clamp(23px,2vw,30px);
+ letter-spacing: -.035em;
+}
+.dashboardHero p {
+ margin: 5px 0 0;
+ color: #aebbd0;
+ font-size: 13px;
+}
+.liveOperations {
+ display: inline-flex;
+ align-items: center;
+ gap: 8px;
+ padding: 9px 12px;
+ border: 1px solid rgba(255,255,255,.12);
+ border-radius: 999px;
+ color: #dbe6f5;
+ background: rgba(255,255,255,.07);
+ font-size: 11px;
+ font-weight: 700;
+ white-space: nowrap;
+}
+.liveOperations:before {
+ content: "";
+ width: 8px;
+ height: 8px;
+ border-radius: 50%;
+ background: #38d889;
+ box-shadow: 0 0 0 5px rgba(56,216,137,.12);
+}
+.dashboardPulse {
+ display: grid;
+ grid-template-columns: repeat(4,minmax(0,1fr));
+ gap: 12px;
+ margin-bottom: 16px;
+}
+.pulseCard {
+ position: relative;
+ padding: 17px 18px;
+ border-radius: 16px;
+ background: rgba(255,255,255,.92);
+ box-shadow: 0 12px 30px rgba(15,23,42,.05),inset 0 0 0 1px rgba(226,232,240,.8);
+ overflow: hidden;
+}
+.pulseCard:after {
+ content: "";
+ position: absolute;
+ inset: auto -24px -31px auto;
+ width: 78px;
+ height: 78px;
+ border-radius: 50%;
+ background: var(--pulse-soft,#eef5ff);
+}
+.pulseCard b {
+ position: relative;
+ z-index: 1;
+ display: block;
+ color: #718096;
+ font-size: 11px;
+ font-weight: 600;
+}
+.pulseCard strong {
+ position: relative;
+ z-index: 1;
+ display: block;
+ margin: 7px 0 3px;
+ color: #111d31;
+ font-size: 25px;
+ letter-spacing: -.04em;
+}
+.pulseCard small { position: relative; z-index: 1; color: #94a3b8; font-size: 10px; }
+.adminGridTop { align-items: start; }
+.adminGridTop > .panel { width: 100%; }
+@media(max-width:1050px) {
+ .dashboardPulse { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:700px) {
+ .dashboardHero { align-items: flex-start; padding: 18px; }
+ .liveOperations { display: none; }
+ .dashboardPulse { grid-template-columns: 1fr; }
+}
 
 @media(max-width: 980px) {
  .adminStats { grid-template-columns: repeat(4, 1fr); }
@@ -1822,12 +1938,28 @@ function drawAdminDashboard(c){
  const count=t=>rows.filter(b=>b.status===t).length;
  const delivered=count("Delivered"), delayed=count("Delayed"), accidents=count("Accident"), claims=count("Claims"), onroute=count("On Route");
  const total=rows.length;
- const paidTotal=rows.reduce((a,b)=>a+Number(b.amount||0),0);
+ const bookedValue=rows.reduce((a,b)=>a+Number(b.amount||0),0);
+ const activeJourneys=rows.filter(b=>["Driver Assigned","Picked Up","On Route","Delayed","Fault On Route","Assigned AA on Route"].includes(b.status)).length;
+ const unassigned=rows.filter(b=>!b.driver).length;
+ const outstanding=rows.filter(b=>b.paymentStatus!=="Paid").reduce((a,b)=>a+Number(b.amount||0),0);
+ const deliveryRate=total?Math.round((delivered/total)*100):0;
  const driverNames=[...new Set(rows.map(b=>b.driver).filter(Boolean))];
  const destinations={}; rows.forEach(b=>destinations[b.destination]=(destinations[b.destination]||0)+1);
  const topDest=Object.entries(destinations).sort((a,b)=>b[1]-a[1]).slice(0,5);
  c.innerHTML=`
- <div class="adminWelcome"><div class="mark">UK<br><span>ON</span></div><h1>Welcome to UK On Wheels Portal</h1></div>
+ <div class="dashboardHero">
+  <div class="dashboardHeroMain">
+   <div class="mark">UK<br><span>ON</span></div>
+   <div><h1>Welcome to UK On Wheels Portal</h1><p>Live operational control for bookings, drivers and deliveries.</p></div>
+  </div>
+  <div class="liveOperations">Operations connected</div>
+ </div>
+ <div class="dashboardPulse">
+  <div class="pulseCard" style="--pulse-soft:#e9f2ff"><b>Booked Value</b><strong>${currency(bookedValue)}</strong><small>Across ${total} bookings</small></div>
+  <div class="pulseCard" style="--pulse-soft:#e8f8f0"><b>Delivery Rate</b><strong>${deliveryRate}%</strong><small>${delivered} successfully delivered</small></div>
+  <div class="pulseCard" style="--pulse-soft:#fff2dd"><b>Active Journeys</b><strong>${activeJourneys}</strong><small>Assigned, collected or on route</small></div>
+  <div class="pulseCard" style="--pulse-soft:#ffe9ec"><b>Action Required</b><strong>${unassigned}</strong><small>${currency(outstanding)} outstanding</small></div>
+ </div>
  <div class="adminNotice">
   <div class="speaker">${ico("megaphone")}</div>
   <div><b>Notifications & Announcements</b><div class="muted">Share important news, updates or alerts with staff and clients.</div></div>
