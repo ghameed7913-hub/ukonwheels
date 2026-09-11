@@ -877,6 +877,8 @@ table tr:hover td { background: #fafcff; }
  .adminNotice { flex-direction: column; align-items: stretch; text-align: center; }
  .adminNotice > div:nth-child(2) { width: 100%; }
 }
+.topbarActions{position:relative}.profileMenu{display:none;position:absolute;right:0;top:48px;width:240px;background:#fff;border:1px solid var(--shell-border);border-radius:12px;box-shadow:0 14px 35px rgba(15,23,42,.18);padding:8px;z-index:100}.profileMenu.open{display:block}.profileMenuHeader{padding:10px 11px;border-bottom:1px solid var(--shell-border);margin-bottom:6px}.profileMenuHeader b,.profileMenuHeader small{display:block}.profileMenuHeader small{color:var(--shell-text-muted);margin-top:3px}.profileMenu button{width:100%;display:flex;align-items:center;gap:10px;border:0;background:#fff;padding:11px;border-radius:8px;text-align:left;color:var(--shell-ink);cursor:pointer}.profileMenu button:hover{background:#f1f5f9}.autoFieldWrap{display:flex;flex-direction:column;gap:6px;min-width:0}.autoFieldWrap.full{grid-column:1/-1}.autoFieldWrap .autoFieldLabel{margin:0}.trackingMap{overflow:hidden;border:1px solid var(--shell-border);border-radius:12px;margin-top:14px;background:#eef2f7}.trackingMap iframe{display:block;width:100%;height:360px;border:0}.driverProfileShortcut{position:absolute;right:15px;top:calc(14px + env(safe-area-inset-top));width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;display:grid;place-items:center}
+@media(max-width:800px){body.client-mode .profileMenu{position:fixed;right:10px;top:146px;width:calc(100% - 20px)}body.client-mode .trackingMap iframe{height:300px}}
 </style>
 </head>
 <body class="auth-checking">
@@ -1593,10 +1595,15 @@ function render(){
       <button class="topIconBtn" title="Notifications" onclick="go('${alertPage}')">${ICONS.bell}</button>
       <button class="topIconBtn" title="Settings" onclick="go('${settingsPage}')">${ICONS.gear}</button>
       <div class="topDivider"></div>
-      <div class="profileChip">
+       <div class="profileChip" onclick="toggleProfileMenu(event)">
        <div class="profileInfo"><strong>${displayName}</strong><small>${accountName}</small></div>
        <div class="profileAvatar">${initials}</div>
       </div>
+       <div class="profileMenu" id="profileMenu">
+        <div class="profileMenuHeader"><b>${displayName}</b><small>${accountName}</small></div>
+        <button onclick="openProfileSettings()">${ICONS.user}<span>My Profile & Settings</span></button>
+        <button onclick="logoutNow()">${ICONS.logoutIcon}<span>Sign Out</span></button>
+       </div>
      </div>
     </div>
     <div class="content" id="content"></div>
@@ -1606,6 +1613,13 @@ function render(){
  setTimeout(enhancePortalUsability,0);
 }
 
+function toggleProfileMenu(event){event?.stopPropagation();document.getElementById("profileMenu")?.classList.toggle("open")}
+function openProfileSettings(){
+ document.getElementById("profileMenu")?.classList.remove("open");
+ if(role==="driver"){driverMobileTab="profile";drawDriver(document.getElementById("content"));return}
+ go(role==="client"?"clientSettings":"settings");
+}
+
 function enhancePortalUsability(){
  const labels={
   bdate:"Booking date",ddate:"Requested delivery date",clientReportFrom:"Report from date",clientReportTo:"Report to date",
@@ -1613,20 +1627,29 @@ function enhancePortalUsability(){
   rFrom:"Report from date",rTo:"Report to date",holFrom:"Holiday start date",holTo:"Holiday end date",
   drvHolFrom:"Holiday start date",drvHolTo:"Holiday end date"
  };
+ const addControlLabel=(el,text)=>{
+  if(getComputedStyle(el).display==="none"){const wrap=el.closest(".autoFieldWrap");if(wrap){wrap.before(el);wrap.remove()}return}
+  if(el.closest("label")||el.closest(".autoFieldWrap"))return;
+  const label=document.createElement("label");
+  label.className="autoFieldLabel";label.htmlFor=el.id;label.textContent=text;
+  if(el.parentElement?.classList.contains("form")){
+   const wrap=document.createElement("div");
+   wrap.className="autoFieldWrap"+(el.classList.contains("full")?" full":"");
+   el.before(wrap);wrap.append(label,el);
+  }else el.before(label);
+ };
  document.querySelectorAll('input[type="date"]').forEach(el=>{
   if(!el.getAttribute("aria-label"))el.setAttribute("aria-label",labels[el.id]||el.title||"Select date");
-  if(!el.previousElementSibling?.classList.contains("autoFieldLabel")&&!el.closest("label")){
-   const label=document.createElement("label");label.className="autoFieldLabel";label.htmlFor=el.id;label.textContent=labels[el.id]||el.title||"Select date";el.before(label);
-  }
+  addControlLabel(el,labels[el.id]||el.title||"Select date");
   if(!el.dataset.pickerReady){el.dataset.pickerReady="1";el.addEventListener("click",()=>{try{el.showPicker?.()}catch(_){}})}
  });
  const fieldNames={customerType:"Customer type",biz:"Business",service:"Service type",miles:"Estimated miles",dropoff:"Latest drop-off time",amount:"Customer charge (£)",msgProvider:"Messaging provider"};
  document.querySelectorAll("#content .form input:not([type=hidden]):not([type=checkbox]):not([type=radio]),#content .form select,#content .form textarea").forEach(el=>{
-  if(getComputedStyle(el).display==="none"){if(el.previousElementSibling?.classList.contains("autoFieldLabel"))el.previousElementSibling.remove();return}
-  if(el.previousElementSibling?.classList.contains("autoFieldLabel")||el.closest("label")||el.type==="date")return;
+  if(getComputedStyle(el).display==="none"){const wrap=el.closest(".autoFieldWrap");if(wrap){wrap.before(el);wrap.remove()}return}
+  if(el.closest("label")||el.closest(".autoFieldWrap")||el.type==="date")return;
   const text=fieldNames[el.id]||el.placeholder||el.getAttribute("aria-label");
   if(!text)return;
-  const label=document.createElement("label");label.className="autoFieldLabel";label.htmlFor=el.id;label.textContent=text.replace(/\s*\\*$/,"");el.before(label);
+  addControlLabel(el,text.replace(/\s*\*$/,""));
  });
  document.querySelectorAll("table tr").forEach(tr=>{
   if(tr.querySelector("th")||tr.classList.contains("clickableBookingRow"))return;
@@ -1824,6 +1847,8 @@ function drawClientTracking(c){
  <div id="clientTrackingResult"></div>`;
  const el=document.getElementById("clientTrackRef");
  if(el)el.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();findClientTracking()}});
+ const previewTrack=(location.hostname==="localhost"||location.hostname==="127.0.0.1")?new URLSearchParams(location.search).get("ui-track"):null;
+ if(previewTrack&&el){el.value=previewTrack;setTimeout(findClientTracking,50)}
 }
 function findClientTracking(){
  const ref=document.getElementById("clientTrackRef")?.value.trim().toUpperCase();
@@ -1858,6 +1883,9 @@ function findClientTracking(){
   </div>
   <h4>Tracking Timeline</h4>
   ${history.length?history.map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join(""):`<div class="event"><b>Booking Created</b><div class="muted">${b.bookingDate||"—"}</div></div>`}
+   <h4>Journey Map</h4>
+   <div class="trackingMap"><iframe title="Journey map for ${b.ref}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?saddr=${encodeURIComponent(b.pickup||"United Kingdom")}&daddr=${encodeURIComponent(b.destination||"United Kingdom")}&output=embed"></iframe></div>
+   <div class="actions"><a class="btn secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.pickup||"")}&destination=${encodeURIComponent(b.destination||"")}">Open Full Map</a></div>
   <div class="panel" style="margin-top:12px;background:#f9fbfe"><b>Current Position in Workflow:</b> ${b.status}</div>
  </div>`;
 }
@@ -2277,13 +2305,6 @@ function drawAdminDashboard(c){
   <div class="pulseCard" style="--pulse-soft:#fff2dd"><b>Active Journeys</b><strong>${activeJourneys}</strong><small>Assigned, collected or on route</small></div>
   <div class="pulseCard" style="--pulse-soft:#ffe9ec"><b>Action Required</b><strong>${unassigned}</strong><small>${currency(outstanding)} outstanding</small></div>
  </div>
- <div class="adminNotice">
-  <div class="speaker">${ico("megaphone")}</div>
-  <div><b>Notifications & Announcements</b><div class="muted">Share important news, updates or alerts with staff and clients.</div></div>
-  <input id="adminNoticeText" placeholder="Type your announcement here...">
-  <button class="btn primary" onclick="postAdminAnnouncement()">Post Update</button>
- </div>
-
  <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:14px 16px 4px"><h3 style="margin:0">Vehicle Status Overview</h3></div>
   <div class="adminStats">
@@ -2353,11 +2374,7 @@ function adminStatus(status){
 }
 
 function userRoleList(){
- return [
-  "Super Admin","Admin","Operations Manager","Fleet Manager","Route Manager",
-  "Transport Planner","Dispatcher","Sales Person","Accountant","Book Keeping",
-  "HR Manager","HR Coordinator","Driver"
- ];
+ return ["Staff","Driver"];
 }
 
 function allPermissionOptions(){
@@ -2382,18 +2399,7 @@ function allPermissionOptions(){
 
 function defaultPermissionsForRole(role){
  const map={
-  "Super Admin":["desktop","booking","businesses","assign","status","miles","amount","destination","accounts","reports","hr","notifications","settings","users","driver"],
-  "Admin":["desktop","booking","businesses","assign","status","miles","amount","destination","accounts","reports","hr","notifications","users"],
-  "Operations Manager":["desktop","booking","businesses","assign","status","miles","destination","notifications"],
-  "Fleet Manager":["desktop","assign","status","miles","driver"],
-  "Route Manager":["desktop","assign","status","destination"],
-  "Transport Planner":["desktop","booking","businesses","assign","destination"],
-  "Dispatcher":["desktop","assign","status","notifications"],
-  "Sales Person":["desktop","booking","businesses"],
-  "Accountant":["desktop","accounts","reports","amount"],
-  "Book Keeping":["desktop","accounts","reports"],
-  "HR Manager":["desktop","hr","users"],
-  "HR Coordinator":["desktop","hr"],
+  "Staff":["desktop","booking","businesses","assign","status","miles","amount","destination","notifications"],
   "Driver":["driver"]
  };
  return map[role]||["desktop"];
@@ -2410,7 +2416,7 @@ function ensureStaffUsers(){
    saveStore(s);
  } else {
    let changed=false;
-   s.staffUsers.forEach(u=>{if(!u.permissions){u.permissions=defaultPermissionsForRole(u.role);changed=true;}});
+   s.staffUsers.forEach(u=>{if(u.role!=="Driver"&&u.role!=="Staff"){u.role="Staff";changed=true}if(!u.permissions){u.permissions=defaultPermissionsForRole(u.role);changed=true;}});
    if(changed)saveStore(s);
  }
  return getStore();
@@ -2949,7 +2955,7 @@ async function createStaffUser(){
 
  s.notifications.unshift({title:"User Created",text:fullName+" created as "+role+" with status "+status+"."});
  saveStore(s);
- await supabaseCreateLogin(email,tempPassword,{name:fullName,role:"staff",staff_role:role,permissions:defaultPermissionsForRole(role)});
+ await supabaseCreateLogin(email,tempPassword,{name:fullName,role:role==="Driver"?"driver":"staff",staff_role:role,permissions:defaultPermissionsForRole(role)});
  alert("User created successfully.");
  drawCreateUsers(document.getElementById("content"));
 }
@@ -2980,10 +2986,11 @@ function drawAssignUserRoles(c){
     </select>
    </div>
 
-   <h4>Allowed Portal Areas</h4>
-   <div class="grid2">
-    ${perms.map(([key,label])=>`<label class="step" style="margin:0"><input type="checkbox" id="perm_${i}_${key}" ${(u.permissions||[]).includes(key)?"checked":""}> ${label}</label>`).join("")}
-   </div>
+    <div id="permissions_${i}" style="${u.role==="Driver"?"display:none":""}">
+     <h4>Staff Permissions</h4>
+     <p class="muted">Permissions apply only to Staff accounts. Admin has full access and Drivers use the Driver portal.</p>
+     <div class="grid2">${perms.filter(([key])=>key!=="driver").map(([key,label])=>`<label class="step" style="margin:0"><input type="checkbox" id="perm_${i}_${key}" ${(u.permissions||[]).includes(key)?"checked":""}> ${label}</label>`).join("")}</div>
+    </div>
 
    <div style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:9px;background:#fff8e6">
     <b>Restricted access:</b> unticked sections should be hidden from this user in the production portal. They should not be able to open those pages directly either.
@@ -3002,16 +3009,14 @@ function applyRoleDefaults(index){
    const el=document.getElementById(`perm_${index}_${key}`);
    if(el)el.checked=defaults.includes(key);
  });
+ const box=document.getElementById("permissions_"+index);if(box)box.style.display=role==="Staff"?"block":"none";
 }
 
 function saveUserPermissions(index){
  let s=ensureStaffUsers(),u=s.staffUsers[index];
  const role=document.getElementById("role_"+index).value;
  const status=document.getElementById("status_"+index).value;
- const permissions=allPermissionOptions().filter(([key])=>document.getElementById(`perm_${index}_${key}`).checked).map(([key])=>key);
- if(role==="Super Admin" && permissions.length<allPermissionOptions().length){
-   if(!confirm("Super Admin normally has full access. Save restricted access anyway?"))return;
- }
+ const permissions=role==="Driver"?["driver"]:allPermissionOptions().filter(([key])=>document.getElementById(`perm_${index}_${key}`)?.checked).map(([key])=>key);
  u.role=role;u.status=status;u.permissions=permissions;
  s.notifications.unshift({title:"User Access Updated",text:u.name+" access updated for "+role+"."});
  saveStore(s);
@@ -4681,8 +4686,7 @@ function currentApproverRole(){
  return role;
 }
 function canApproveUpdates(){
- const r=currentApproverRole();
- return ["Super Admin","Admin","Operations Manager"].includes(r);
+ return role==="admin"||(role==="staff"&&hasPermission("status"));
 }
 function drawSingleBookingUpdate(c){
  const s=ensureApprovalData();
@@ -4771,7 +4775,7 @@ function drawUpdateApprovals(c){
  const s=ensureApprovalData(),rows=s.updateRequests.filter(r=>r.status==="Pending Approval");
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-   <div><h2 style="margin:0">Update Approvals</h2><p class="muted" style="margin:6px 0 0">Only Super Admin, Admin and Operations Manager can approve or reject booking changes.</p></div>
+  <div><h2 style="margin:0">Update Approvals</h2><p class="muted" style="margin:6px 0 0">Admin and Staff with Status Update permission can approve or reject booking changes.</p></div>
    <span class="badge">${rows.length} pending</span>
   </div>
  </div>
@@ -4796,7 +4800,7 @@ function drawUpdateApprovals(c){
  }).join(""):`<div class="panel" style="margin-top:12px"><p class="muted">No pending update approvals.</p></div>`}`;
 }
 function approveUpdateRequest(id){
- if(!canApproveUpdates())return alert("Only Super Admin, Admin and Operations Manager can approve updates.");
+ if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can approve updates.");
  let s=ensureApprovalData(),r=s.updateRequests.find(x=>x.id===id),b=s.bookings.find(x=>x.ref===r?.bookingRef);
  if(!r||!b)return;
  const approvedBy=currentUser?.name||currentStaffUser?.name||"Approver";
@@ -4819,7 +4823,7 @@ function approveUpdateRequest(id){
  drawUpdateApprovals(document.getElementById("content"));
 }
 function rejectUpdateRequest(id){
- if(!canApproveUpdates())return alert("Only Super Admin, Admin and Operations Manager can reject updates.");
+ if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can reject updates.");
  let s=ensureApprovalData(),r=s.updateRequests.find(x=>x.id===id),b=s.bookings.find(x=>x.ref===r?.bookingRef);
  if(!r||!b)return;
  const rejectedBy=currentUser?.name||currentStaffUser?.name||"Approver";
@@ -4837,7 +4841,7 @@ function drawStatus(c){
 }
 function updateStatus(){let s=getStore(),b=s.bookings.find(x=>x.ref===sb.value);b.status=ss.value;b.timeline.unshift({title:ss.value,text:"Status updated at "+new Date().toLocaleString()});saveStore(s);page="desktop";render()}
 function drawNotifications(c){
- const s=getStore();c.innerHTML=`<div class="panel"><h3>Notifications</h3><div class="form"><input id="nt" placeholder="Title"><textarea id="nm" placeholder="Message"></textarea></div><div class="actions"><button class="btn primary" onclick="postNotification()">Post Update</button></div>${s.notifications.map(n=>`<p><b>${n.title}</b> — ${n.text}</p>`).join("")}</div>`;
+ const s=getStore();c.innerHTML=`<div class="panel"><h3>Announcement Centre</h3><p class="muted">Create operational announcements and notifications away from the dashboard.</p><div class="form"><input id="nt" placeholder="Announcement title"><textarea id="nm" class="full" placeholder="Write the announcement or notification"></textarea></div><div class="actions"><button class="btn primary" onclick="postNotification()">Publish Announcement</button></div></div><div class="panel"><h3>Notification History</h3>${s.notifications.map(n=>`<div class="event"><b>${n.title}</b><div class="muted">${n.text}</div></div>`).join("")||"<p class='muted'>No notifications yet.</p>"}</div>`;
 }
 function postNotification(){let s=getStore();s.notifications.unshift({title:nt.value||"Update",text:nm.value||""});saveStore(s);draw()}
 function drawReports(c){
@@ -4949,6 +4953,7 @@ function drawDriver(c){
 
  c.innerHTML=`<div class="driverApp">
   <div class="driverHeader">
+    <button class="driverProfileShortcut" title="Open profile" onclick="setDriverMobileTab('profile')">${ICONS.user}</button>
    <small>UK ON WHEELS DRIVER</small>
    <h2>Hello, ${name}</h2>
    <div class="driverSummary">
