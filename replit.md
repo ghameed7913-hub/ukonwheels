@@ -27,6 +27,7 @@ A full operations portal for UK vehicle collection and delivery workflows, cover
 - The additive production schema is staged in `supabase/ukow_production_architecture.sql`. Do not switch frontend modules from `app_store` until the user confirms this SQL has run successfully in Supabase.
 - Public registration must always create a Client account. Only Admin may promote accounts to Staff, Driver or Admin.
 - The complete account-role model is limited to Admin, Staff, Driver and Client. Only Staff receives configurable page-level permissions; Admin has full access and Driver/Client use fixed role-specific portals.
+- Creating a business from the Admin Businesses module must also create and link an active Client portal profile. Account-management screens must retain activity history and offer activate/deactivate and guarded delete actions.
 - Public Client registrations are active immediately and do not require Admin approval. Supabase RLS must remain the security boundary for all Client data.
 - Production Client, Staff and Driver data must be isolated with Supabase RLS; never expose the shared `app_store` document to public accounts.
 - The portal loads protected operational data only after Supabase authentication so row-level security remains effective.

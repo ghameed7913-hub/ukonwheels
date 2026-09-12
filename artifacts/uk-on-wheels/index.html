@@ -1397,7 +1397,7 @@ async function supabaseCreateLogin(email,password,profileFields){
    if(error){alert("Account saved here, but the login could not be created: "+error.message);return false}
    const uid=data.user?.id;
    if(!uid){alert("Account saved. Note: Supabase has email confirmation ON — ask "+email+" to confirm their email before they can sign in, or turn confirmation off in Authentication settings for this prototype.");return true}
-   const {error:pErr}=await sb.from("profiles").insert({id:uid,email,status:"Active",...profileFields});
+    const {error:pErr}=await sb.from("profiles").upsert({id:uid,email,status:"Active",...profileFields},{onConflict:"id"});
    if(pErr){alert("Login created but the profile record failed to save: "+pErr.message);return false}
    return true;
  }catch(e){alert("Network error creating the login for "+email+".");return false}
@@ -2672,7 +2672,9 @@ function drawCreateUsers(c){
     <td><span class="badge ${u.status==="Active"?"green":"amber"}">${u.status}</span></td>
     <td>
       <button class="btn secondary" onclick="viewUserInformation(${i})">View Information</button>
+      <button class="btn secondary" onclick="viewStaffUserActivity(${i})">Activity</button>
       <button class="btn ${u.status==="Active"?"warn":"primary"}" onclick="toggleUserStatus(${i})">${u.status==="Active"?"Deactivate":"Activate"}</button>
+      <button class="btn danger" onclick="deleteStaffUser(${i})">Delete</button>
     </td>
    </tr>`).join("")}
   </table></div>
@@ -2950,7 +2952,8 @@ async function createStaffUser(){
   drivingLicenceExpiry,dvlaExpiry,passportExpiry,visaExpiry,rightToWorkExpiry,safetyExpiry,
   role,status,
   permissions:defaultPermissionsForRole(role),
-  createdAt:new Date().toLocaleString()
+   createdAt:new Date().toLocaleString(),
+   activityLog:[{at:new Date().toISOString(),action:"Account created",by:currentUser?.name||"Admin",details:role+" account created with "+status+" status."}]
  });
 
  s.notifications.unshift({title:"User Created",text:fullName+" created as "+role+" with status "+status+"."});
@@ -3024,14 +3027,41 @@ function saveUserPermissions(index){
  drawAssignUserRoles(document.getElementById("content"));
 }
 
-function toggleUserStatus(index){
+function viewStaffUserActivity(index){
+ const s=ensureStaffUsers(),u=s.staffUsers[index],box=document.getElementById("userInformationArea");if(!u||!box)return;
+ const jobs=(s.bookings||[]).filter(b=>b.driver===u.name).map(b=>({at:b.createdAt||b.bookingDate,action:"Booking "+b.ref,by:b.lastUpdatedBy||"Portal",details:(b.vehicle||"Vehicle")+" · "+(b.status||"Created")}));
+ const rows=[...(u.activityLog||[]),...jobs].sort((a,z)=>new Date(z.at||0)-new Date(a.at||0));
+ box.innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3>${u.name} Activity Log</h3><button class="btn secondary" onclick="document.getElementById('userInformationArea').innerHTML=''">Close</button></div>${rows.length?rows.map(x=>`<div class="event"><b>${x.action}</b><div>${x.details||""}</div><small class="muted">${x.at?new Date(x.at).toLocaleString("en-GB"):"—"} · ${x.by||"System"}</small></div>`).join(""):"<p class='muted'>No activity recorded yet.</p>"}</div>`;
+ box.scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function toggleUserStatus(index){
  let s=ensureStaffUsers();
  const u=s.staffUsers[index];
  if(!u)return;
- u.status=u.status==="Active"?"Inactive":"Active";
+ const next=u.status==="Active"?"Inactive":"Active";
+ if(next==="Inactive"&&!confirm("Deactivate "+u.name+"? They will no longer be able to use the portal."))return;
+ if(SUPABASE_CONFIGURED){
+  const {error}=await sb.from("profiles").update({status:next}).eq("email",u.email);
+  if(error)return alert("Account status could not be updated: "+error.message);
+ }
+ u.status=next;u.activityLog=u.activityLog||[];
+ u.activityLog.unshift({at:new Date().toISOString(),action:"Account "+next.toLowerCase(),by:currentUser?.name||"Admin",details:"Portal access changed to "+next+"."});
  s.notifications.unshift({title:"User Status Changed",text:u.name+" is now "+u.status+"."});
  saveStore(s);
  drawCreateUsers(document.getElementById("content"));
+}
+async function deleteStaffUser(index){
+ const s=ensureStaffUsers(),u=s.staffUsers[index];if(!u)return;
+ const activeJobs=(s.bookings||[]).filter(b=>b.driver===u.name&&b.status!=="Delivered");
+ if(activeJobs.length)return alert(u.name+" has "+activeJobs.length+" active booking(s). Reassign them before deleting this account.");
+ if(!confirm("Delete "+u.name+"? Portal access will be removed and the local user record deleted."))return;
+ if(!confirm("This cannot be undone. Continue?"))return;
+ if(SUPABASE_CONFIGURED){
+  const {error}=await sb.from("profiles").update({status:"Deleted"}).eq("email",u.email);
+  if(error)return alert("Account could not be deleted: "+error.message);
+ }
+ s.staffUsers.splice(index,1);s.notifications.unshift({title:"User Deleted",text:u.name+" account was deleted."});
+ saveStore(s);drawCreateUsers(document.getElementById("content"));
 }
 
 function drawQuickUpdate(c,field,title){
@@ -3951,9 +3981,9 @@ async function loadAdminUserDirectory(){
   const active=portalProfiles.filter(x=>String(x.status).toLowerCase()==="active").length;
   box.innerHTML=`<div class="panel" style="margin-top:12px">
    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h3 style="margin:0">Portal Users</h3><p class="muted">Every account registered through Supabase.</p></div><div><span class="badge">${portalProfiles.length} total accounts</span> <span class="badge green">${active} active</span></div></div>
-   <div class="scroll"><table class="portalUsersTable"><tr><th>Name</th><th>Email</th><th>Current Role</th><th>Status</th><th>Change Role</th></tr>
-   ${portalProfiles.map((u,i)=>`<tr><td><b>${u.full_name||u.name||"Unnamed user"}</b></td><td>${u.email||"—"}</td><td><span class="badge">${u.role||"client"}</span></td><td><span class="badge ${String(u.status).toLowerCase()==="active"?"green":"amber"}">${u.status||"Active"}</span></td><td><select id="profileRole_${i}" onchange="changePortalUserRole(${i},this.value)">${["client","staff","driver","admin"].map(r=>`<option value="${r}" ${String(u.role).toLowerCase()===r?"selected":""}>${r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select></td></tr>`).join("")}
-   </table></div></div>`;
+   <div class="scroll"><table class="portalUsersTable"><tr><th>Name</th><th>Email</th><th>Current Role</th><th>Status</th><th>Change Role</th><th>Actions</th></tr>
+   ${portalProfiles.map((u,i)=>`<tr><td><b>${u.full_name||u.name||"Unnamed user"}</b></td><td>${u.email||"—"}</td><td><span class="badge">${u.role||"client"}</span></td><td><span class="badge ${String(u.status).toLowerCase()==="active"?"green":String(u.status).toLowerCase()==="deleted"?"red":"amber"}">${u.status||"Active"}</span></td><td><select id="profileRole_${i}" onchange="changePortalUserRole(${i},this.value)">${["client","staff","driver","admin"].map(r=>`<option value="${r}" ${String(u.role).toLowerCase()===r?"selected":""}>${r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select></td><td><button class="btn secondary" onclick="viewPortalUserActivity(${i})">Activity</button> <button class="btn ${String(u.status).toLowerCase()==="active"?"warn":"primary"}" onclick="togglePortalUserStatus(${i})">${String(u.status).toLowerCase()==="active"?"Deactivate":"Activate"}</button> <button class="btn danger" onclick="deletePortalUser(${i})">Delete</button></td></tr>`).join("")}
+   </table></div><div id="portalUserActivityPanel"></div></div>`;
   enhancePortalUsability();
  }catch(e){box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Portal Users</h3><p class="muted">Could not load profiles: ${e.message||e}</p></div>`}
 }
@@ -3963,7 +3993,38 @@ async function changePortalUserRole(index,newRole){
  if(!confirm(`Change ${u.email||u.full_name||"this account"} to ${newRole}?`)){loadAdminUserDirectory();return}
  const {error}=await sb.rpc("admin_set_user_role",{p_user_id:u.id,p_role:newRole,p_staff_role:newRole==="staff"?"Staff":null,p_permissions:[]});
  if(error){alert("Role change failed: "+error.message);loadAdminUserDirectory();return}
+ recordAccountActivity("profile",u.id,"Role changed",`Account role changed to ${newRole}.`);
  alert("User role updated.");loadAdminUserDirectory();
+}
+function recordAccountActivity(entityType,entityId,action,details){
+ const s=getStore();s.accountActivity=s.accountActivity||[];
+ s.accountActivity.unshift({entityType,entityId,action,details,at:new Date().toISOString(),by:currentUser?.name||currentStaffUser?.name||"System"});
+ saveStore(s);
+}
+function viewPortalUserActivity(index){
+ const u=portalProfiles[index],box=document.getElementById("portalUserActivityPanel");if(!u||!box)return;
+ const rows=(getStore().accountActivity||[]).filter(x=>x.entityType==="profile"&&x.entityId===u.id);
+ box.innerHTML=`<div class="panel" style="margin-top:12px"><div style="display:flex;justify-content:space-between;align-items:center"><h3>${u.full_name||u.name||u.email} Activity Log</h3><button class="btn secondary" onclick="this.closest('.panel').remove()">Close</button></div>${rows.length?rows.map(x=>`<div class="event"><b>${x.action}</b><div>${x.details||""}</div><small class="muted">${new Date(x.at).toLocaleString("en-GB")} · ${x.by}</small></div>`).join(""):"<p class='muted'>No account changes recorded yet.</p>"}</div>`;
+ box.scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function togglePortalUserStatus(index){
+ const u=portalProfiles[index];if(!u)return;
+ const next=String(u.status).toLowerCase()==="active"?"Inactive":"Active";
+ if(next==="Inactive"&&!confirm("Deactivate "+(u.email||u.full_name||"this account")+"? They will no longer be able to use the portal."))return;
+ const {error}=await sb.from("profiles").update({status:next}).eq("id",u.id);
+ if(error)return alert("Status change failed: "+error.message);
+ recordAccountActivity("profile",u.id,"Account "+next.toLowerCase(),"Portal access changed to "+next+".");
+ loadAdminUserDirectory();
+}
+async function deletePortalUser(index){
+ const u=portalProfiles[index];if(!u)return;
+ if(currentSession?.user?.id===u.id)return alert("You cannot delete the account you are currently using.");
+ if(!confirm("Delete "+(u.email||u.full_name||"this account")+"? The account will be marked Deleted and portal access will be removed."))return;
+ if(!confirm("This action is intended to be permanent. Continue?"))return;
+ const {error}=await sb.from("profiles").update({status:"Deleted"}).eq("id",u.id);
+ if(error)return alert("Account could not be deleted: "+error.message);
+ recordAccountActivity("profile",u.id,"Account deleted","Portal access was removed and the account was marked Deleted.");
+ loadAdminUserDirectory();
 }
 
 function saveMessagingSettings(){
@@ -4433,12 +4494,14 @@ function drawBusinesses(c){
  </div>
 
  <div class="panel" style="margin-top:12px">
-  <h3>Create / Update Business Account</h3>
+   <h3>Create Business & Client Portal Account</h3>
+   <p class="muted">Use this when a Client has not registered themselves. Creating the business also creates their Client portal login.</p>
   <div class="form">
    <input id="bizName" placeholder="Business Name *">
    <input id="bizType" placeholder="Business Type">
    <input id="bizAddress" placeholder="Business Address *">
    <input id="bizPostcode" placeholder="Business Post Code *">
+    <input id="bizClientName" placeholder="Primary Client Contact Name *">
    <input id="bizEmail" type="email" placeholder="Business Email Address *">
    <input id="bizPhone" placeholder="Business Phone Number *">
    <input id="bizVat" placeholder="VAT Number">
@@ -4463,56 +4526,72 @@ function drawBusinesses(c){
    <input id="bizMinimum" type="number" step="0.01" placeholder="Minimum Charge (£)">
    <textarea id="bizTariffNotes" class="full" placeholder="Tariff Notes / Special Pricing"></textarea>
   </div>
-  <div class="actions"><button class="btn primary" onclick="saveBusinessProfile()">Create Business</button></div>
+   <div class="actions"><button class="btn primary" onclick="saveBusinessProfile()">Create Business & Client Account</button></div>
  </div>
 
  <div class="panel" style="margin-top:12px">
   <h3>Business Accounts</h3>
-  <div class="scroll">
-   <table style="min-width:1800px">
+   <div class="scroll">
+    <table style="min-width:1050px">
     <tr>
-     <th>Business Name</th><th>Type</th><th>Address</th><th>Post Code</th><th>Email</th><th>Phone</th>
-     <th>VAT No.</th><th>Company Reg.</th><th>Branches</th><th>Invoice Cycle</th>
-     <th>Accounts Contact</th><th>Accounts Phone</th><th>Accounts Email</th>
-     <th>Tariff</th><th>Per Mile</th><th>Minimum</th><th>Password</th><th>Action</th>
+      <th>Business</th><th>Primary Client</th><th>Contact</th><th>Billing</th><th>Tariff</th><th>Portal Account</th><th>Status</th><th>Actions</th>
     </tr>
     ${s.businesses.map((b,i)=>`<tr>
-      <td><b>${b.name||"—"}</b></td>
-      <td>${b.type||"—"}</td>
-      <td>${b.address||"—"}</td>
-      <td>${b.postcode||"—"}</td>
-      <td>${b.email||"—"}</td>
-      <td>${b.phone||"—"}</td>
-      <td>${b.vatNumber||"—"}</td>
-      <td>${b.companyReg||"—"}</td>
-      <td>${b.branches||"—"}</td>
-      <td>${b.invoiceCycle||"—"}</td>
-      <td>${b.accountsName||"—"}</td>
-      <td>${b.accountsPhone||"—"}</td>
-      <td>${b.accountsEmail||"—"}</td>
-      <td>${b.tariffType||"—"}</td>
-      <td>${b.perMile?`£${Number(b.perMile).toFixed(2)}`:"—"}</td>
-      <td>${b.minimumCharge?`£${Number(b.minimumCharge).toFixed(2)}`:"—"}</td>
-      <td><span class="badge">${b.passwordCreated?"Created":"Not Set"}</span></td>
-      <td><button class="btn secondary" onclick="editBusiness(${i})">Edit</button> <button class="btn secondary" onclick="changeBusinessPassword(${i})">Change Password</button></td>
+       <td><b>${b.name||"—"}</b><div class="muted">${b.type||"Business"}</div></td>
+       <td>${b.clientName||b.contact||"—"}</td>
+       <td>${b.email||"—"}<div class="muted">${b.phone||"—"}</div></td>
+       <td>${b.invoiceCycle||"—"}<div class="muted">${b.accountsEmail||""}</div></td>
+       <td>${b.tariffType||"—"}<div class="muted">${b.perMile?`£${Number(b.perMile).toFixed(2)}/mile`:""} ${b.minimumCharge?`· Min £${Number(b.minimumCharge).toFixed(2)}`:""}</div></td>
+       <td><span class="badge ${b.portalAccountCreated||b.passwordCreated?"green":"amber"}">${b.portalAccountCreated||b.passwordCreated?"Client Created":"Needs Attention"}</span></td>
+       <td><span class="badge ${b.status==="Inactive"?"amber":b.status==="Deleted"?"red":"green"}">${b.status||"Active"}</span></td>
+       <td>
+        <button class="btn secondary" onclick="editBusiness(${i})">Edit</button>
+        <button class="btn secondary" onclick="viewBusinessActivity(${i})">Activity</button>
+        <button class="btn ${b.status==="Inactive"?"primary":"warn"}" onclick="toggleBusinessStatus(${i})">${b.status==="Inactive"?"Activate":"Deactivate"}</button>
+        <button class="btn danger" onclick="deleteBusiness(${i})">Delete</button>
+       </td>
     </tr>`).join("")}
    </table>
   </div>
- </div>`;
-}
-function saveBusinessProfile(){
+  </div>
+  <div id="businessActivityPanel"></div>`;
+ }
+ async function saveBusinessProfile(){
  let s=getStore();
  const name=bizName.value.trim();
- if(!name||!bizAddress.value.trim()||!bizPostcode.value.trim()||!bizEmail.value.trim()||!bizPhone.value.trim()||!bizInvoiceCycle.value||!bizTariffType.value||!bizPassword.value){
-   return alert("Please complete Business Name, Address, Post Code, Email, Phone, Invoice Payment Option, Tariff Type and Create Password.");
+  const clientName=bizClientName.value.trim();
+  const email=bizEmail.value.trim();
+  if(!name||!clientName||!bizAddress.value.trim()||!bizPostcode.value.trim()||!email||!bizPhone.value.trim()||!bizInvoiceCycle.value||!bizTariffType.value||!bizPassword.value){
+   return alert("Please complete Business Name, Primary Client Contact, Address, Post Code, Email, Phone, Invoice Payment Option, Tariff Type and Create Password.");
  }
  if(s.businesses.some(b=>String(b.name).toLowerCase()===name.toLowerCase()))return alert("A business with this name already exists.");
- s.businesses.push({
-   name,
+  const createdAt=new Date().toISOString();
+  let businessId=null;
+  if(SUPABASE_CONFIGURED){
+   const {data,error}=await sb.from("businesses").insert({
+    legal_name:name,trading_name:name,business_type:bizType.value.trim(),email,phone:bizPhone.value.trim(),
+    address_line_1:bizAddress.value.trim(),postcode:bizPostcode.value.trim(),vat_number:bizVat.value.trim(),
+    company_number:bizReg.value.trim(),contact_name:clientName,accounts_contact_name:bizAccountName.value.trim(),
+    accounts_phone:bizAccountPhone.value.trim(),accounts_email:bizAccountEmail.value.trim(),invoice_cycle:bizInvoiceCycle.value,
+    tariff_type:bizTariffType.value,per_mile_rate:Number(bizPerMile.value||0),minimum_charge:Number(bizMinimum.value||0),status:"Active"
+   }).select("id").single();
+   if(error)return alert("Business could not be created in Supabase: "+error.message);
+   businessId=data.id;
+  }
+  const loginCreated=await supabaseCreateLogin(email,bizPassword.value,{
+   name:clientName,full_name:clientName,role:"client",account_type:"business",business_name:name,business_id:businessId,
+   client_user_name:clientName,client_access:"Full Access"
+  });
+  if(!loginCreated&&SUPABASE_CONFIGURED){
+   if(businessId)await sb.from("businesses").delete().eq("id",businessId);
+   return alert("The Business and Client account were not created. Correct the login issue and try again.");
+  }
+  const business={
+    id:businessId,name,clientName,
    type:bizType.value.trim(),
    address:bizAddress.value.trim(),
    postcode:bizPostcode.value.trim(),
-   email:bizEmail.value.trim(),
+    email,
    phone:bizPhone.value.trim(),
    vatNumber:bizVat.value.trim(),
    companyReg:bizReg.value.trim(),
@@ -4524,12 +4603,13 @@ function saveBusinessProfile(){
    tariffType:bizTariffType.value,
    perMile:Number(bizPerMile.value||0),
    minimumCharge:Number(bizMinimum.value||0),
-   tariffNotes:bizTariffNotes.value.trim(),
-   passwordCreated:true
- });
+    tariffNotes:bizTariffNotes.value.trim(),status:"Active",portalAccountCreated:loginCreated,passwordCreated:loginCreated,
+    createdAt,activityLog:[{at:createdAt,action:"Business and Client account created",by:currentUser?.name||"Admin",details:"Client portal login created for "+email}]
+  };
+  s.businesses.push(business);
  s.notifications.unshift({title:"Business Created",text:name+" business account created with "+bizTariffType.value+" tariff."});
  saveStore(s);
- alert("Business account created successfully.");
+  alert(loginCreated?"Business and Client portal account created successfully.":"Business created, but the Client login needs attention.");
  drawBusinesses(document.getElementById("content"));
 }
 function editBusiness(index){
@@ -4545,8 +4625,49 @@ function editBusiness(index){
  b.email=updatedEmail.trim();
  b.invoiceCycle=updatedCycle.trim();
  b.perMile=Number(updatedPerMile||0);
+ b.activityLog=b.activityLog||[];
+ b.activityLog.unshift({at:new Date().toISOString(),action:"Business details updated",by:currentUser?.name||"Admin",details:"Contact, billing or tariff information changed."});
  s.notifications.unshift({title:"Business Updated",text:b.name+" account details updated."});
  saveStore(s); drawBusinesses(document.getElementById("content"));
+}
+function viewBusinessActivity(index){
+ const s=getStore(),b=s.businesses[index],box=document.getElementById("businessActivityPanel");
+ if(!b||!box)return;
+ const related=(s.bookings||[]).filter(x=>x.business===b.name).map(x=>({at:x.createdAt||x.bookingDate,action:"Booking "+x.ref,by:x.createdBy||"Portal",details:(x.vehicle||"Vehicle")+" · "+(x.status||"Created")}));
+ const rows=[...(b.activityLog||[]),...related].sort((a,z)=>new Date(z.at||0)-new Date(a.at||0));
+ box.innerHTML=`<div class="panel" style="margin-top:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><h3 style="margin:0">${b.name} Activity Log</h3><p class="muted" style="margin:5px 0 0">Account changes and booking activity.</p></div><button class="btn secondary" onclick="document.getElementById('businessActivityPanel').innerHTML=''">Close</button></div>
+  ${rows.length?rows.map(x=>`<div class="event"><b>${x.action}</b><div>${x.details||""}</div><small class="muted">${x.at?new Date(x.at).toLocaleString("en-GB"):"—"} · ${x.by||"System"}</small></div>`).join(""):"<p class='muted'>No activity recorded yet.</p>"}
+ </div>`;
+ box.scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function toggleBusinessStatus(index){
+ const s=getStore(),b=s.businesses[index];if(!b)return;
+ const next=b.status==="Inactive"?"Active":"Inactive";
+ if(next==="Inactive"&&!confirm("Deactivate "+b.name+"? Their Client portal login will be disabled."))return;
+ if(SUPABASE_CONFIGURED){
+  if(b.id){const {error}=await sb.from("businesses").update({status:next}).eq("id",b.id);if(error)return alert("Business status could not be updated: "+error.message)}
+  const q=b.id?sb.from("profiles").update({status:next}).eq("business_id",b.id):sb.from("profiles").update({status:next}).eq("email",b.email);
+  const {error}=await q;if(error)return alert("Client portal status could not be updated: "+error.message);
+ }
+ b.status=next;b.activityLog=b.activityLog||[];
+ b.activityLog.unshift({at:new Date().toISOString(),action:"Account "+next.toLowerCase(),by:currentUser?.name||"Admin",details:"Business and Client portal access set to "+next+"."});
+ s.notifications.unshift({title:"Business Status Changed",text:b.name+" is now "+next+"."});saveStore(s);drawBusinesses(document.getElementById("content"));
+}
+async function deleteBusiness(index){
+ const s=getStore(),b=s.businesses[index];if(!b)return;
+ const related=(s.bookings||[]).filter(x=>x.business===b.name);
+ if(related.length)return alert("This business has "+related.length+" linked booking(s) and cannot be deleted. Deactivate it to preserve its history.");
+ if(!confirm("Permanently delete "+b.name+"? This removes the business record and disables its Client portal profile."))return;
+ if(!confirm("This cannot be undone. Delete "+b.name+" now?"))return;
+ if(SUPABASE_CONFIGURED){
+  const pq=b.id?sb.from("profiles").update({status:"Deleted"}).eq("business_id",b.id):sb.from("profiles").update({status:"Deleted"}).eq("email",b.email);
+  const {error:pError}=await pq;if(pError)return alert("Client portal access could not be removed: "+pError.message);
+  if(b.id){const {error}=await sb.from("businesses").delete().eq("id",b.id);if(error)return alert("Business could not be deleted: "+error.message)}
+ }
+ s.businesses.splice(index,1);
+ s.notifications.unshift({title:"Business Deleted",text:b.name+" was permanently deleted by "+(currentUser?.name||"Admin")+"."});
+ saveStore(s);drawBusinesses(document.getElementById("content"));
 }
 function changeBusinessPassword(index){
  const s=getStore(),b=s.businesses[index];
