@@ -42,6 +42,19 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .cameraBox canvas{width:100%;border-radius:8px;display:none}
 .cameraBox .camActions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
 .cameraBox .camActions button{flex:1;min-width:120px}
+.vehiclePhotoGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.vehiclePhotoGrid .cameraBox{padding:0;overflow:hidden;background:#fff}
+.vehiclePhotoGrid .cameraBox.wide{grid-column:1/-1}
+.cameraAreaTab{width:100%;border:0;background:#f4f7fb;color:#102b4e;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;font-weight:800;text-align:left;cursor:pointer}
+.cameraAreaTab .areaState{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#66758a}
+.cameraBox.camera-active{border-color:#123f73;box-shadow:0 0 0 2px rgba(18,63,115,.12)}
+.cameraBox.photo-stored{border-color:#17864b}
+.cameraBox.photo-stored .cameraAreaTab{background:#edf9f2;color:#116b3b}
+.cameraPreview{padding:10px}
+.storedPhoto{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:9px;background:#e9eef5}
+.storedPhotoStatus{display:flex;gap:7px;align-items:flex-start;padding:9px 10px;border-radius:8px;background:#edf9f2;color:#116b3b;font-weight:700;font-size:12px;line-height:1.35;margin-top:8px}
+.captureMeta.error{background:#fff1f1;color:#a71919;padding:8px;border-radius:8px}
+@media(max-width:560px){.vehiclePhotoGrid{grid-template-columns:1fr}.vehiclePhotoGrid .cameraBox.wide{grid-column:auto}}
 .captureMeta{font-size:12px;margin-top:7px;color:var(--muted);line-height:1.45}
 .muted{color:var(--muted)}@media(max-width:800px){.sidebar{position:relative;width:100%}.shell{display:block}.main{margin-left:0;width:100%}.form,.grid2{grid-template-columns:1fr}.content{padding:14px}}
 
@@ -897,8 +910,7 @@ table tr:hover td { background: #fafcff; }
         </div>
         <button id="signInBtn" class="btn primary" type="submit">Sign In</button>
       </form>
-      <div class="authDivider">New to UK On Wheels?</div>
-      <button class="btn secondaryAuth" type="button" onclick="showAuthView('signup')">Create Account</button>
+      <p class="muted" style="margin:18px 0 0;text-align:center">Accounts are created by UK On Wheels administrators.</p>
     </div>
     <div id="signUpView" class="authView hidden">
       <div class="authTitle">Create your account</div>
@@ -1031,7 +1043,7 @@ const LOGO_IMG="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFB
 const KEY="ukow_connected_v1";
 let role="admin", currentUser=null, currentStaffUser=null, page="desktop";
 let STORE_CACHE=null, storeReady=false, currentSession=null;
-let normalizedBookings=[],portalProfiles=[],normalizedChannel=null;
+let normalizedBookings=[],portalProfiles=[],portalClientProfiles=[],normalizedChannel=null;
 
 // One shared row (id='main') in the app_store table holds all booking/business/driver
 // data as JSON. getStore()/saveStore() below read/write this in-memory cache, which is
@@ -1088,13 +1100,25 @@ function normalizedBookingToPortal(b,pm={},bm={}){
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
  try{
-  const [br,pr,cr]=await Promise.all([sb.from("bookings").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("id,name,full_name,email,role,status,business_name,business_id"),sb.from("businesses").select("id,legal_name,trading_name")]);
+  const [br,pr,cr,er,ir]=await Promise.all([sb.from("bookings").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("id,name,full_name,email,role,status,business_name,business_id"),sb.from("businesses").select("id,legal_name,trading_name"),sb.from("booking_evidence").select("*").order("captured_at",{ascending:true}),sb.from("booking_inspections").select("*")]);
   if(br.error)throw br.error;
   portalProfiles=pr.data||[];
   const pm=Object.fromEntries(portalProfiles.map(x=>[x.id,x])),bm=Object.fromEntries((cr.data||[]).map(x=>[x.id,x]));
   normalizedBookings=(br.data||[]).map(x=>normalizedBookingToPortal(x,pm,bm));
-  const s=getStore(),legacy=(s.bookings||[]).filter(x=>!normalizedBookings.some(n=>n.ref===x.ref));
-  s.bookings=[...normalizedBookings,...legacy];STORE_CACHE=s;
+  if(!er.error){
+   await Promise.all((er.data||[]).map(async evidence=>{
+    const booking=normalizedBookings.find(x=>x._normalizedId===evidence.booking_id);if(!booking)return;
+    const signed=await sb.storage.from("booking-evidence").createSignedUrl(evidence.storage_path,3600);
+    const collection=evidence.evidence_type==="delivery"?"deliveryPhotos":"pickupPhotos";booking[collection]=booking[collection]||{};
+    booking[collection][evidence.id]={image:signed.data?.signedUrl||"",storagePath:evidence.storage_path,label:evidence.label,timestamp:evidence.captured_at,latitude:evidence.latitude,longitude:evidence.longitude,accuracy:evidence.accuracy_metres};
+   }));
+  }
+  if(!ir.error)(ir.data||[]).forEach(inspection=>{
+   const booking=normalizedBookings.find(x=>x._normalizedId===inspection.booking_id);if(!booking)return;
+   booking.pickupInspection={condition:inspection.condition,mileage:Number(inspection.odometer_mileage),fuelLevel:inspection.fuel_level,notes:inspection.notes,completedAt:inspection.inspected_at,driver:pm[inspection.inspected_by]?.full_name||pm[inspection.inspected_by]?.name||"Driver"};
+  });
+  const s=getStore(),previous=Object.fromEntries((s.bookings||[]).map(x=>[x.ref,x])),legacy=(s.bookings||[]).filter(x=>!normalizedBookings.some(n=>n.ref===x.ref));
+  s.bookings=[...normalizedBookings.map(n=>({...previous[n.ref],...n,pickupInspection:previous[n.ref]?.pickupInspection||n.pickupInspection,pickupPhotos:Object.keys(n.pickupPhotos||{}).length?n.pickupPhotos:previous[n.ref]?.pickupPhotos,deliveryPhotos:Object.keys(n.deliveryPhotos||{}).length?n.deliveryPhotos:previous[n.ref]?.deliveryPhotos})),...legacy];STORE_CACHE=s;
   if(!normalizedChannel){
    normalizedChannel=sb.channel("ukow-live-bookings").on("postgres_changes",{event:"*",schema:"public",table:"bookings"},async()=>{await loadNormalizedPortalData();if(!document.getElementById("app")?.classList.contains("hidden"))render()}).subscribe();
   }
@@ -1406,12 +1430,12 @@ async function loginNow(){
 async function supabaseCreateLogin(email,password,profileFields){
  if(!SUPABASE_CONFIGURED)return true; // local-only demo mode: nothing to do
  try{
-   const {data,error}=await sbAuthOnly.auth.signUp({email,password});
+   const {data,error}=await sbAuthOnly.auth.signUp({email,password,options:{data:{name:profileFields.name||profileFields.full_name,full_name:profileFields.full_name||profileFields.name,account_type:profileFields.account_type||"private",business_name:profileFields.business_name||null}}});
    if(error){alert("Account saved here, but the login could not be created: "+error.message);return false}
    const uid=data.user?.id;
-   if(!uid){alert("Account saved. Note: Supabase has email confirmation ON — ask "+email+" to confirm their email before they can sign in, or turn confirmation off in Authentication settings for this prototype.");return true}
-    const {error:pErr}=await sb.from("profiles").upsert({id:uid,email,status:"Active",...profileFields},{onConflict:"id"});
-   if(pErr){alert("Login created but the profile record failed to save: "+pErr.message);return false}
+   if(!uid){alert("Supabase did not return the new user. The account was not added to the portal directory.");return false}
+   const {error:pErr}=await sb.rpc("admin_finalize_created_profile",{p_user_id:uid,p_name:profileFields.full_name||profileFields.name||email,p_role:profileFields.role||"client",p_staff_role:profileFields.staff_role||null,p_permissions:profileFields.permissions||[],p_status:profileFields.status||"Active",p_account_type:profileFields.account_type||null,p_business_name:profileFields.business_name||null,p_business_id:profileFields.business_id||null});
+   if(pErr){alert("The Auth login was created, but its portal profile could not be finalized: "+pErr.message+". Apply supabase/portal_workflow_patch.sql and retry with a different email.");return false}
    return true;
  }catch(e){alert("Network error creating the login for "+email+".");return false}
 }
@@ -1702,7 +1726,7 @@ async function editBooking(ref){
  if(!values)return;
  if(!values.vehicle.trim()||!values.reg.trim()||!values.pickup.trim()||!values.destination.trim())return alert("Vehicle, registration, collection and delivery are required.");
  if(SUPABASE_CONFIGURED&&b._normalizedId){
-  const {error}=await sb.from("bookings").update({vehicle_make:values.vehicle.trim(),vehicle_registration:values.reg.trim().toUpperCase(),pickup_address:values.pickup.trim(),destination_address:values.destination.trim(),service_type:values.service.trim(),miles:Number(values.miles||0),booking_date:values.bookingDate||null,requested_delivery_date:values.deliveryDate||null,receiver_name:values.receiver.trim()||null,receiver_mobile:values.receiverMobile.trim()||null,amount:Number(values.amount||0),payment_status:values.paymentStatus}).eq("id",b._normalizedId);
+  const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_vehicle_make:values.vehicle.trim(),p_vehicle_registration:values.reg.trim().toUpperCase(),p_pickup_address:values.pickup.trim(),p_destination_address:values.destination.trim(),p_service_type:values.service.trim(),p_miles:Number(values.miles||0),p_booking_date:values.bookingDate||null,p_requested_delivery_date:values.deliveryDate||null,p_receiver_name:values.receiver.trim(),p_receiver_mobile:values.receiverMobile.trim(),p_amount:Number(values.amount||0),p_payment_status:values.paymentStatus});
   if(error)return alert("Booking could not be updated: "+error.message);
  }
  Object.assign(b,{vehicle:values.vehicle.trim(),reg:values.reg.trim().toUpperCase(),pickup:values.pickup.trim(),destination:values.destination.trim(),service:values.service.trim(),miles:Number(values.miles||0),bookingDate:values.bookingDate,deliveryDate:values.deliveryDate,receiver:values.receiver.trim(),receiverMobile:values.receiverMobile.trim(),amount:Number(values.amount||0),paymentStatus:values.paymentStatus});
@@ -2421,6 +2445,9 @@ function defaultPermissionsForRole(role){
  };
  return map[role]||["desktop"];
 }
+function supabasePermissionsForRole(role){
+ return role==="Staff"?["bookings:view","booking:create","bookings:status","drivers:view","drivers:assign","businesses:view","businesses:manage","messaging:manage"]:[];
+}
 
 function ensureStaffUsers(){
  let s=getStore();
@@ -2936,6 +2963,8 @@ async function createStaffUser(){
  const dvlaPicture=document.getElementById("cuDvlaPicture").files.length ? document.getElementById("cuDvlaPicture").files[0].name : "";
  const visaCard=document.getElementById("cuVisaCard")?.files?.length ? document.getElementById("cuVisaCard").files[0].name : "";
 
+ const loginCreated=await supabaseCreateLogin(email,tempPassword,{name:fullName,full_name:fullName,role:role==="Driver"?"driver":"staff",status,staff_role:role,permissions:supabasePermissionsForRole(role)});
+ if(!loginCreated)return;
  s.staffUsers.push({
   name:fullName,
   firstName:first,middleName:middle,lastName:last,
@@ -2956,7 +2985,6 @@ async function createStaffUser(){
 
  s.notifications.unshift({title:"User Created",text:fullName+" created as "+role+" with status "+status+"."});
  saveStore(s);
- await supabaseCreateLogin(email,tempPassword,{name:fullName,role:role==="Driver"?"driver":"staff",staff_role:role,permissions:defaultPermissionsForRole(role)});
  alert("User created successfully.");
  drawCreateUsers(document.getElementById("content"));
 }
@@ -3039,7 +3067,7 @@ async function toggleUserStatus(index){
  const next=u.status==="Active"?"Inactive":"Active";
  if(next==="Inactive"&&!await crmConfirm("They will no longer be able to use the portal.","Deactivate "+u.name,"Deactivate",true))return;
  if(SUPABASE_CONFIGURED){
-  const {error}=await sb.from("profiles").update({status:next}).eq("email",u.email);
+  const {error}=await sb.rpc("admin_set_profile_status",{p_status:next,p_email:u.email});
   if(error)return alert("Account status could not be updated: "+error.message);
  }
  u.status=next;u.activityLog=u.activityLog||[];
@@ -3054,7 +3082,7 @@ async function deleteStaffUser(index){
  if(activeJobs.length)return alert(u.name+" has "+activeJobs.length+" active booking(s). Reassign them before deleting this account.");
  if(!await crmConfirm("Portal access will be removed and the local user record deleted. This cannot be undone.","Delete "+u.name,"Delete user",true))return;
  if(SUPABASE_CONFIGURED){
-  const {error}=await sb.from("profiles").update({status:"Deleted"}).eq("email",u.email);
+  const {error}=await sb.rpc("admin_set_profile_status",{p_status:"Deleted",p_email:u.email});
   if(error)return alert("Account could not be deleted: "+error.message);
  }
  s.staffUsers.splice(index,1);s.notifications.unshift({title:"User Deleted",text:u.name+" account was deleted."});
@@ -3124,6 +3152,10 @@ async function confirmManualUpdate(ref,field,title){
  const newValue=(field==="miles"||field==="amount")?Number(raw):raw.trim();
  if((field==="miles"||field==="amount")&&!Number.isFinite(newValue))return alert("Please enter a valid number.");
  if(!await crmConfirm(`Current: ${oldValue}\nNew: ${newValue}`,`${title} · ${ref}`,"Save change"))return;
+ if(b._normalizedId&&SUPABASE_CONFIGURED){
+  const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_miles:field==="miles"?newValue:null,p_amount:field==="amount"?newValue:null,p_destination_address:field==="destination"?newValue:null});
+  if(error)return alert("The booking could not be updated in Supabase: "+error.message);
+ }
  b[field]=newValue;
  b.timeline=b.timeline||[];
  b.timeline.unshift({title,text:`${field} changed from "${oldValue}" to "${newValue}" at ${new Date().toLocaleString()}`});
@@ -3972,12 +4004,12 @@ async function loadAdminUserDirectory(){
  if(!box||role!=="admin")return;
  box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Portal Users</h3><p class="muted">Loading all registered accounts…</p></div>`;
  try{
-  const {data,error}=await sb.from("profiles").select("id,name,full_name,email,role,status,created_at").order("created_at",{ascending:false});
+  const {data,error}=await sb.from("profiles").select("id,name,full_name,email,role,status,created_at").neq("role","client").order("created_at",{ascending:false});
   if(error)throw error;
   portalProfiles=data||[];
   const active=portalProfiles.filter(x=>String(x.status).toLowerCase()==="active").length;
-  box.innerHTML=`<div class="panel" style="margin-top:12px">
-   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h3 style="margin:0">Portal Users</h3><p class="muted">Every account registered through Supabase.</p></div><div><span class="badge">${portalProfiles.length} total accounts</span> <span class="badge green">${active} active</span></div></div>
+   box.innerHTML=`<div class="panel" style="margin-top:12px">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h3 style="margin:0">Internal Portal Users</h3><p class="muted">Admin, Staff and Driver accounts. Client accounts are managed in Businesses.</p></div><div><span class="badge">${portalProfiles.length} internal accounts</span> <span class="badge green">${active} active</span></div></div>
    <div class="scroll"><table class="portalUsersTable"><tr><th>Name</th><th>Email</th><th>Current Role</th><th>Status</th><th>Change Role</th><th>Actions</th></tr>
    ${portalProfiles.map((u,i)=>`<tr><td><b>${u.full_name||u.name||"Unnamed user"}</b></td><td>${u.email||"—"}</td><td><span class="badge">${u.role||"client"}</span></td><td><span class="badge ${String(u.status).toLowerCase()==="active"?"green":String(u.status).toLowerCase()==="deleted"?"red":"amber"}">${u.status||"Active"}</span></td><td><select id="profileRole_${i}" onchange="changePortalUserRole(${i},this.value)">${["client","staff","driver","admin"].map(r=>`<option value="${r}" ${String(u.role).toLowerCase()===r?"selected":""}>${r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select></td><td><button class="btn secondary" onclick="viewPortalUserActivity(${i})">Activity</button> <button class="btn ${String(u.status).toLowerCase()==="active"?"warn":"primary"}" onclick="togglePortalUserStatus(${i})">${String(u.status).toLowerCase()==="active"?"Deactivate":"Activate"}</button> <button class="btn danger" onclick="deletePortalUser(${i})">Delete</button></td></tr>`).join("")}
    </table></div><div id="portalUserActivityPanel"></div></div>`;
@@ -4008,7 +4040,7 @@ async function togglePortalUserStatus(index){
  const u=portalProfiles[index];if(!u)return;
  const next=String(u.status).toLowerCase()==="active"?"Inactive":"Active";
  if(next==="Inactive"&&!await crmConfirm("Deactivate "+(u.email||u.full_name||"this account")+"? They will no longer be able to use the portal.","Deactivate user","Deactivate",true))return;
- const {error}=await sb.from("profiles").update({status:next}).eq("id",u.id);
+ const {error}=await sb.rpc("admin_set_profile_status",{p_status:next,p_user_id:u.id});
  if(error)return alert("Status change failed: "+error.message);
  recordAccountActivity("profile",u.id,"Account "+next.toLowerCase(),"Portal access changed to "+next+".");
  loadAdminUserDirectory();
@@ -4017,7 +4049,7 @@ async function deletePortalUser(index){
  const u=portalProfiles[index];if(!u)return;
  if(currentSession?.user?.id===u.id)return alert("You cannot delete the account you are currently using.");
  if(!await crmConfirm("The account will be marked Deleted, portal access will be removed, and its activity history will be retained.","Delete "+(u.email||u.full_name||"user"),"Delete user",true))return;
- const {error}=await sb.from("profiles").update({status:"Deleted"}).eq("id",u.id);
+ const {error}=await sb.rpc("admin_set_profile_status",{p_status:"Deleted",p_user_id:u.id});
  if(error)return alert("Account could not be deleted: "+error.message);
  recordAccountActivity("profile",u.id,"Account deleted","Portal access was removed and the account was marked Deleted.");
  loadAdminUserDirectory();
@@ -4243,6 +4275,7 @@ async function saveAmountUpdate(ref){
  if(!Number.isFinite(value)||value<0)return alert("Please enter a valid amount.");
  const old=Number(b.amount||0);
  if(!await crmConfirm(`Current: £${old.toFixed(2)}\nNew: £${value.toFixed(2)}`,`Update amount · ${b.ref}`,"Save amount"))return;
+ if(b._normalizedId&&SUPABASE_CONFIGURED){const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_amount:value});if(error)return alert("Amount could not be updated in Supabase: "+error.message)}
  b.amount=value;
  b.timeline=b.timeline||[];
  b.timeline.unshift({title:"Amount Updated",text:`Amount changed from £${old.toFixed(2)} to £${value.toFixed(2)} at ${new Date().toLocaleString()}`});
@@ -4283,6 +4316,7 @@ async function saveDestinationUpdate(ref){
  if(!value)return alert("Please enter the new destination.");
  const old=b.destination||"";
  if(!await crmConfirm(`Current: ${old}\nNew: ${value}`,`Update destination · ${b.ref}`,"Save destination"))return;
+ if(b._normalizedId&&SUPABASE_CONFIGURED){const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_destination_address:value});if(error)return alert("Destination could not be updated in Supabase: "+error.message)}
  b.destination=value;
  b.timeline=b.timeline||[];
  b.timeline.unshift({title:"Destination Updated",text:`Destination changed from "${old}" to "${value}" at ${new Date().toLocaleString()}`});
@@ -4298,9 +4332,18 @@ function evidenceSection(b){
  const pickup=Object.values(b.pickupPhotos||{});
  const delivery=Object.values(b.deliveryPhotos||{});
  const de=b.deliveryEvidence||{};
+ const inspection=b.pickupInspection||{};
  const img=(p,label)=>`<div class="evidenceCard"><b>${p.label||label}</b>${p.image?`<img src="${p.image}" style="width:100%;max-width:260px;border-radius:8px">`:""}<div class="muted">${p.dateText||""} ${p.timeText||""}</div></div>`;
  return `<div class="panel" style="margin-top:12px">
    <h3>Vehicle Evidence — ${b.ref}</h3>
+    <h4>Pickup Inspection Report</h4>
+    <div class="form">
+     <div><b>Vehicle Condition</b><p>${inspection.condition||"Not completed"}</p></div>
+     <div><b>Odometer Mileage</b><p>${inspection.mileage??"—"}</p></div>
+     <div><b>Fuel / Charge Level</b><p>${inspection.fuelLevel||"—"}</p></div>
+     <div><b>Inspected By</b><p>${inspection.driver||b.driver||"—"}</p></div>
+     <div class="full"><b>Inspection Notes</b><p>${inspection.notes||"No inspection report available yet."}</p></div>
+    </div>
    <h4>Pickup Pictures</h4>
    <div class="evidenceGrid">${pickup.length?pickup.map(p=>img(p,"Pickup Photo")).join(""):"<p class='muted'>Pickup pictures not available yet.</p>"}</div>
    <h4 style="margin-top:18px">Delivery Pictures</h4>
@@ -4484,16 +4527,17 @@ function drawBusinesses(c){
  const s=getStore();
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-   <div><h2 style="margin:0">Businesses</h2><p class="muted" style="margin:6px 0 0">Create and manage complete business accounts, billing details and assigned tariffs.</p></div>
-   <span class="badge">${s.businesses.length} businesses</span>
+    <div><h2 style="margin:0">Clients & Businesses</h2><p class="muted" style="margin:6px 0 0">Create and manage Private and Business Client portal accounts.</p></div>
+    <span class="badge">${s.businesses.length} managed records</span>
   </div>
  </div>
 
  <div class="panel" style="margin-top:12px">
-   <h3>Create Business & Client Portal Account</h3>
-   <p class="muted">Use this when a Client has not registered themselves. Creating the business also creates their Client portal login.</p>
+    <h3>Create Client Portal Account</h3>
+    <p class="muted">All Client accounts are created here. Select whether the Client is private or belongs to a business.</p>
   <div class="form">
-   <input id="bizName" placeholder="Business Name *">
+    <select id="bizAccountType"><option value="business">Business Client</option><option value="private">Private Client</option></select>
+    <input id="bizName" placeholder="Business / Client Account Name *">
    <input id="bizType" placeholder="Business Type">
    <input id="bizAddress" placeholder="Business Address *">
    <input id="bizPostcode" placeholder="Business Post Code *">
@@ -4522,7 +4566,7 @@ function drawBusinesses(c){
    <input id="bizMinimum" type="number" step="0.01" placeholder="Minimum Charge (£)">
    <textarea id="bizTariffNotes" class="full" placeholder="Tariff Notes / Special Pricing"></textarea>
   </div>
-   <div class="actions"><button class="btn primary" onclick="saveBusinessProfile()">Create Business & Client Account</button></div>
+    <div class="actions"><button class="btn primary" onclick="saveBusinessProfile()">Create Client Account</button></div>
  </div>
 
  <div class="panel" style="margin-top:12px">
@@ -4550,10 +4594,36 @@ function drawBusinesses(c){
    </table>
   </div>
   </div>
-  <div id="businessActivityPanel"></div>`;
+  <div id="businessActivityPanel"></div><div id="clientAccountsDirectory"></div>`;
+  loadClientAccountsDirectory();
  }
+async function loadClientAccountsDirectory(){
+ const box=document.getElementById("clientAccountsDirectory");if(!box||role!=="admin"||!SUPABASE_CONFIGURED)return;
+ box.innerHTML=`<div class="panel"><h3>Client Portal Accounts</h3><p class="muted">Loading Client accounts…</p></div>`;
+ const {data,error}=await sb.from("profiles").select("id,name,full_name,email,status,account_type,business_name,business_id,created_at").eq("role","client").order("created_at",{ascending:false});
+ if(error){box.innerHTML=`<div class="panel"><h3>Client Portal Accounts</h3><p class="muted">Could not load Client accounts: ${escapeCrm(error.message)}</p></div>`;return}
+ portalClientProfiles=data||[];
+ box.innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h3 style="margin:0">Client Portal Accounts</h3><p class="muted">Private and Business Clients, including accounts awaiting approval.</p></div><span class="badge">${portalClientProfiles.length} clients</span></div>
+ <div class="scroll"><table style="min-width:1050px"><tr><th>Client</th><th>Type</th><th>Business / Account</th><th>Email</th><th>Approval</th><th>Created</th><th>Actions</th></tr>
+ ${portalClientProfiles.length?portalClientProfiles.map((u,i)=>`<tr><td><b>${escapeCrm(u.full_name||u.name||"Unnamed Client")}</b></td><td><span class="badge">${String(u.account_type||"private").toLowerCase()==="business"?"Business Client":"Private Client"}</span></td><td>${escapeCrm(u.business_name||"Private Client")}</td><td>${escapeCrm(u.email||"—")}</td><td><span class="badge ${String(u.status).toLowerCase()==="active"?"green":String(u.status).toLowerCase()==="deleted"?"red":"amber"}">${String(u.status).toLowerCase()==="active"?"Approved":escapeCrm(u.status||"Pending")}</span></td><td>${u.created_at?new Date(u.created_at).toLocaleDateString("en-GB"):"—"}</td><td>${String(u.status).toLowerCase()!=="active"?`<button class="btn primary" onclick="setClientApproval(${i},'Active')">Approve</button>`:`<button class="btn warn" onclick="setClientApproval(${i},'Inactive')">Deactivate</button>`} <button class="btn secondary" onclick="viewClientAccountActivity(${i})">Activity</button></td></tr>`).join(""):`<tr><td colspan="7">No Client portal accounts found.</td></tr>`}
+ </table></div><div id="clientAccountActivity"></div></div>`;
+}
+async function setClientApproval(index,status){
+ const u=portalClientProfiles[index];if(!u)return;
+ const action=status==="Active"?"Approve":"Deactivate";
+ if(!await crmConfirm(`${action} ${u.email||u.full_name||"this Client"}?`,`${action} Client`,action,status!=="Active"))return;
+ const {error}=await sb.rpc("admin_set_profile_status",{p_status:status,p_user_id:u.id});if(error)return alert("Client status could not be updated: "+error.message);
+ recordAccountActivity("profile",u.id,status==="Active"?"Client approved":"Client deactivated","Client portal status changed to "+status+".");
+ crmToast("Client account updated.");loadClientAccountsDirectory();
+}
+function viewClientAccountActivity(index){
+ const u=portalClientProfiles[index],box=document.getElementById("clientAccountActivity");if(!u||!box)return;
+ const rows=(getStore().accountActivity||[]).filter(x=>x.entityType==="profile"&&x.entityId===u.id);
+ box.innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between"><h3>${escapeCrm(u.full_name||u.name||u.email)} Activity</h3><button class="btn secondary" onclick="this.closest('.panel').remove()">Close</button></div>${rows.length?rows.map(x=>`<div class="event"><b>${escapeCrm(x.action)}</b><div>${escapeCrm(x.details||"")}</div><small>${new Date(x.at).toLocaleString("en-GB")}</small></div>`).join(""):"<p class='muted'>No account activity recorded yet.</p>"}</div>`;
+}
  async function saveBusinessProfile(){
  let s=getStore();
+  const accountType=bizAccountType.value;
  const name=bizName.value.trim();
   const clientName=bizClientName.value.trim();
   const email=bizEmail.value.trim();
@@ -4563,7 +4633,7 @@ function drawBusinesses(c){
  if(s.businesses.some(b=>String(b.name).toLowerCase()===name.toLowerCase()))return alert("A business with this name already exists.");
   const createdAt=new Date().toISOString();
   let businessId=null;
-  if(SUPABASE_CONFIGURED){
+  if(SUPABASE_CONFIGURED&&accountType==="business"){
    const {data,error}=await sb.from("businesses").insert({
     legal_name:name,trading_name:name,business_type:bizType.value.trim(),email,phone:bizPhone.value.trim(),
     address_line_1:bizAddress.value.trim(),postcode:bizPostcode.value.trim(),vat_number:bizVat.value.trim(),
@@ -4575,7 +4645,7 @@ function drawBusinesses(c){
    businessId=data.id;
   }
   const loginCreated=await supabaseCreateLogin(email,bizPassword.value,{
-   name:clientName,full_name:clientName,role:"client",account_type:"business",business_name:name,business_id:businessId,
+   name:clientName,full_name:clientName,role:"client",status:"Active",account_type:accountType,business_name:accountType==="business"?name:null,business_id:businessId,
    client_user_name:clientName,client_access:"Full Access"
   });
   if(!loginCreated&&SUPABASE_CONFIGURED){
@@ -4583,7 +4653,7 @@ function drawBusinesses(c){
    return alert("The Business and Client account were not created. Correct the login issue and try again.");
   }
   const business={
-    id:businessId,name,clientName,
+    id:businessId,name,clientName,accountType,
    type:bizType.value.trim(),
    address:bizAddress.value.trim(),
    postcode:bizPostcode.value.trim(),
@@ -4650,8 +4720,7 @@ async function toggleBusinessStatus(index){
  if(next==="Inactive"&&!await crmConfirm("Their linked Client portal login will also be disabled.","Deactivate "+b.name,"Deactivate",true))return;
  if(SUPABASE_CONFIGURED){
   if(b.id){const {error}=await sb.from("businesses").update({status:next}).eq("id",b.id);if(error)return alert("Business status could not be updated: "+error.message)}
-  const q=b.id?sb.from("profiles").update({status:next}).eq("business_id",b.id):sb.from("profiles").update({status:next}).eq("email",b.email);
-  const {error}=await q;if(error)return alert("Client portal status could not be updated: "+error.message);
+   const {error}=await sb.rpc("admin_set_profile_status",{p_status:next,p_business_id:b.id||null,p_email:b.id?null:b.email});if(error)return alert("Client portal status could not be updated: "+error.message);
  }
  b.status=next;b.activityLog=b.activityLog||[];
  b.activityLog.unshift({at:new Date().toISOString(),action:"Account "+next.toLowerCase(),by:currentUser?.name||"Admin",details:"Business and Client portal access set to "+next+"."});
@@ -4663,8 +4732,7 @@ async function deleteBusiness(index){
  if(related.length)return alert("This business has "+related.length+" linked booking(s) and cannot be deleted. Deactivate it to preserve its history.");
  if(!await crmConfirm("This removes the business record and disables its linked Client portal profile. This cannot be undone.","Delete "+b.name,"Delete business",true))return;
  if(SUPABASE_CONFIGURED){
-  const pq=b.id?sb.from("profiles").update({status:"Deleted"}).eq("business_id",b.id):sb.from("profiles").update({status:"Deleted"}).eq("email",b.email);
-  const {error:pError}=await pq;if(pError)return alert("Client portal access could not be removed: "+pError.message);
+   const {error:pError}=await sb.rpc("admin_set_profile_status",{p_status:"Deleted",p_business_id:b.id||null,p_email:b.id?null:b.email});if(pError)return alert("Client portal access could not be removed: "+pError.message);
   if(b.id){const {error}=await sb.from("businesses").delete().eq("id",b.id);if(error)return alert("Business could not be deleted: "+error.message)}
  }
  s.businesses.splice(index,1);
@@ -5099,34 +5167,59 @@ function pickupSteps(b){
  return `<div class="step"><h4>1. Ready to Pickup</h4><label><input type="checkbox" id="ready_${b.ref}"> Ready to Pickup</label></div>
  <div class="step"><h4>2. Live Vehicle Camera</h4>
  <p class="muted"><b>Camera only:</b> gallery/saved photo upload is disabled. Each photo is captured live and stamped with date, time and GPS location.</p>
- <div class="grid2">${names.map((x,i)=>cameraSlot(b.ref,i,x)).join("")}</div></div>
+ <div class="vehiclePhotoGrid">${names.map((x,i)=>cameraSlot(b,i,x,i<2)).join("")}</div></div>
  <div class="step"><h4>3. Documents & Items — Live Camera</h4>
  <p class="muted">Logbook/V5C, keys, service history, mats and other items are recorded through the live camera.</p>
- <div class="grid2">${["Logbook / V5C","Keys","Service History Book","Mats","Other Documents / Items"].map((x,i)=>cameraSlot(b.ref,"d"+i,x)).join("")}</div></div>
- <div class="step"><h4>4. Driver Declaration</h4><label><input type="checkbox" id="dec_${b.ref}"> I declare that I have received the vehicle with the listed documents/items and that the vehicle condition is accurately shown in the live photographs. I accept responsibility for changes or damage after pickup.</label></div>
+ <div class="vehiclePhotoGrid">${["Logbook / V5C","Keys","Service History Book","Mats","Other Documents / Items"].map((x,i)=>cameraSlot(b,"d"+i,x,i===4)).join("")}</div></div>
+  <div class="step"><h4>4. Vehicle Inspection Report</h4><div class="form">
+   <select id="condition_${b.ref}"><option value="">Overall vehicle condition *</option><option>Good</option><option>Fair</option><option>Damage Present</option><option>Not Roadworthy</option></select>
+   <input id="mileage_${b.ref}" type="number" min="0" placeholder="Odometer mileage *">
+   <select id="fuel_${b.ref}"><option value="">Fuel / charge level *</option><option>Empty</option><option>Quarter</option><option>Half</option><option>Three Quarters</option><option>Full</option></select>
+   <textarea id="inspection_${b.ref}" class="full" placeholder="Existing damage, warning lights, missing items and inspection notes"></textarea>
+  </div></div>
+  <div class="step"><h4>5. Driver Declaration</h4><label><input type="checkbox" id="dec_${b.ref}"> I declare that I have received the vehicle with the listed documents/items and that the inspection and live photographs accurately record its condition. I accept responsibility for changes or damage after pickup.</label></div>
  <button class="btn primary" onclick="completePickup('${b.ref}')">Picked Up</button>`;
 }
-function cameraSlot(ref,id,label){
- return `<div class="cameraBox">
-   <b>${label}</b>
+function cameraSlot(b,id,label,wide=false){
+ const ref=b.ref,photo=b.pickupPhotos?.[String(id)],image=photo?.image||"";
+ return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}">
+   <button type="button" class="cameraAreaTab" onclick="startCamera('${ref}','${id}')"><span>${label}</span><span class="areaState">${photo?"✓ Stored":"Tap to photograph"}</span></button>
+   <div class="cameraPreview">
+   ${image?`<img class="storedPhoto" src="${image}" alt="${label} captured evidence">`:""}
    <video id="v_${ref}_${id}" playsinline autoplay></video>
    <canvas id="c_${ref}_${id}"></canvas>
    <div class="camActions">
-     <button class="btn secondary" onclick="startCamera('${ref}','${id}')">Open Camera</button>
-     <button class="btn primary" onclick="captureCamera('${ref}','${id}')">Take Photo</button>
+     <button class="btn secondary" onclick="startCamera('${ref}','${id}')">${photo?"Retake Photo":"Open Camera"}</button>
+     <button class="btn primary" onclick="captureCamera('${ref}','${id}')">Capture & Store</button>
    </div>
-   <div class="captureMeta" id="s_${ref}_${id}">Not captured</div>
+   <div class="captureMeta" id="s_${ref}_${id}" ${photo?'data-captured="1"':""}>${photo?`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${photo.dateText||new Date(photo.timestamp).toLocaleDateString("en-GB")} ${photo.timeText||new Date(photo.timestamp).toLocaleTimeString("en-GB",{hour12:false})}</div>`:"Not captured — tap this area to open the camera"}</div>
+   </div>
  </div>`;
 }
 const cameraStreams={};
+async function uploadBookingEvidence(b,canvas,evidenceType,label,latitude,longitude,accuracy,capturedAt){
+ if(!SUPABASE_CONFIGURED||!b?._normalizedId||!currentSession?.user?.id)return null;
+ const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.82));
+ if(!blob)throw new Error("Photo could not be prepared for upload.");
+ const safe=String(label||evidenceType).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+ const path=`${b._normalizedId}/${Date.now()}-${safe||"photo"}.jpg`;
+ const uploaded=await sb.storage.from("booking-evidence").upload(path,blob,{contentType:"image/jpeg",upsert:false});
+ if(uploaded.error)throw uploaded.error;
+ const saved=await sb.from("booking_evidence").insert({booking_id:b._normalizedId,evidence_type:evidenceType,storage_path:path,label,latitude,longitude,accuracy_metres:accuracy,captured_by:currentSession.user.id,captured_at:capturedAt});
+ if(saved.error){await sb.storage.from("booking-evidence").remove([path]);throw saved.error}
+ return path;
+}
 async function startCamera(ref,id){
  try{
    const video=document.getElementById(`v_${ref}_${id}`);
+    document.querySelectorAll(".cameraBox.camera-active").forEach(x=>x.classList.remove("camera-active"));
+    document.getElementById(`box_${ref}_${id}`)?.classList.add("camera-active");
    if(cameraStreams[ref+"_"+id]) cameraStreams[ref+"_"+id].getTracks().forEach(t=>t.stop());
    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});
    cameraStreams[ref+"_"+id]=stream;
    video.srcObject=stream;
    video.style.display="block";
+    const status=document.getElementById(`s_${ref}_${id}`);if(status){status.classList.remove("error");status.textContent="Camera open — position this vehicle area and tap Capture & Store."}
    await video.play();
  }catch(e){
    alert("Camera access is required. Please allow camera permission.");
@@ -5172,7 +5265,6 @@ async function captureCamera(ref,id){
  canvas.style.display="block";
  const status=document.getElementById(`s_${ref}_${id}`);
  status.innerHTML=`Live photo captured<br>${dateText} ${timeText}<br>${locationText}`;
- status.dataset.captured="1";
  status.dataset.timestamp=now.toISOString();
  status.dataset.latitude=latitude;
  status.dataset.longitude=longitude;
@@ -5183,16 +5275,25 @@ async function captureCamera(ref,id){
    let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
    if(b){
      b.pickupPhotos=b.pickupPhotos||{};
-     b.pickupPhotos[String(id)]={
+      const label=(document.querySelector(`#s_${CSS.escape(ref)}_${CSS.escape(String(id))}`)?.closest(".cameraBox")?.querySelector("b")?.textContent)||String(id);
+      let storagePath=null;
+       try{storagePath=await uploadBookingEvidence(b,canvas,"pickup",label,latitude,longitude,accuracy,now.toISOString())}catch(uploadError){status.classList.add("error");status.textContent="Photo was captured but not stored. Please retry: "+uploadError.message;alert("Photo could not be uploaded to secure storage: "+uploadError.message);return}
+      b.pickupPhotos[String(id)]={
        image:canvas.toDataURL("image/jpeg",0.58),
+        storagePath,
        timestamp:now.toISOString(),
        dateText,timeText,
        latitude,longitude,accuracy,
-       label:(document.querySelector(`#s_${CSS.escape(ref)}_${CSS.escape(String(id))}`)?.closest(".cameraBox")?.querySelector("b")?.textContent)||String(id)
+        label
      };
      saveStore(s);
+      status.dataset.captured="1";
+      status.classList.remove("error");
+      status.innerHTML=`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${dateText} ${timeText}<br>${locationText}</div>`;
+      document.getElementById(`box_${ref}_${id}`)?.classList.add("photo-stored");
+      const areaState=document.querySelector(`#box_${CSS.escape(ref)}_${CSS.escape(String(id))} .areaState`);if(areaState)areaState.textContent="✓ Stored";
    }
- }catch(e){console.warn("Could not persist pickup photo",e)}
+ }catch(e){status.classList.add("error");status.textContent="Photo was not stored. Please try again.";console.warn("Could not persist pickup photo",e);return}
 
  const key=ref+"_"+id;
  if(cameraStreams[key]){cameraStreams[key].getTracks().forEach(t=>t.stop());delete cameraStreams[key]}
@@ -5208,6 +5309,16 @@ async function completePickup(ref){
  if(document.getElementById(`s_${ref}_d1`).dataset.captured!=="1")
    return alert("Please take a live photo of the vehicle keys.");
  if(!document.getElementById("dec_"+ref).checked)return alert("Accept the driver declaration.");
+ const condition=document.getElementById("condition_"+ref)?.value;
+ const mileage=document.getElementById("mileage_"+ref)?.value;
+ const fuel=document.getElementById("fuel_"+ref)?.value;
+ const inspectionNotes=document.getElementById("inspection_"+ref)?.value.trim();
+ if(!condition||mileage===""||!fuel)return alert("Complete the vehicle condition, odometer mileage and fuel / charge level.");
+ if(b._normalizedId&&SUPABASE_CONFIGURED){
+  const inspectionResult=await sb.rpc("save_pickup_inspection",{p_booking_id:b._normalizedId,p_condition:condition,p_odometer_mileage:Number(mileage),p_fuel_level:fuel,p_notes:inspectionNotes||null});
+  if(inspectionResult.error)return alert("The inspection report could not be saved: "+inspectionResult.error.message);
+  if(!await persistNormalizedStatus(b,"Picked Up","Pickup evidence and inspection completed"))return;
+ }
 
  b.status="Picked Up";
  b.pickupCaptureMode="Live Camera + Timestamp + GPS";
@@ -5219,16 +5330,17 @@ async function completePickup(ref){
    driver:b.driver,
    bookingRef:b.ref
  };
+  b.pickupInspection={condition,mileage:Number(mileage),fuelLevel:fuel,notes:inspectionNotes||"No additional inspection notes",completedAt:new Date().toISOString(),driver:b.driver};
  b.timeline.unshift({title:"Picked Up",text:"Live camera pickup evidence, timestamp, GPS and declaration completed at "+new Date().toLocaleString()});
  s.notifications.unshift({title:"Picked Up",text:b.ref+" has been picked up by "+b.driver+" with live camera and GPS evidence."});
   saveStore(s);
-  if(!await persistNormalizedStatus(b,"Picked Up","Pickup evidence completed"))return;
  draw();
- }function onRouteSteps(b){return `<div class="step"><h4>Start Journey</h4><button class="btn primary" onclick="startJourney('${b.ref}')">Start Journey — On Route</button></div>`}
+ }function driverMapLink(b){return `<a class="btn secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.pickup||"")}&destination=${encodeURIComponent(b.destination||"")}">${ico("route")} Open Route Map</a>`}
+ function onRouteSteps(b){return `<div class="step"><h4>Pickup Complete</h4><p class="muted">Open the route, start the journey, or report a status change.</p><div class="actions">${driverMapLink(b)}<button class="btn primary" onclick="startJourney('${b.ref}')">Start Journey — On Route</button><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Report Accident</button></div></div>`}
  async function startJourney(ref){let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,"On Route","Journey started"))return;b.status="On Route";b.timeline.unshift({title:"On Route",text:"Journey started at "+new Date().toLocaleString()});saveStore(s);queueCustomerStatusMessage(b,"onRoute");draw()}
 function journeySteps(b){
  const deliveryPhotos=["Front at Delivery","Rear at Delivery","Left Side at Delivery","Right Side at Delivery","Interior at Delivery","Dashboard / Mileage at Delivery"];
- return `<div class="grid2"><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn warn" onclick="incident('${b.ref}','Fault On Route')">Vehicle Fault</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Accident</button><button class="btn secondary" onclick="incident('${b.ref}','Assigned AA on Route')">AA Assistance</button></div>
+ return `<div class="actions">${driverMapLink(b)}</div><div class="grid2"><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn warn" onclick="incident('${b.ref}','Fault On Route')">Vehicle Fault</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Accident</button><button class="btn secondary" onclick="incident('${b.ref}','Assigned AA on Route')">AA Assistance</button></div>
  <div class="step"><h4>Delivery Evidence — Live Camera</h4><p class="muted">Take live delivery photographs before handover.</p>
  <div class="grid2">${deliveryPhotos.map((x,i)=>deliveryCameraSlot(b.ref,i,x)).join("")}</div></div>
  <div class="step"><h4>Receiver & Driver Signatures</h4>
@@ -5281,12 +5393,16 @@ async function captureDeliveryCamera(ref,id){
  ctx.fillStyle="#fff";ctx.font=`bold ${fs}px Arial`;ctx.fillText("UK ON WHEELS — LIVE DELIVERY EVIDENCE",pad,canvas.height-strip+pad+fs);
  ctx.font=`${fs}px Arial`;ctx.fillText(`${dateText} ${timeText}`,pad,canvas.height-strip+pad+fs+line);
  ctx.fillText(`GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} ±${Math.round(accuracy)}m`,pad,canvas.height-strip+pad+fs+line*2);
- canvas.style.display="block";status.dataset.captured="1";status.innerHTML=`Captured<br>${dateText} ${timeText}`;
+ canvas.style.display="block";status.innerHTML=`Uploading secure evidence…<br>${dateText} ${timeText}`;
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
  if(b){
   b.deliveryPhotos=b.deliveryPhotos||{};
-  b.deliveryPhotos[String(id)]={image:canvas.toDataURL("image/jpeg",0.58),timestamp:now.toISOString(),dateText,timeText,latitude,longitude,accuracy,label:status.closest(".cameraBox")?.querySelector("b")?.textContent||String(id)};
+  const label=status.closest(".cameraBox")?.querySelector("b")?.textContent||String(id);
+  let storagePath=null;
+  try{storagePath=await uploadBookingEvidence(b,canvas,"delivery",label,latitude,longitude,accuracy,now.toISOString())}catch(uploadError){alert("Photo could not be uploaded to secure storage: "+uploadError.message);return}
+  b.deliveryPhotos[String(id)]={image:canvas.toDataURL("image/jpeg",0.58),storagePath,timestamp:now.toISOString(),dateText,timeText,latitude,longitude,accuracy,label};
   saveStore(s);
+  status.dataset.captured="1";status.innerHTML=`Captured and stored securely<br>${dateText} ${timeText}`;
  }
  const key="delivery_"+ref+"_"+id;if(cameraStreams[key]){cameraStreams[key].getTracks().forEach(t=>t.stop());delete cameraStreams[key]}video.style.display="none";
 }
