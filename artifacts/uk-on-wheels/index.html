@@ -877,7 +877,7 @@ table tr:hover td { background: #fafcff; }
  .adminNotice { flex-direction: column; align-items: stretch; text-align: center; }
  .adminNotice > div:nth-child(2) { width: 100%; }
 }
-.topbarActions{position:relative}.profileMenu{display:none;position:absolute;right:0;top:48px;width:240px;background:#fff;border:1px solid var(--shell-border);border-radius:12px;box-shadow:0 14px 35px rgba(15,23,42,.18);padding:8px;z-index:100}.profileMenu.open{display:block}.profileMenuHeader{padding:10px 11px;border-bottom:1px solid var(--shell-border);margin-bottom:6px}.profileMenuHeader b,.profileMenuHeader small{display:block}.profileMenuHeader small{color:var(--shell-text-muted);margin-top:3px}.profileMenu button{width:100%;display:flex;align-items:center;gap:10px;border:0;background:#fff;padding:11px;border-radius:8px;text-align:left;color:var(--shell-ink);cursor:pointer}.profileMenu button:hover{background:#f1f5f9}.autoFieldWrap{display:flex;flex-direction:column;gap:6px;min-width:0}.autoFieldWrap.full{grid-column:1/-1}.autoFieldWrap .autoFieldLabel{margin:0}.trackingMap{overflow:hidden;border:1px solid var(--shell-border);border-radius:12px;margin-top:14px;background:#eef2f7}.trackingMap iframe{display:block;width:100%;height:360px;border:0}.driverProfileShortcut{position:absolute;right:15px;top:calc(14px + env(safe-area-inset-top));width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;display:grid;place-items:center}
+.topbarActions{position:relative}.profileMenu{display:none;position:absolute;right:0;top:48px;width:240px;background:#fff;border:1px solid var(--shell-border);border-radius:12px;box-shadow:0 14px 35px rgba(15,23,42,.18);padding:8px;z-index:100}.profileMenu.open{display:block}.profileMenuHeader{padding:10px 11px;border-bottom:1px solid var(--shell-border);margin-bottom:6px}.profileMenuHeader b,.profileMenuHeader small{display:block}.profileMenuHeader small{color:var(--shell-text-muted);margin-top:3px}.profileMenu button{width:100%;display:flex;align-items:center;gap:10px;border:0;background:#fff;padding:11px;border-radius:8px;text-align:left;color:var(--shell-ink);cursor:pointer}.profileMenu button:hover{background:#f1f5f9}.autoFieldWrap{display:flex;flex-direction:column;gap:6px;min-width:0}.autoFieldWrap.full{grid-column:1/-1}.autoFieldWrap .autoFieldLabel{margin:0}.trackingMap{overflow:hidden;border:1px solid var(--shell-border);border-radius:12px;margin-top:14px;background:#eef2f7}.trackingMap iframe{display:block;width:100%;height:360px;border:0}.driverProfileShortcut{position:absolute;right:15px;top:calc(14px + env(safe-area-inset-top));width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;display:grid;place-items:center}.crmModalBackdrop{position:fixed;inset:0;background:rgba(3,15,30,.58);backdrop-filter:blur(3px);display:grid;place-items:center;padding:20px;z-index:10000}.crmModal{width:min(720px,100%);max-height:min(86vh,900px);overflow:auto;background:#fff;border-radius:16px;box-shadow:0 28px 80px rgba(0,0,0,.3);animation:crmModalIn .16s ease-out}.crmModalHead{padding:20px 22px 15px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.crmModalHead h3{margin:0}.crmModalClose{border:0;background:#eef2f7;width:34px;height:34px;border-radius:9px;font-size:20px;cursor:pointer}.crmModalBody{padding:22px}.crmModalFoot{padding:15px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;background:#f8fafc;border-radius:0 0 16px 16px}.crmModalBody .form{margin:0}.crmToastStack{position:fixed;right:20px;top:84px;z-index:12000;display:grid;gap:10px;width:min(380px,calc(100vw - 40px))}.crmToast{background:#10233d;color:#fff;padding:14px 16px;border-radius:12px;box-shadow:0 14px 35px rgba(0,0,0,.24);border-left:4px solid var(--red);animation:crmModalIn .16s ease-out}.crmToast b{display:block;margin-bottom:3px}#userInformationArea:not(:empty){position:fixed;inset:0;background:rgba(3,15,30,.58);backdrop-filter:blur(3px);display:grid;place-items:center;padding:20px;z-index:9999}#userInformationArea:not(:empty)>.panel{width:min(880px,100%);max-height:88vh;overflow:auto;margin:0;border-radius:16px}@keyframes crmModalIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
 @media(max-width:800px){body.client-mode .profileMenu{position:fixed;right:10px;top:146px;width:calc(100% - 20px)}body.client-mode .trackingMap iframe{height:300px}}
 </style>
 </head>
@@ -959,6 +959,35 @@ const sb = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_AN
 const sbAuthOnly = SUPABASE_CONFIGURED ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth:{persistSession:false,storageKey:"ukow-admin-user-creation"}}) : null;
 const PASSWORD_RECOVERY_LINK = location.hash.includes("type=recovery") || new URLSearchParams(location.search).get("type")==="recovery";
 
+function escapeCrm(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]))}
+function crmDialog({title="Confirm action",message="",fields=[],confirmText="Confirm",danger=false}={}){
+ return new Promise(resolve=>{
+  const backdrop=document.createElement("div");backdrop.className="crmModalBackdrop";
+  backdrop.innerHTML=`<div class="crmModal" role="dialog" aria-modal="true" aria-labelledby="crmModalTitle">
+   <div class="crmModalHead"><div><h3 id="crmModalTitle">${escapeCrm(title)}</h3>${message?`<p class="muted" style="margin:6px 0 0">${escapeCrm(message)}</p>`:""}</div><button class="crmModalClose" type="button" aria-label="Close">×</button></div>
+   <div class="crmModalBody">${fields.length?`<div class="form">${fields.map(f=>`<label class="autoFieldWrap ${f.full?"full":""}"><span class="autoFieldLabel">${escapeCrm(f.label)}</span>${f.type==="select"?`<select data-crm-field="${escapeCrm(f.name)}">${(f.options||[]).map(o=>`<option ${o===f.value?"selected":""}>${escapeCrm(o)}</option>`).join("")}</select>`:f.type==="textarea"?`<textarea data-crm-field="${escapeCrm(f.name)}">${escapeCrm(f.value)}</textarea>`:`<input data-crm-field="${escapeCrm(f.name)}" type="${escapeCrm(f.type||"text")}" value="${escapeCrm(f.value)}">`}</label>`).join("")}</div>`:`<p style="margin:0;white-space:pre-line">${escapeCrm(message)}</p>`}</div>
+   <div class="crmModalFoot"><button class="btn secondary crmCancel" type="button">Cancel</button><button class="btn ${danger?"danger":"primary"} crmConfirm" type="button">${escapeCrm(confirmText)}</button></div>
+  </div>`;
+  const finish=value=>{backdrop.remove();resolve(value)};
+  backdrop.querySelector(".crmModalClose").onclick=()=>finish(null);
+  backdrop.querySelector(".crmCancel").onclick=()=>finish(null);
+  backdrop.querySelector(".crmConfirm").onclick=()=>{
+   if(!fields.length)return finish(true);
+   const values={};backdrop.querySelectorAll("[data-crm-field]").forEach(el=>values[el.dataset.crmField]=el.value);finish(values);
+  };
+  backdrop.addEventListener("click",e=>{if(e.target===backdrop)finish(null)});
+  document.body.append(backdrop);backdrop.querySelector("input,select,textarea,.crmConfirm")?.focus();
+ });
+}
+async function crmConfirm(message,title="Confirm action",confirmText="Confirm",danger=false){return (await crmDialog({title,message,confirmText,danger}))===true}
+async function crmPrompt(message,value="",title="Enter details"){const result=await crmDialog({title,message,fields:[{name:"value",label:message,value}],confirmText:"Continue"});return result?result.value:null}
+function crmToast(message,title="Update"){
+ let stack=document.querySelector(".crmToastStack");if(!stack){stack=document.createElement("div");stack.className="crmToastStack";document.body.append(stack)}
+ const toast=document.createElement("div");toast.className="crmToast";toast.innerHTML=`<b>${escapeCrm(title)}</b><span>${escapeCrm(message)}</span>`;stack.append(toast);
+ setTimeout(()=>toast.remove(),4200);
+}
+window.alert=message=>crmToast(message);
+
 if(sb){
  sb.auth.onAuthStateChange((event)=>{
    if(event==="PASSWORD_RECOVERY")setTimeout(()=>showAuthView("recovery","Your recovery link is verified. Choose a new password.","info"),0);
@@ -1034,19 +1063,13 @@ async function initStoreFromSupabase(){
 }
 function defaults(){
  return {
-  businesses:[
-   {name:"Prestige Motors Ltd",contact:"John Smith",phone:"07700 900123"},
-   {name:"London Auto Group",contact:"Sarah Jones",phone:"07700 900124"}
-  ],
+  businesses:[],
   drivers:[
    {name:"James Wilson",email:"driver@ukonwheels.co.uk",phone:"07123 456789"},
    {name:"Mohammed Ali",email:"mohammed@ukonwheels.co.uk",phone:"07234 567890"}
   ],
-  bookings:[
-   {ref:"BK00130",business:"Prestige Motors Ltd",vehicle:"BMW 320d",reg:"XY21 ABC",pickup:"Glasgow",destination:"Edinburgh",service:"Vehicle Delivery",miles:48,bookingDate:"2026-08-18",deliveryDate:"2026-08-18",receiver:"John Smith",receiverMobile:"07700 900123",dropoffTill:"17:00",status:"Delivered",amount:180,driver:"James Wilson",paymentStatus:"Pending",timeline:[{title:"Delivered",text:"Vehicle delivered for invoice testing."}]},
-   {ref:"BK00129",business:"Prestige Motors Ltd",vehicle:"Ford Transit Custom",reg:"AB12 CDE",pickup:"Manchester",destination:"Birmingham",service:"Vehicle Delivery",miles:85,bookingDate:"2026-08-19",deliveryDate:"2026-08-19",receiver:"John Smith",receiverMobile:"07700 900123",dropoffTill:"18:00",status:"New Booked Vehicle",amount:145,driver:"",timeline:[{title:"Booking Created",text:"Booking created in Admin portal."}]}
-  ],
-  notifications:[{title:"Portal Connected",text:"Admin, Client and Driver views now use one shared connected data store."}]
+  bookings:[],
+  notifications:[]
  }
 }
 function getStore(){return STORE_CACHE||defaults()}
@@ -1077,6 +1100,21 @@ async function loadNormalizedPortalData(){
   }
  }catch(e){console.warn("Normalized portal data unavailable:",e.message||e)}
 }
+async function removeSeededDemoData(){
+ if(role!=="admin")return;
+ const s=getStore();if(s.demoDataRemoved)return;
+ const demoRefs=["BK00129","BK00130"],demoBusinesses=["Prestige Motors Ltd","London Auto Group"];
+ s.bookings=(s.bookings||[]).filter(b=>!demoRefs.includes(b.ref));
+ s.businesses=(s.businesses||[]).filter(b=>!demoBusinesses.includes(b.name));
+ s.notifications=(s.notifications||[]).filter(n=>!String(n.text||"").match(/BK00129|BK00130|Prestige Motors|London Auto Group|demo/i));
+ if(SUPABASE_CONFIGURED){
+  const bookingResult=await sb.from("bookings").delete().in("reference",demoRefs);
+  if(bookingResult.error)console.warn("Demo booking cleanup:",bookingResult.error.message);
+  const businessResult=await sb.from("businesses").delete().in("legal_name",demoBusinesses);
+  if(businessResult.error)console.warn("Demo business cleanup:",businessResult.error.message);
+ }
+ s.demoDataRemoved=true;saveStore(s);
+}
 
 function migrateClientData(){
  let s=getStore(),changed=false;
@@ -1084,36 +1122,9 @@ function migrateClientData(){
  s.bookings=s.bookings||[];
  s.invoices=s.invoices||[];
  s.notifications=s.notifications||[];
-
- // Repair older/fresh saved stores that contain no bookings.
- if(s.bookings.length===0){
-   s.bookings.push(
-    {ref:"BK00130",customerType:"Business",business:"Prestige Motors Ltd",vehicle:"BMW 320d",reg:"XY21 ABC",pickup:"Glasgow",destination:"Edinburgh",service:"Vehicle Delivery",miles:48,bookingDate:"2026-08-18",deliveryDate:"2026-08-18",receiver:"John Smith",receiverMobile:"07700 900123",dropoffTill:"17:00",status:"Delivered",amount:180,driver:"James Wilson",paymentStatus:"Pending",timeline:[{title:"Booking Created",text:"Booking created."},{title:"Driver Assigned",text:"James Wilson assigned."},{title:"Picked Up",text:"Vehicle picked up."},{title:"On Route",text:"Vehicle on route."},{title:"Delivered",text:"Vehicle delivered."}]},
-    {ref:"BK00129",customerType:"Business",business:"Prestige Motors Ltd",vehicle:"Ford Transit Custom",reg:"AB12 CDE",pickup:"Manchester",destination:"Birmingham",service:"Vehicle Delivery",miles:85,bookingDate:"2026-08-19",deliveryDate:"2026-08-19",receiver:"John Smith",receiverMobile:"07700 900123",dropoffTill:"18:00",status:"New Booked Vehicle",amount:145,driver:"",paymentStatus:"Pending",timeline:[{title:"Booking Created",text:"Booking created in Admin portal."}]}
-   );
-   changed=true;
- }
-
  s.bookings.forEach(b=>{
    if(!b.customerType){b.customerType="Business";changed=true}
-   if(b.business==="Prestige Motors Ltd" && !b.receiver){b.receiver="Customer";changed=true}
  });
- let prestige=s.businesses.find(b=>b.name==="Prestige Motors Ltd");
- if(!prestige){
-   s.businesses.push({
-    name:"Prestige Motors Ltd",
-    type:"Motor Trade",
-    address:"Client business address",
-    postcode:"",
-    email:"client@ukonwheels.co.uk",
-    phone:"",
-    invoiceCycle:"Monthly",
-    tariffType:"Custom Tariff"
-   });
-   changed=true;
- }else{
-   if(!prestige.email){prestige.email="client@ukonwheels.co.uk";changed=true}
- }
  if(changed)saveStore(s);
  return s;
 }
@@ -1157,6 +1168,7 @@ async function restoreSupabaseSession(){
      return;
    }
     await initStoreFromSupabase();
+    await removeSeededDemoData();
     applyAuthenticatedProfile(profile,data.session);
     await loadNormalizedPortalData();
    showAuthenticatedPortal();
@@ -1322,6 +1334,7 @@ async function loginNow(){
        return;
      }
        await initStoreFromSupabase();
+       await removeSeededDemoData();
        applyAuthenticatedProfile(profile,authData.session);
        await loadNormalizedPortalData();
    }catch(e){
@@ -1676,6 +1689,26 @@ function openBookingFromRow(ref){
  if(role==="client"){page="clientBookings";render();setTimeout(()=>clientViewBooking(ref),0);return}
  selectedStatusPage=b.status;page="statusPage";render();setTimeout(()=>viewStatusBooking(ref),0);
 }
+async function editBooking(ref){
+ const s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!b)return;
+ const values=await crmDialog({title:`Edit Booking · ${b.ref}`,message:"Update the transport record. Changes are recorded in the activity timeline.",confirmText:"Save booking",fields:[
+  {name:"vehicle",label:"Vehicle",value:b.vehicle||""},{name:"reg",label:"Registration",value:b.reg||""},
+  {name:"pickup",label:"Collection Address",value:b.pickup||"",full:true},{name:"destination",label:"Delivery Address",value:b.destination||"",full:true},
+  {name:"service",label:"Service",value:b.service||"Vehicle Delivery"},{name:"miles",label:"Miles",type:"number",value:b.miles||0},
+  {name:"bookingDate",label:"Booking Date",type:"date",value:b.bookingDate||""},{name:"deliveryDate",label:"Delivery Date",type:"date",value:b.deliveryDate||""},
+  {name:"receiver",label:"Receiver",value:b.receiver||""},{name:"receiverMobile",label:"Receiver Mobile",value:b.receiverMobile||""},
+  {name:"amount",label:"Charge Amount (£)",type:"number",value:b.amount||0},{name:"paymentStatus",label:"Payment Status",type:"select",options:["Pending","Paid"],value:b.paymentStatus||"Pending"}
+ ]});
+ if(!values)return;
+ if(!values.vehicle.trim()||!values.reg.trim()||!values.pickup.trim()||!values.destination.trim())return alert("Vehicle, registration, collection and delivery are required.");
+ if(SUPABASE_CONFIGURED&&b._normalizedId){
+  const {error}=await sb.from("bookings").update({vehicle_make:values.vehicle.trim(),vehicle_registration:values.reg.trim().toUpperCase(),pickup_address:values.pickup.trim(),destination_address:values.destination.trim(),service_type:values.service.trim(),miles:Number(values.miles||0),booking_date:values.bookingDate||null,requested_delivery_date:values.deliveryDate||null,receiver_name:values.receiver.trim()||null,receiver_mobile:values.receiverMobile.trim()||null,amount:Number(values.amount||0),payment_status:values.paymentStatus}).eq("id",b._normalizedId);
+  if(error)return alert("Booking could not be updated: "+error.message);
+ }
+ Object.assign(b,{vehicle:values.vehicle.trim(),reg:values.reg.trim().toUpperCase(),pickup:values.pickup.trim(),destination:values.destination.trim(),service:values.service.trim(),miles:Number(values.miles||0),bookingDate:values.bookingDate,deliveryDate:values.deliveryDate,receiver:values.receiver.trim(),receiverMobile:values.receiverMobile.trim(),amount:Number(values.amount||0),paymentStatus:values.paymentStatus});
+ b.timeline=b.timeline||[];b.timeline.unshift({title:"Booking Updated",text:"Booking details edited by "+(currentUser?.name||currentStaffUser?.name||"Portal user")+" · "+new Date().toLocaleString()});
+ saveStore(s);crmToast(`${b.ref} has been updated.`,"Booking saved");render();
+}
 
 async function persistNormalizedStatus(b,status,note=""){
  if(!b?._normalizedId||!sb)return true;
@@ -1819,7 +1852,7 @@ function drawClientBookings(c){
 function clientViewBooking(ref){
  const b=visibleBookings().find(x=>x.ref===ref),box=document.getElementById("clientBookingDetail");
  if(!b||!box)return;
- box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>${b.ref} — ${b.vehicle}</h3>
+  box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>${b.ref} — ${b.vehicle}</h3>
   <div class="form">
    <div><b>Status</b><p><span class="badge">${b.status}</span></p></div>
    <div><b>Driver</b><p>${b.driver||"Not assigned"}</p></div>
@@ -2050,13 +2083,13 @@ function drawClientUsers(c){
  </td>
  </tr>`).join("")}</table></div>`;
 }
-function toggleClientUserStatus(id){
+async function toggleClientUserStatus(id){
  let s=ensureClientUsersData();
  const u=(s.clientUsers||[]).find(x=>x.id===id);
  if(!u)return alert("Client user not found.");
 
  if(u.status==="Disabled"){
-   if(!confirm(`Activate ${u.name}'s account now?`))return;
+  if(!await crmConfirm(`Activate ${u.name}'s account now?`,"Activate user","Activate"))return;
    u.status="Active";
    u.activatedAt=new Date().toLocaleString();
    u.statusChangedAt=u.activatedAt;
@@ -2064,7 +2097,7 @@ function toggleClientUserStatus(id){
    saveStore(s);
    alert(`${u.name} is now Active and can sign in again.`);
  }else{
-   if(!confirm(`Disable ${u.name}'s account? They will not be able to sign in until activated again.`))return;
+  if(!await crmConfirm(`Disable ${u.name}'s account? They will not be able to sign in until activated again.`,"Deactivate user","Deactivate",true))return;
    u.status="Disabled";
    u.disabledAt=new Date().toLocaleString();
    u.statusChangedAt=u.disabledAt;
@@ -2074,10 +2107,10 @@ function toggleClientUserStatus(id){
  }
  drawClientUsers(document.getElementById("content"));
 }
-function changeClientUserPassword(id){
+async function changeClientUserPassword(id){
  let s=ensureClientUsersData(),u=(s.clientUsers||[]).find(x=>x.id===id);
  if(!u)return;
- const p=prompt("Enter a new password for "+u.name+":");
+ const p=await crmPrompt("Enter a new password for "+u.name+":","","Change password");
  if(p===null)return;
  if(p.length<8)return alert("Password must be at least 8 characters.");
  u.password=p;
@@ -2253,23 +2286,7 @@ function clientStatus(status){
 
 
 function ensureAdminDemoData(){
- let s=getStore(),changed=false;
- s.bookings=s.bookings||[];
- s.businesses=s.businesses||[];
- s.notifications=s.notifications||[];
- if(!s.businesses.some(b=>b.name==="Prestige Motors Ltd")){
-   s.businesses.push({name:"Prestige Motors Ltd",email:"client@ukonwheels.co.uk",invoiceCycle:"Monthly",tariffType:"Custom Tariff"});
-   changed=true;
- }
- if(s.bookings.length===0){
-   s.bookings.push(
-    {ref:"BK00129",customerType:"Business",business:"Prestige Motors Ltd",vehicle:"Ford Transit Custom",reg:"AB12 CDE",pickup:"Manchester",destination:"Birmingham",service:"Vehicle Delivery",miles:85,bookingDate:"2026-08-19",deliveryDate:"",receiver:"John Smith",receiverMobile:"07700 900123",status:"New Booked Vehicle",amount:145,paymentStatus:"Pending",driver:"",timeline:[{title:"Booking Created",text:"Demo booking created."}]},
-    {ref:"BK00130",customerType:"Business",business:"Prestige Motors Ltd",vehicle:"BMW 320d",reg:"XY21 ABC",pickup:"Glasgow",destination:"Edinburgh",service:"Vehicle Delivery",miles:48,bookingDate:"2026-08-18",deliveryDate:"2026-08-18",receiver:"John Smith",receiverMobile:"07700 900123",status:"Delivered",amount:180,paymentStatus:"Pending",driver:"James Wilson",timeline:[{title:"Delivered",text:"Demo delivered booking."}]}
-   );
-   changed=true;
- }
- if(changed)saveStore(s);
- return s;
+ const s=getStore();s.bookings=s.bookings||[];s.businesses=s.businesses||[];s.notifications=s.notifications||[];return s;
 }
 
 function drawAdminDashboard(c){
@@ -2408,11 +2425,7 @@ function defaultPermissionsForRole(role){
 function ensureStaffUsers(){
  let s=getStore();
  if(!s.staffUsers){
-   s.staffUsers=[
-    {name:"System Owner",email:"superadmin@ukonwheels.co.uk",phone:"",role:"Super Admin",status:"Active",permissions:defaultPermissionsForRole("Super Admin")},
-    {name:"Operations Admin",email:"operations@ukonwheels.co.uk",phone:"",role:"Admin",status:"Active",permissions:defaultPermissionsForRole("Admin")},
-    {name:"James Wilson",email:"driver@ukonwheels.co.uk",phone:"07123 456789",role:"Driver",status:"Active",permissions:defaultPermissionsForRole("Driver")}
-   ];
+   s.staffUsers=[];
    saveStore(s);
  } else {
    let changed=false;
@@ -2423,34 +2436,19 @@ function ensureStaffUsers(){
 }
 
 function drawUsers(c){
- const s=ensureStaffUsers();
- const roles=userRoleList();
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-   <div><h2 style="margin:0">Users</h2><p class="muted" style="margin:6px 0 0">Create staff accounts and control exactly what each user can access.</p></div>
-   <span class="badge">${s.staffUsers.length} users</span>
+   <div><h2 style="margin:0">Portal Users</h2><p class="muted" style="margin:6px 0 0">Manage every Admin, Staff, Driver and Client account from one place.</p></div>
   </div>
  </div>
 
  <div class="cards" style="margin-top:12px">
-  <div class="card" style="cursor:pointer" onclick="page='createUsers';render()"><b>Create Users</b><strong>+</strong><small>Add staff and assign designation</small></div>
-  <div class="card" style="cursor:pointer" onclick="page='assignRoles';render()"><b>Assign User Roles</b><strong>${ico("lock")}</strong><small>Restrict pages and permissions</small></div>
+  <div class="card" style="cursor:pointer" onclick="page='createUsers';render()"><b>Create Staff / Driver</b><strong>+</strong><small>Create an internal portal account</small></div>
+  <div class="card" style="cursor:pointer" onclick="page='assignRoles';render()"><b>Staff Permissions</b><strong>${ico("lock")}</strong><small>Control Staff access areas</small></div>
+  <div class="card" style="cursor:pointer" onclick="page='businesses';render()"><b>Create Business Client</b><strong>${ico("building")}</strong><small>Create a Business and Client login</small></div>
  </div>
-
- <div class="panel">
-  <h3>Role Summary</h3>
-  <div class="cards">
-   ${roles.map(r=>`<div class="card" style="cursor:pointer" onclick="openRoleSummaryPage('${r.replace(/'/g,"\'")}')"><b>${r}</b><strong>${s.staffUsers.filter(u=>u.role===r).length}</strong><small>Users</small></div>`).join("")}
-  </div>
- </div>
-
- <div class="panel">
-  <h3>Current Users</h3>
-  <div class="scroll"><table style="min-width:1050px">
-   <tr><th>Name</th><th>Email</th><th>Designation</th><th>Status</th><th>Allowed Areas</th></tr>
-   ${s.staffUsers.map(u=>`<tr><td><b>${u.name}</b></td><td>${u.email}</td><td><span class="badge">${u.role}</span></td><td><span class="badge ${u.status==="Active"?"green":"amber"}">${u.status}</span></td><td>${(u.permissions||[]).length} areas</td></tr>`).join("")}
-  </table></div>
- </div>`;
+ <div id="portalUserDirectory"></div>`;
+ loadAdminUserDirectory();
 }
 
 function openRoleSummaryPage(roleName){
@@ -3039,7 +3037,7 @@ async function toggleUserStatus(index){
  const u=s.staffUsers[index];
  if(!u)return;
  const next=u.status==="Active"?"Inactive":"Active";
- if(next==="Inactive"&&!confirm("Deactivate "+u.name+"? They will no longer be able to use the portal."))return;
+ if(next==="Inactive"&&!await crmConfirm("They will no longer be able to use the portal.","Deactivate "+u.name,"Deactivate",true))return;
  if(SUPABASE_CONFIGURED){
   const {error}=await sb.from("profiles").update({status:next}).eq("email",u.email);
   if(error)return alert("Account status could not be updated: "+error.message);
@@ -3054,8 +3052,7 @@ async function deleteStaffUser(index){
  const s=ensureStaffUsers(),u=s.staffUsers[index];if(!u)return;
  const activeJobs=(s.bookings||[]).filter(b=>b.driver===u.name&&b.status!=="Delivered");
  if(activeJobs.length)return alert(u.name+" has "+activeJobs.length+" active booking(s). Reassign them before deleting this account.");
- if(!confirm("Delete "+u.name+"? Portal access will be removed and the local user record deleted."))return;
- if(!confirm("This cannot be undone. Continue?"))return;
+ if(!await crmConfirm("Portal access will be removed and the local user record deleted. This cannot be undone.","Delete "+u.name,"Delete user",true))return;
  if(SUPABASE_CONFIGURED){
   const {error}=await sb.from("profiles").update({status:"Deleted"}).eq("email",u.email);
   if(error)return alert("Account could not be deleted: "+error.message);
@@ -3116,7 +3113,7 @@ function lookupBookingForUpdate(field,title){
  if(cancelBtn)cancelBtn.addEventListener("click",()=>{box.innerHTML=""});
 }
 
-function confirmManualUpdate(ref,field,title){
+async function confirmManualUpdate(ref,field,title){
  let s=getStore();
  const b=s.bookings.find(x=>x.ref===ref);
  const valEl=document.getElementById("manualNewValue");
@@ -3126,7 +3123,7 @@ function confirmManualUpdate(ref,field,title){
  const oldValue=field==="miles"?(b.miles||0):field==="amount"?(b.amount||0):(b.destination||"");
  const newValue=(field==="miles"||field==="amount")?Number(raw):raw.trim();
  if((field==="miles"||field==="amount")&&!Number.isFinite(newValue))return alert("Please enter a valid number.");
- if(!confirm(`Confirm ${title} for ${ref}?\n\nCurrent: ${oldValue}\nNew: ${newValue}`))return;
+ if(!await crmConfirm(`Current: ${oldValue}\nNew: ${newValue}`,`${title} · ${ref}`,"Save change"))return;
  b[field]=newValue;
  b.timeline=b.timeline||[];
  b.timeline.unshift({title,text:`${field} changed from "${oldValue}" to "${newValue}" at ${new Date().toLocaleString()}`});
@@ -3351,10 +3348,10 @@ function markInvoicePaid(invoiceNo){
  drawInvoices(document.getElementById("content"));
 }
 
-function reopenInvoice(invoiceNo){
+async function reopenInvoice(invoiceNo){
  let s=ensureAccountsData(),i=s.invoices.find(x=>x.invoiceNo===invoiceNo);
  if(!i)return;
- if(!confirm(`Reopen ${invoiceNo} and mark it Unpaid?`))return;
+ if(!await crmConfirm(`Reopen ${invoiceNo} and mark it Unpaid?`,"Reopen invoice","Reopen"))return;
  i.status="Unpaid";
  i.paymentDate="";
  i.paymentMethod="";
@@ -3990,7 +3987,7 @@ async function loadAdminUserDirectory(){
 
 async function changePortalUserRole(index,newRole){
  const u=portalProfiles[index];if(!u)return;
- if(!confirm(`Change ${u.email||u.full_name||"this account"} to ${newRole}?`)){loadAdminUserDirectory();return}
+ if(!await crmConfirm(`Change ${u.email||u.full_name||"this account"} to ${newRole}?`,"Change user role","Change role")){loadAdminUserDirectory();return}
  const {error}=await sb.rpc("admin_set_user_role",{p_user_id:u.id,p_role:newRole,p_staff_role:newRole==="staff"?"Staff":null,p_permissions:[]});
  if(error){alert("Role change failed: "+error.message);loadAdminUserDirectory();return}
  recordAccountActivity("profile",u.id,"Role changed",`Account role changed to ${newRole}.`);
@@ -4010,7 +4007,7 @@ function viewPortalUserActivity(index){
 async function togglePortalUserStatus(index){
  const u=portalProfiles[index];if(!u)return;
  const next=String(u.status).toLowerCase()==="active"?"Inactive":"Active";
- if(next==="Inactive"&&!confirm("Deactivate "+(u.email||u.full_name||"this account")+"? They will no longer be able to use the portal."))return;
+ if(next==="Inactive"&&!await crmConfirm("Deactivate "+(u.email||u.full_name||"this account")+"? They will no longer be able to use the portal.","Deactivate user","Deactivate",true))return;
  const {error}=await sb.from("profiles").update({status:next}).eq("id",u.id);
  if(error)return alert("Status change failed: "+error.message);
  recordAccountActivity("profile",u.id,"Account "+next.toLowerCase(),"Portal access changed to "+next+".");
@@ -4019,8 +4016,7 @@ async function togglePortalUserStatus(index){
 async function deletePortalUser(index){
  const u=portalProfiles[index];if(!u)return;
  if(currentSession?.user?.id===u.id)return alert("You cannot delete the account you are currently using.");
- if(!confirm("Delete "+(u.email||u.full_name||"this account")+"? The account will be marked Deleted and portal access will be removed."))return;
- if(!confirm("This action is intended to be permanent. Continue?"))return;
+ if(!await crmConfirm("The account will be marked Deleted, portal access will be removed, and its activity history will be retained.","Delete "+(u.email||u.full_name||"user"),"Delete user",true))return;
  const {error}=await sb.from("profiles").update({status:"Deleted"}).eq("id",u.id);
  if(error)return alert("Account could not be deleted: "+error.message);
  recordAccountActivity("profile",u.id,"Account deleted","Portal access was removed and the account was marked Deleted.");
@@ -4179,7 +4175,7 @@ function viewStatusBooking(ref){
  const b=getStore().bookings.find(x=>x.ref===ref);
  if(!b)return;
  statusBookingDetail.innerHTML=`<div class="panel" style="margin-top:12px">
-  <div style="display:flex;justify-content:space-between;align-items:center"><h3>${b.ref} — ${b.vehicle}</h3><span class="badge">${b.status}</span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h3>${b.ref} — ${b.vehicle}</h3><div class="actions"><span class="badge">${b.status}</span>${role==="admin"||role==="staff"?`<button class="btn primary" onclick="editBooking('${b.ref}')">Edit Booking</button>`:""}</div></div>
   <div class="form">
     <div><b>Business Name</b><p>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</p></div>
     <div><b>Registration</b><p>${b.reg||"—"}</p></div>
@@ -4239,14 +4235,14 @@ function lookupAmountBooking(){
  <div class="actions"><button class="btn primary" onclick="saveAmountUpdate('${b.ref}')">Save New Amount</button></div></div></div>`;
 }
 
-function saveAmountUpdate(ref){
+async function saveAmountUpdate(ref){
  let s=getStore(), b=s.bookings.find(x=>String(x.ref).toUpperCase()===String(ref).toUpperCase());
  const el=document.getElementById("newAmountValue");
  if(!b||!el)return alert("Unable to update amount.");
  const value=Number(el.value);
  if(!Number.isFinite(value)||value<0)return alert("Please enter a valid amount.");
  const old=Number(b.amount||0);
- if(!confirm(`Change amount for ${b.ref} from £${old.toFixed(2)} to £${value.toFixed(2)}?`))return;
+ if(!await crmConfirm(`Current: £${old.toFixed(2)}\nNew: £${value.toFixed(2)}`,`Update amount · ${b.ref}`,"Save amount"))return;
  b.amount=value;
  b.timeline=b.timeline||[];
  b.timeline.unshift({title:"Amount Updated",text:`Amount changed from £${old.toFixed(2)} to £${value.toFixed(2)} at ${new Date().toLocaleString()}`});
@@ -4279,14 +4275,14 @@ function lookupDestinationBooking(){
  <div class="actions"><button class="btn primary" onclick="saveDestinationUpdate('${b.ref}')">Save New Destination</button></div></div></div>`;
 }
 
-function saveDestinationUpdate(ref){
+async function saveDestinationUpdate(ref){
  let s=getStore(), b=s.bookings.find(x=>String(x.ref).toUpperCase()===String(ref).toUpperCase());
  const el=document.getElementById("newDestinationValue");
  if(!b||!el)return alert("Unable to update destination.");
  const value=el.value.trim();
  if(!value)return alert("Please enter the new destination.");
  const old=b.destination||"";
- if(!confirm(`Change destination for ${b.ref}?\n\nCurrent: ${old}\nNew: ${value}`))return;
+ if(!await crmConfirm(`Current: ${old}\nNew: ${value}`,`Update destination · ${b.ref}`,"Save destination"))return;
  b.destination=value;
  b.timeline=b.timeline||[];
  b.timeline.unshift({title:"Destination Updated",text:`Destination changed from "${old}" to "${value}" at ${new Date().toLocaleString()}`});
@@ -4404,7 +4400,7 @@ async function createBooking(){
  }else if(type==="Business"){
    business=document.getElementById("biz")?.value||"";
    if(business==="__manual__"){
-     business=prompt("Business name");
+    business=await crmPrompt("Business name","","Add business name");
      if(!business)return;
      if(!s.businesses.some(x=>String(x.name||"").toLowerCase()===business.toLowerCase())){
        s.businesses.push({name:business,contact:"",phone:""});
@@ -4612,19 +4608,26 @@ function drawBusinesses(c){
   alert(loginCreated?"Business and Client portal account created successfully.":"Business created, but the Client login needs attention.");
  drawBusinesses(document.getElementById("content"));
 }
-function editBusiness(index){
+async function editBusiness(index){
  const s=getStore(),b=s.businesses[index];
  if(!b)return;
- const updatedName=prompt("Business Name",b.name||""); if(updatedName===null)return;
- const updatedPhone=prompt("Business Phone",b.phone||""); if(updatedPhone===null)return;
- const updatedEmail=prompt("Business Email",b.email||""); if(updatedEmail===null)return;
- const updatedCycle=prompt("Invoice Payment Option: Weekly or Monthly",b.invoiceCycle||"Monthly"); if(updatedCycle===null)return;
- const updatedPerMile=prompt("Per Mile Charge (£)",b.perMile||0); if(updatedPerMile===null)return;
- b.name=updatedName.trim()||b.name;
- b.phone=updatedPhone.trim();
- b.email=updatedEmail.trim();
- b.invoiceCycle=updatedCycle.trim();
- b.perMile=Number(updatedPerMile||0);
+ const values=await crmDialog({title:"Edit Business",message:"Update the Client and billing record.",confirmText:"Save changes",fields:[
+  {name:"name",label:"Business Name",value:b.name||""},{name:"clientName",label:"Primary Client Contact",value:b.clientName||b.contact||""},
+  {name:"email",label:"Business Email",type:"email",value:b.email||""},{name:"phone",label:"Business Phone",value:b.phone||""},
+  {name:"address",label:"Business Address",value:b.address||""},{name:"postcode",label:"Post Code",value:b.postcode||""},
+  {name:"invoiceCycle",label:"Invoice Payment Option",type:"select",options:["Weekly","Monthly"],value:b.invoiceCycle||"Monthly"},
+  {name:"tariffType",label:"Tariff Type",type:"select",options:["Per Mile","Fixed Rate","Custom Tariff"],value:b.tariffType||"Custom Tariff"},
+  {name:"perMile",label:"Per Mile Charge (£)",type:"number",value:b.perMile||0},{name:"minimumCharge",label:"Minimum Charge (£)",type:"number",value:b.minimumCharge||0}
+ ]});
+ if(!values)return;
+ if(!values.name.trim()||!values.email.trim())return alert("Business Name and Email are required.");
+ if(SUPABASE_CONFIGURED&&b.id){
+  const {error}=await sb.from("businesses").update({legal_name:values.name.trim(),trading_name:values.name.trim(),contact_name:values.clientName.trim(),email:values.email.trim(),phone:values.phone.trim(),address_line_1:values.address.trim(),postcode:values.postcode.trim(),invoice_cycle:values.invoiceCycle,tariff_type:values.tariffType,per_mile_rate:Number(values.perMile||0),minimum_charge:Number(values.minimumCharge||0)}).eq("id",b.id);
+  if(error)return alert("Business could not be updated: "+error.message);
+ }
+ b.name=values.name.trim();b.clientName=values.clientName.trim();b.phone=values.phone.trim();b.email=values.email.trim();
+ b.address=values.address.trim();b.postcode=values.postcode.trim();b.invoiceCycle=values.invoiceCycle;b.tariffType=values.tariffType;
+ b.perMile=Number(values.perMile||0);b.minimumCharge=Number(values.minimumCharge||0);
  b.activityLog=b.activityLog||[];
  b.activityLog.unshift({at:new Date().toISOString(),action:"Business details updated",by:currentUser?.name||"Admin",details:"Contact, billing or tariff information changed."});
  s.notifications.unshift({title:"Business Updated",text:b.name+" account details updated."});
@@ -4644,7 +4647,7 @@ function viewBusinessActivity(index){
 async function toggleBusinessStatus(index){
  const s=getStore(),b=s.businesses[index];if(!b)return;
  const next=b.status==="Inactive"?"Active":"Inactive";
- if(next==="Inactive"&&!confirm("Deactivate "+b.name+"? Their Client portal login will be disabled."))return;
+ if(next==="Inactive"&&!await crmConfirm("Their linked Client portal login will also be disabled.","Deactivate "+b.name,"Deactivate",true))return;
  if(SUPABASE_CONFIGURED){
   if(b.id){const {error}=await sb.from("businesses").update({status:next}).eq("id",b.id);if(error)return alert("Business status could not be updated: "+error.message)}
   const q=b.id?sb.from("profiles").update({status:next}).eq("business_id",b.id):sb.from("profiles").update({status:next}).eq("email",b.email);
@@ -4658,8 +4661,7 @@ async function deleteBusiness(index){
  const s=getStore(),b=s.businesses[index];if(!b)return;
  const related=(s.bookings||[]).filter(x=>x.business===b.name);
  if(related.length)return alert("This business has "+related.length+" linked booking(s) and cannot be deleted. Deactivate it to preserve its history.");
- if(!confirm("Permanently delete "+b.name+"? This removes the business record and disables its Client portal profile."))return;
- if(!confirm("This cannot be undone. Delete "+b.name+" now?"))return;
+ if(!await crmConfirm("This removes the business record and disables its linked Client portal profile. This cannot be undone.","Delete "+b.name,"Delete business",true))return;
  if(SUPABASE_CONFIGURED){
   const pq=b.id?sb.from("profiles").update({status:"Deleted"}).eq("business_id",b.id):sb.from("profiles").update({status:"Deleted"}).eq("email",b.email);
   const {error:pError}=await pq;if(pError)return alert("Client portal access could not be removed: "+pError.message);
@@ -4669,12 +4671,12 @@ async function deleteBusiness(index){
  s.notifications.unshift({title:"Business Deleted",text:b.name+" was permanently deleted by "+(currentUser?.name||"Admin")+"."});
  saveStore(s);drawBusinesses(document.getElementById("content"));
 }
-function changeBusinessPassword(index){
+async function changeBusinessPassword(index){
  const s=getStore(),b=s.businesses[index];
  if(!b)return;
- const p1=prompt("Enter new password for "+b.name);
+ const p1=await crmPrompt("Enter new password for "+b.name,"","Change Client password");
  if(!p1)return;
- const p2=prompt("Confirm new password");
+ const p2=await crmPrompt("Confirm new password","","Confirm password");
  if(p1!==p2)return alert("Passwords do not match.");
  b.passwordCreated=true;
  b.passwordChangedAt=new Date().toLocaleString();
@@ -5303,7 +5305,7 @@ function initSignaturePad(id){
  signaturePads[id]=true;
 }
 function clearSignature(id){const c=document.getElementById(id);if(!c)return;const ctx=c.getContext("2d");ctx.clearRect(0,0,c.width,c.height);c.dataset.signed="";}
-async function incident(ref,status){let note=prompt("Add location / notes for "+status,"");let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,status,note||"No notes"))return;b.status=status;b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
+async function incident(ref,status){let note=await crmPrompt("Add location / notes for "+status,"","Report "+status);let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,status,note||"No notes"))return;b.status=status;b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
 async function deliver(ref){
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
  if(!b)return;
