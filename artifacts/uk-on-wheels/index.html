@@ -1064,7 +1064,11 @@ async function initStoreFromSupabase(){
    storeReady=true;
    sb.channel("app_store_changes")
      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_store",filter:"id=eq.main"},payload=>{
-       STORE_CACHE=payload.new.data;
+       const incoming=payload.new.data;
+       const current=Object.fromEntries((STORE_CACHE?.bookings||[]).filter(b=>b._normalizedId).map(b=>[b.ref,b]));
+       incoming.bookings=(incoming.bookings||[]).map(b=>current[b.ref]?{...b,...current[b.ref]}:b);
+       for(const [ref,b] of Object.entries(current))if(!incoming.bookings.some(x=>x.ref===ref))incoming.bookings.push(b);
+       STORE_CACHE=incoming;
        if(document.getElementById("app") && !document.getElementById("app").classList.contains("hidden"))draw();
      }).subscribe();
  }catch(e){
@@ -1089,13 +1093,20 @@ function saveStore(s){
  STORE_CACHE=s;
  window.dispatchEvent(new Event("ukowupdate"));
  if(!SUPABASE_CONFIGURED){localStorage.setItem(KEY,JSON.stringify(s));return}
- sb.from("app_store").update({data:s,updated_at:new Date().toISOString()}).eq("id","main")
+ // Stored photos already live in private Storage; retain any older unsynced photos to avoid deleting existing evidence.
+ const persisted={...s,bookings:(s.bookings||[]).map(b=>{
+  if(!b._normalizedId)return b;
+  const localOnly=photos=>Object.fromEntries(Object.entries(photos||{}).filter(([,photo])=>!photo.storagePath));
+  return {...b,pickupPhotos:localOnly(b.pickupPhotos),deliveryPhotos:localOnly(b.deliveryPhotos)};
+ })};
+ sb.from("app_store").update({data:persisted,updated_at:new Date().toISOString()}).eq("id","main")
    .then(({error})=>{if(error)console.error("Supabase save failed (change is still visible locally):",error)});
 }
 function currency(v){return "£"+Number(v||0).toFixed(2)}
+function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
- return {_normalizedId:b.id,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+ return {_normalizedId:b.id,_businessId:b.business_id,_createdById:b.created_by,_driverId:b.driver_id,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
 }
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
@@ -1105,20 +1116,28 @@ async function loadNormalizedPortalData(){
   portalProfiles=pr.data||[];
   const pm=Object.fromEntries(portalProfiles.map(x=>[x.id,x])),bm=Object.fromEntries((cr.data||[]).map(x=>[x.id,x]));
   normalizedBookings=(br.data||[]).map(x=>normalizedBookingToPortal(x,pm,bm));
-  if(!er.error){
-   await Promise.all((er.data||[]).map(async evidence=>{
-    const booking=normalizedBookings.find(x=>x._normalizedId===evidence.booking_id);if(!booking)return;
-    const signed=await sb.storage.from("booking-evidence").createSignedUrl(evidence.storage_path,3600);
-    const collection=evidence.evidence_type==="delivery"?"deliveryPhotos":"pickupPhotos";booking[collection]=booking[collection]||{};
-    booking[collection][evidence.id]={image:signed.data?.signedUrl||"",storagePath:evidence.storage_path,label:evidence.label,timestamp:evidence.captured_at,latitude:evidence.latitude,longitude:evidence.longitude,accuracy:evidence.accuracy_metres};
-   }));
+  if(er.error)console.warn("Booking evidence could not be loaded:",er.error);
+  else if(er.data?.length){
+   const rows=er.data.filter(e=>normalizedBookings.some(b=>b._normalizedId===e.booking_id));
+   const signed=await sb.storage.from("booking-evidence").createSignedUrls(rows.map(e=>e.storage_path),3600);
+   if(signed.error)console.warn("Evidence photo links could not be created:",signed.error);
+   rows.forEach((e,i)=>{
+    const booking=normalizedBookings.find(x=>x._normalizedId===e.booking_id);
+    if(!booking)return;
+    const collection=e.evidence_type==="delivery"?"deliveryPhotos":"pickupPhotos";
+    booking[collection]=booking[collection]||{};
+    booking[collection][e.id]={image:signed.data?.[i]?.signedUrl||"",storagePath:e.storage_path,label:e.label,timestamp:e.captured_at,latitude:e.latitude,longitude:e.longitude,accuracy:e.accuracy_metres};
+   });
   }
   if(!ir.error)(ir.data||[]).forEach(inspection=>{
    const booking=normalizedBookings.find(x=>x._normalizedId===inspection.booking_id);if(!booking)return;
    booking.pickupInspection={condition:inspection.condition,mileage:Number(inspection.odometer_mileage),fuelLevel:inspection.fuel_level,notes:inspection.notes,completedAt:inspection.inspected_at,driver:pm[inspection.inspected_by]?.full_name||pm[inspection.inspected_by]?.name||"Driver"};
   });
   const s=getStore(),previous=Object.fromEntries((s.bookings||[]).map(x=>[x.ref,x])),legacy=(s.bookings||[]).filter(x=>!normalizedBookings.some(n=>n.ref===x.ref));
-  s.bookings=[...normalizedBookings.map(n=>({...previous[n.ref],...n,pickupInspection:previous[n.ref]?.pickupInspection||n.pickupInspection,pickupPhotos:Object.keys(n.pickupPhotos||{}).length?n.pickupPhotos:previous[n.ref]?.pickupPhotos,deliveryPhotos:Object.keys(n.deliveryPhotos||{}).length?n.deliveryPhotos:previous[n.ref]?.deliveryPhotos})),...legacy];STORE_CACHE=s;
+  const mergePhotos=(oldPhotos,newPhotos)=>Object.keys(newPhotos||{}).length?
+   {...Object.fromEntries(Object.entries(oldPhotos||{}).filter(([,photo])=>!photo.storagePath)),...newPhotos}:
+   oldPhotos;
+  s.bookings=[...normalizedBookings.map(n=>({...previous[n.ref],...n,pickupInspection:n.pickupInspection||previous[n.ref]?.pickupInspection,pickupPhotos:mergePhotos(previous[n.ref]?.pickupPhotos,n.pickupPhotos),deliveryPhotos:mergePhotos(previous[n.ref]?.deliveryPhotos,n.deliveryPhotos)})),...legacy];STORE_CACHE=s;
   if(!normalizedChannel){
    normalizedChannel=sb.channel("ukow-live-bookings").on("postgres_changes",{event:"*",schema:"public",table:"bookings"},async()=>{await loadNormalizedPortalData();if(!document.getElementById("app")?.classList.contains("hidden"))render()}).subscribe();
   }
@@ -1755,11 +1774,12 @@ function go(p){
 function visibleBookings(){
  const s=getStore();
  if(role==="client"){
-   const businessName=currentUser?.name||"Prestige Motors Ltd";
-   return (s.bookings||[]).filter(b=>(b.customerType||"Business")!=="Private" && b.business===businessName);
+   return (s.bookings||[]).filter(b=>b._normalizedId?
+    (b._createdById===currentSession?.user?.id||!!(currentUser?.businessId&&b._businessId===currentUser.businessId)):
+    b.business===currentUser?.name);
  }
- if(role==="driver")return (s.bookings||[]).filter(b=>b.customerType!=="Private" && b.driver==="James Wilson");
- if(role==="staff" && currentStaffUser?.role==="Driver")return (s.bookings||[]).filter(b=>b.customerType!=="Private" && b.driver===currentStaffUser.name);
+ if(role==="driver")return (s.bookings||[]).filter(b=>b._normalizedId?b._driverId===currentSession?.user?.id:b.driver===currentUser?.name);
+ if(role==="staff" && currentStaffUser?.role==="Driver")return (s.bookings||[]).filter(b=>b._normalizedId?b._driverId===currentSession?.user?.id:b.driver===currentStaffUser.name);
  return s.bookings||[];
 }
 function statusTabs(){
@@ -1832,13 +1852,32 @@ function openClientStatusPage(status){
  page="clientStatusPage";
  render();
 }
-function showEvidence(ref){
+async function showEvidence(ref){
  const b=getStore().bookings.find(x=>x.ref===ref);
  if(!b)return;
  const existing=document.getElementById("evidenceOverlay");if(existing)existing.remove();
  const wrap=document.createElement("div");wrap.id="evidenceOverlay";wrap.style.cssText="position:fixed;inset:0;background:#0008;z-index:9999;overflow:auto;padding:24px";
- wrap.innerHTML=`<div style="max-width:1100px;margin:auto"><div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button></div>${evidenceSection(b)}</div>`;
+ wrap.innerHTML=`<div style="max-width:1100px;margin:auto"><div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button></div><div class="panel">Loading booking photographs…</div></div>`;
  document.body.appendChild(wrap);
+ let error=null;
+ if(b._normalizedId&&SUPABASE_CONFIGURED){
+  try{
+   const result=await sb.from("booking_evidence").select("*").eq("booking_id",b._normalizedId).order("captured_at",{ascending:true});
+   if(result.error)throw result.error;
+   const rows=result.data||[];
+   const signed=rows.length?await sb.storage.from("booking-evidence").createSignedUrls(rows.map(e=>e.storage_path),3600):{data:[]};
+   if(signed.error)throw signed.error;
+   const failed=signed.data?.find(entry=>entry.error||!entry.signedUrl);
+   if(failed)throw new Error(failed.error||"A stored photo link could not be created.");
+   b.pickupPhotos={};b.deliveryPhotos={};
+   rows.forEach((e,i)=>{
+    const collection=e.evidence_type==="delivery"?"deliveryPhotos":"pickupPhotos";
+    b[collection][e.id]={image:signed.data?.[i]?.signedUrl||"",storagePath:e.storage_path,label:e.label,timestamp:e.captured_at,latitude:e.latitude,longitude:e.longitude,accuracy:e.accuracy_metres};
+   });
+  }catch(e){error=e.message||"Evidence could not be loaded";console.error("Booking evidence load failed:",e)}
+ }
+ if(!wrap.isConnected)return;
+ wrap.firstElementChild.innerHTML=`<div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button></div>${error?`<div class="panel" role="alert" style="color:#a71919">Could not load saved booking photos: ${escapeHtml(error)}. <button class="btn secondary" onclick="showEvidence('${ref}')">Retry</button></div>`:evidenceSection(b)}`;
 }
 function drawClientStatusPage(c){
  const rows=visibleBookings().filter(b=>b.status===selectedClientStatus);
@@ -4333,7 +4372,7 @@ function evidenceSection(b){
  const delivery=Object.values(b.deliveryPhotos||{});
  const de=b.deliveryEvidence||{};
  const inspection=b.pickupInspection||{};
- const img=(p,label)=>`<div class="evidenceCard"><b>${p.label||label}</b>${p.image?`<img src="${p.image}" style="width:100%;max-width:260px;border-radius:8px">`:""}<div class="muted">${p.dateText||""} ${p.timeText||""}</div></div>`;
+ const img=(p,label)=>`<div class="evidenceCard"><b>${escapeHtml(p.label||label)}</b>${p.image?`<a href="${p.image}" target="_blank" rel="noopener"><img src="${p.image}" loading="lazy" alt="${escapeHtml(p.label||label)} evidence" style="width:100%;max-width:260px;border-radius:8px"></a>`:"<p class='muted'>Stored photo link unavailable. Reopen Pictures to retry.</p>"}<div class="muted">${p.timestamp?new Date(p.timestamp).toLocaleString("en-GB"):`${p.dateText||""} ${p.timeText||""}`}</div></div>`;
  return `<div class="panel" style="margin-top:12px">
    <h3>Vehicle Evidence — ${b.ref}</h3>
     <h4>Pickup Inspection Report</h4>
@@ -5047,7 +5086,7 @@ function setDriverMobileTab(tab){
 function driverAssignedRows(){
  const s=getStore();
  const name=currentUser?.name||currentStaffUser?.name||"James Wilson";
- return (s.bookings||[]).filter(b=>b.customerType!=="Private" && b.driver===name);
+ return (s.bookings||[]).filter(b=>b._normalizedId?b._driverId===currentSession?.user?.id:b.driver===name);
 }
 function driverStatusCounts(rows){
  return {
@@ -5181,7 +5220,7 @@ function pickupSteps(b){
  <button class="btn primary" onclick="completePickup('${b.ref}')">Picked Up</button>`;
 }
 function cameraSlot(b,id,label,wide=false){
- const ref=b.ref,photo=b.pickupPhotos?.[String(id)],image=photo?.image||"";
+ const ref=b.ref,photo=Object.values(b.pickupPhotos||{}).filter(p=>p.label===label||p.label===String(id)).sort((a,z)=>new Date(z.timestamp||0)-new Date(a.timestamp||0))[0],image=photo?.image||"";
  return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}">
    <button type="button" class="cameraAreaTab" onclick="startCamera('${ref}','${id}')"><span>${label}</span><span class="areaState">${photo?"✓ Stored":"Tap to photograph"}</span></button>
    <div class="cameraPreview">
@@ -5192,14 +5231,37 @@ function cameraSlot(b,id,label,wide=false){
      <button class="btn secondary" onclick="startCamera('${ref}','${id}')">${photo?"Retake Photo":"Open Camera"}</button>
      <button class="btn primary" onclick="captureCamera('${ref}','${id}')">Capture & Store</button>
    </div>
-   <div class="captureMeta" id="s_${ref}_${id}" ${photo?'data-captured="1"':""}>${photo?`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${photo.dateText||new Date(photo.timestamp).toLocaleDateString("en-GB")} ${photo.timeText||new Date(photo.timestamp).toLocaleTimeString("en-GB",{hour12:false})}</div>`:"Not captured — tap this area to open the camera"}</div>
+   <div class="captureMeta" id="s_${ref}_${id}" ${photo?.storagePath||(!b._normalizedId&&photo)?'data-captured="1"':""}>${photo?`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${photo.timestamp?new Date(photo.timestamp).toLocaleString("en-GB"):""}</div>`:"Not captured — tap this area to open the camera"}</div>
    </div>
  </div>`;
 }
-const cameraStreams={};
+ const cameraStreams={};
+ let evidencePosition=null,evidencePositionAt=0,evidencePositionRequest=null;
+ function getEvidencePosition(){
+  if(evidencePosition&&Date.now()-evidencePositionAt<30000)return Promise.resolve(evidencePosition);
+  if(!evidencePositionRequest)evidencePositionRequest=new Promise((resolve,reject)=>
+   navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:false,timeout:8000,maximumAge:30000})
+  ).then(position=>{evidencePosition=position;evidencePositionAt=Date.now();return position})
+   .finally(()=>{evidencePositionRequest=null});
+  return evidencePositionRequest;
+ }
+ function stopEvidenceCamera(key,video){
+  if(cameraStreams[key]){cameraStreams[key].getTracks().forEach(t=>t.stop());delete cameraStreams[key]}
+  if(video){video.srcObject=null;video.style.display="none"}
+ }
+ function updateEvidencePreview(status,image,label,dateText,timeText,locationText){
+  const box=status.closest(".cameraBox");
+  let preview=box.querySelector(".storedPhoto");
+  if(!preview){preview=document.createElement("img");preview.className="storedPhoto";preview.alt=label+" captured evidence";box.querySelector(".cameraPreview").prepend(preview)}
+  preview.src=image;
+  box.classList.add("photo-stored");box.classList.remove("camera-active");
+  const areaState=box.querySelector(".areaState");if(areaState)areaState.textContent="✓ Stored";
+  status.dataset.captured="1";status.classList.remove("error");
+  status.innerHTML=`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${dateText} ${timeText}<br>${locationText}</div>`;
+ }
 async function uploadBookingEvidence(b,canvas,evidenceType,label,latitude,longitude,accuracy,capturedAt){
- if(!SUPABASE_CONFIGURED||!b?._normalizedId||!currentSession?.user?.id)return null;
- const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.82));
+  if(!SUPABASE_CONFIGURED||!b?._normalizedId||!currentSession?.user?.id)throw new Error("This booking is not linked to a Supabase booking or Driver session. Photo cannot be stored.");
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.65));
  if(!blob)throw new Error("Photo could not be prepared for upload.");
  const safe=String(label||evidenceType).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
  const path=`${b._normalizedId}/${Date.now()}-${safe||"photo"}.jpg`;
@@ -5212,15 +5274,22 @@ async function uploadBookingEvidence(b,canvas,evidenceType,label,latitude,longit
 async function startCamera(ref,id){
  try{
    const video=document.getElementById(`v_${ref}_${id}`);
+   for(const key of Object.keys(cameraStreams)){
+    if(key!==ref+"_"+id){
+     const other=document.getElementById("v_"+key)||document.getElementById("dv_"+key.replace(/^delivery_/,""));
+     stopEvidenceCamera(key,other);
+    }
+   }
     document.querySelectorAll(".cameraBox.camera-active").forEach(x=>x.classList.remove("camera-active"));
     document.getElementById(`box_${ref}_${id}`)?.classList.add("camera-active");
    if(cameraStreams[ref+"_"+id]) cameraStreams[ref+"_"+id].getTracks().forEach(t=>t.stop());
-   const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
    cameraStreams[ref+"_"+id]=stream;
    video.srcObject=stream;
    video.style.display="block";
     const status=document.getElementById(`s_${ref}_${id}`);if(status){status.classList.remove("error");status.textContent="Camera open — position this vehicle area and tap Capture & Store."}
    await video.play();
+    getEvidencePosition().catch(()=>{}); // Start GPS while the Driver frames the shot.
  }catch(e){
    alert("Camera access is required. Please allow camera permission.");
  }
@@ -5230,12 +5299,19 @@ async function captureCamera(ref,id){
  const canvas=document.getElementById(`c_${ref}_${id}`);
  if(!video.srcObject){alert("Open the live camera first.");return}
 
- let latitude=null,longitude=null,accuracy=null;
+  const status=document.getElementById(`s_${ref}_${id}`);
+  const button=status.closest(".cameraBox").querySelector(".camActions .primary");
+  if(button.disabled)return;
+  button.disabled=true;
+  const previousCaptured=status.dataset.captured;
+  status.textContent="Preparing photo and location…";
+  let latitude=null,longitude=null,accuracy=null;
  try{
-   const p=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0}));
+    const p=await getEvidencePosition();
    latitude=p.coords.latitude; longitude=p.coords.longitude; accuracy=p.coords.accuracy;
  }catch(e){
-   alert("Location permission is required so the photo can record where it was taken.");
+    status.classList.add("error");status.textContent="Location is unavailable. Enable location and try again.";
+    button.disabled=false;
    return;
  }
 
@@ -5244,8 +5320,9 @@ async function captureCamera(ref,id){
  const timeText=now.toLocaleTimeString("en-GB",{hour12:false});
  const locationText=`GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} ±${Math.round(accuracy)}m`;
 
- canvas.width=video.videoWidth||1280;
- canvas.height=video.videoHeight||720;
+  const scale=Math.min(1,1280/(video.videoWidth||1280),960/(video.videoHeight||960));
+  canvas.width=Math.round((video.videoWidth||1280)*scale);
+  canvas.height=Math.round((video.videoHeight||720)*scale);
  const ctx=canvas.getContext("2d");
  ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
@@ -5262,9 +5339,7 @@ async function captureCamera(ref,id){
  ctx.fillText(`${dateText} ${timeText}`,pad,canvas.height-stripH+pad+fontSize+line);
  ctx.fillText(locationText,pad,canvas.height-stripH+pad+fontSize+line*2);
 
- canvas.style.display="block";
- const status=document.getElementById(`s_${ref}_${id}`);
- status.innerHTML=`Live photo captured<br>${dateText} ${timeText}<br>${locationText}`;
+  status.textContent="Uploading photo to secure booking storage…";
  status.dataset.timestamp=now.toISOString();
  status.dataset.latitude=latitude;
  status.dataset.longitude=longitude;
@@ -5275,29 +5350,26 @@ async function captureCamera(ref,id){
    let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
    if(b){
      b.pickupPhotos=b.pickupPhotos||{};
-      const label=(document.querySelector(`#s_${CSS.escape(ref)}_${CSS.escape(String(id))}`)?.closest(".cameraBox")?.querySelector("b")?.textContent)||String(id);
+       const label=status.closest(".cameraBox")?.querySelector(".cameraAreaTab span")?.textContent||String(id);
       let storagePath=null;
-       try{storagePath=await uploadBookingEvidence(b,canvas,"pickup",label,latitude,longitude,accuracy,now.toISOString())}catch(uploadError){status.classList.add("error");status.textContent="Photo was captured but not stored. Please retry: "+uploadError.message;alert("Photo could not be uploaded to secure storage: "+uploadError.message);return}
+       storagePath=await uploadBookingEvidence(b,canvas,"pickup",label,latitude,longitude,accuracy,now.toISOString());
+       const image=canvas.toDataURL("image/jpeg",0.55);
       b.pickupPhotos[String(id)]={
-       image:canvas.toDataURL("image/jpeg",0.58),
+        image,
         storagePath,
        timestamp:now.toISOString(),
        dateText,timeText,
        latitude,longitude,accuracy,
         label
      };
-     saveStore(s);
-      status.dataset.captured="1";
-      status.classList.remove("error");
-      status.innerHTML=`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${dateText} ${timeText}<br>${locationText}</div>`;
-      document.getElementById(`box_${ref}_${id}`)?.classList.add("photo-stored");
-      const areaState=document.querySelector(`#box_${CSS.escape(ref)}_${CSS.escape(String(id))} .areaState`);if(areaState)areaState.textContent="✓ Stored";
-   }
- }catch(e){status.classList.add("error");status.textContent="Photo was not stored. Please try again.";console.warn("Could not persist pickup photo",e);return}
+       if(!b._normalizedId)saveStore(s);
+       updateEvidencePreview(status,image,label,dateText,timeText,locationText);
+    }else throw new Error("Booking not found. Please refresh and try again.");
+  }catch(e){status.classList.add("error");status.textContent="Photo was not stored: "+e.message;status.dataset.captured=previousCaptured||"";console.warn("Could not persist pickup photo",e);button.disabled=false;return}
 
  const key=ref+"_"+id;
- if(cameraStreams[key]){cameraStreams[key].getTracks().forEach(t=>t.stop());delete cameraStreams[key]}
- video.style.display="none";
+  stopEvidenceCamera(key,video);
+  button.disabled=false;
 }
 async function completePickup(ref){
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
@@ -5342,7 +5414,7 @@ function journeySteps(b){
  const deliveryPhotos=["Front at Delivery","Rear at Delivery","Left Side at Delivery","Right Side at Delivery","Interior at Delivery","Dashboard / Mileage at Delivery"];
  return `<div class="actions">${driverMapLink(b)}</div><div class="grid2"><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn warn" onclick="incident('${b.ref}','Fault On Route')">Vehicle Fault</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Accident</button><button class="btn secondary" onclick="incident('${b.ref}','Assigned AA on Route')">AA Assistance</button></div>
  <div class="step"><h4>Delivery Evidence — Live Camera</h4><p class="muted">Take live delivery photographs before handover.</p>
- <div class="grid2">${deliveryPhotos.map((x,i)=>deliveryCameraSlot(b.ref,i,x)).join("")}</div></div>
+  <div class="vehiclePhotoGrid">${deliveryPhotos.map((x,i)=>deliveryCameraSlot(b,i,x)).join("")}</div></div>
  <div class="step"><h4>Receiver & Driver Signatures</h4>
   <input id="rn_${b.ref}" value="${b.receiver||""}" placeholder="Person receiving vehicle">
   <input id="rm_${b.ref}" value="${b.receiverMobile||""}" placeholder="Receiver mobile">
@@ -5356,55 +5428,74 @@ function journeySteps(b){
  <script>setTimeout(()=>{initSignaturePad('receiverSig_${b.ref}');initSignaturePad('driverSig_${b.ref}')},0)<\/script>`;
 }
 
-function deliveryCameraSlot(ref,id,label){
- return `<div class="cameraBox">
-  <b>${label}</b>
+function deliveryCameraSlot(b,id,label){
+ const ref=b.ref,photo=Object.values(b.deliveryPhotos||{}).filter(p=>p.label===label||p.label===String(id)).sort((a,z)=>new Date(z.timestamp||0)-new Date(a.timestamp||0))[0];
+ return `<div class="cameraBox ${photo?"photo-stored":""}">
+  <button type="button" class="cameraAreaTab" onclick="startDeliveryCamera('${ref}','${id}')"><span>${label}</span><span class="areaState">${photo?"✓ Stored":"Tap to photograph"}</span></button>
+  <div class="cameraPreview">
+  ${photo?.image?`<img class="storedPhoto" src="${photo.image}" alt="${label} delivery evidence">`:""}
   <video id="dv_${ref}_${id}" playsinline autoplay></video>
   <canvas id="dcv_${ref}_${id}"></canvas>
   <div class="camActions">
-   <button class="btn secondary" onclick="startDeliveryCamera('${ref}','${id}')">Open Camera</button>
-   <button class="btn primary" onclick="captureDeliveryCamera('${ref}','${id}')">Take Photo</button>
+   <button class="btn secondary" onclick="startDeliveryCamera('${ref}','${id}')">${photo?"Retake Photo":"Open Camera"}</button>
+   <button class="btn primary" onclick="captureDeliveryCamera('${ref}','${id}')">Capture & Store</button>
   </div>
-  <div class="captureMeta" id="ds_${ref}_${id}">Not captured</div>
+  <div class="captureMeta" id="ds_${ref}_${id}" ${photo?.storagePath||(!b._normalizedId&&photo)?'data-captured="1"':""}>${photo?`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${photo.timestamp?new Date(photo.timestamp).toLocaleString("en-GB"):""}</div>`:"Not captured — tap this area to open the camera"}</div>
+  </div>
  </div>`;
 }
 async function startDeliveryCamera(ref,id){
  try{
   const video=document.getElementById(`dv_${ref}_${id}`);
   const key="delivery_"+ref+"_"+id;
+  for(const otherKey of Object.keys(cameraStreams)){
+   if(otherKey!==key){
+    const other=document.getElementById("v_"+otherKey)||document.getElementById("dv_"+otherKey.replace(/^delivery_/,""));
+    stopEvidenceCamera(otherKey,other);
+   }
+  }
   if(cameraStreams[key])cameraStreams[key].getTracks().forEach(t=>t.stop());
-  const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});
+  const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
   cameraStreams[key]=stream;video.srcObject=stream;video.style.display="block";await video.play();
+  getEvidencePosition().catch(()=>{});
  }catch(e){alert("Camera access is required for delivery evidence.");}
 }
 async function captureDeliveryCamera(ref,id){
  const video=document.getElementById(`dv_${ref}_${id}`),canvas=document.getElementById(`dcv_${ref}_${id}`),status=document.getElementById(`ds_${ref}_${id}`);
  if(!video?.srcObject)return alert("Open the live camera first.");
+ const button=status.closest(".cameraBox").querySelector(".camActions .primary");
+ if(button.disabled)return;
+ button.disabled=true;
+ const previousCaptured=status.dataset.captured;
+ status.textContent="Preparing photo and location…";
  let latitude=null,longitude=null,accuracy=null;
  try{
-  const p=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:10000,maximumAge:0}));
+  const p=await getEvidencePosition();
   latitude=p.coords.latitude;longitude=p.coords.longitude;accuracy=p.coords.accuracy;
- }catch(e){return alert("Location permission is required for delivery evidence.");}
+ }catch(e){status.classList.add("error");status.textContent="Location is unavailable. Enable location and try again.";button.disabled=false;return}
  const now=new Date(),dateText=now.toLocaleDateString("en-GB"),timeText=now.toLocaleTimeString("en-GB",{hour12:false});
- canvas.width=video.videoWidth||1280;canvas.height=video.videoHeight||720;
+ const scale=Math.min(1,1280/(video.videoWidth||1280),960/(video.videoHeight||960));
+ canvas.width=Math.round((video.videoWidth||1280)*scale);canvas.height=Math.round((video.videoHeight||720)*scale);
  const ctx=canvas.getContext("2d");ctx.drawImage(video,0,0,canvas.width,canvas.height);
  const fs=Math.max(18,Math.round(canvas.width/45)),pad=14,line=Math.round(fs*1.35),strip=line*3+pad*2;
  ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,canvas.height-strip,canvas.width,strip);
  ctx.fillStyle="#fff";ctx.font=`bold ${fs}px Arial`;ctx.fillText("UK ON WHEELS — LIVE DELIVERY EVIDENCE",pad,canvas.height-strip+pad+fs);
  ctx.font=`${fs}px Arial`;ctx.fillText(`${dateText} ${timeText}`,pad,canvas.height-strip+pad+fs+line);
  ctx.fillText(`GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} ±${Math.round(accuracy)}m`,pad,canvas.height-strip+pad+fs+line*2);
- canvas.style.display="block";status.innerHTML=`Uploading secure evidence…<br>${dateText} ${timeText}`;
+ status.textContent="Uploading photo to secure booking storage…";
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
- if(b){
+ try{
+ if(!b)throw new Error("Booking not found. Please refresh and try again.");
   b.deliveryPhotos=b.deliveryPhotos||{};
-  const label=status.closest(".cameraBox")?.querySelector("b")?.textContent||String(id);
-  let storagePath=null;
-  try{storagePath=await uploadBookingEvidence(b,canvas,"delivery",label,latitude,longitude,accuracy,now.toISOString())}catch(uploadError){alert("Photo could not be uploaded to secure storage: "+uploadError.message);return}
-  b.deliveryPhotos[String(id)]={image:canvas.toDataURL("image/jpeg",0.58),storagePath,timestamp:now.toISOString(),dateText,timeText,latitude,longitude,accuracy,label};
-  saveStore(s);
-  status.dataset.captured="1";status.innerHTML=`Captured and stored securely<br>${dateText} ${timeText}`;
- }
- const key="delivery_"+ref+"_"+id;if(cameraStreams[key]){cameraStreams[key].getTracks().forEach(t=>t.stop());delete cameraStreams[key]}video.style.display="none";
+  const label=status.closest(".cameraBox")?.querySelector(".cameraAreaTab span")?.textContent||String(id);
+  const storagePath=await uploadBookingEvidence(b,canvas,"delivery",label,latitude,longitude,accuracy,now.toISOString());
+  const image=canvas.toDataURL("image/jpeg",0.55);
+  b.deliveryPhotos[String(id)]={image,storagePath,timestamp:now.toISOString(),dateText,timeText,latitude,longitude,accuracy,label};
+  if(!b._normalizedId)saveStore(s);
+  updateEvidencePreview(status,image,label,dateText,timeText,`GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} ±${Math.round(accuracy)}m`);
+ }catch(e){status.classList.add("error");status.textContent="Photo was not stored: "+e.message;status.dataset.captured=previousCaptured||"";console.warn("Could not persist delivery photo",e);button.disabled=false;return}
+ stopEvidenceCamera("delivery_"+ref+"_"+id,video);
+ button.disabled=false;
 }
 const signaturePads={};
 function initSignaturePad(id){
