@@ -166,7 +166,6 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
  body.driver-mode .actions .btn,body.driver-mode .camActions .btn,body.driver-mode .step>.btn{width:100%}
  body.driver-mode .cameraBox{padding:12px;border-radius:12px;background:#f8fafc}
  body.driver-mode .cameraBox video,body.driver-mode .cameraBox canvas{width:100%;max-height:none;aspect-ratio:4/3;object-fit:cover;border-radius:10px}
- body.driver-mode .signaturePad{width:100%;height:170px;touch-action:none}
  body.driver-mode input,body.driver-mode select,body.driver-mode textarea{min-height:48px;font-size:16px;width:100%}
  body.driver-mode label{line-height:1.45}
  body.driver-mode input[type=checkbox]{width:22px;height:22px;min-height:22px;vertical-align:middle;margin-right:8px}
@@ -177,8 +176,6 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .evidenceGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .evidenceCard{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}
 .evidenceCard img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
-.signaturePad{width:100%;height:150px;border:1px dashed #8fa2b8;border-radius:8px;background:#fff;touch-action:none}
-.signatureImage{max-width:360px;width:100%;height:120px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#fff}
 
 .driverApp{max-width:520px;margin:0 auto;padding-bottom:88px}
 .driverHeader{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:18px;border-radius:0 0 18px 18px;position:sticky;top:0;z-index:20}
@@ -203,6 +200,27 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .driverJob .grid2{grid-template-columns:1fr}
 .driverJob .cameraBox{margin-bottom:10px}
 .driverJob video,.driverJob canvas{max-height:240px}
+.driverJobList{display:grid;gap:10px}
+.driverJobSelect{display:block;width:100%;border:1px solid var(--line);border-radius:14px;background:#fff;padding:16px;text-align:left;color:var(--navy);box-shadow:0 3px 12px #0000000a;cursor:pointer}
+.driverJobSelect:focus-visible,.driverBack:focus-visible{outline:3px solid var(--brand-red);outline-offset:2px}
+.driverJobSelectTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.driverJobSelect strong{display:block;font-size:17px;margin:9px 0 3px}
+.driverJobSelect .driverJobRoute{display:block;color:var(--muted);font-size:13px;line-height:1.4;margin-top:7px}
+.driverJobSelect .driverJobAction{display:block;color:var(--brand-red);font-weight:700;margin-top:12px;font-size:14px}
+.driverBack{border:0;background:transparent;color:var(--navy);font-size:15px;font-weight:700;padding:12px 4px;min-height:44px;cursor:pointer}
+.driverJobIntro{border:1px solid #d7e4f5;background:#f3f8ff;border-radius:12px;padding:12px 14px;margin:0 0 12px;line-height:1.45;font-size:13px}
+.driverHeaderCompact{padding-bottom:12px}
+.driverHeaderCompact h2{font-size:20px;margin-bottom:0}
+.driverExtras{margin:10px 0;border:1px solid var(--line);border-radius:10px}
+.driverExtras>summary{padding:12px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px}
+.driverExtras .driverMeta{padding:0 10px 10px}
+.driverExtras .grid2{padding:0 10px 10px}
+.driverPhotoGroup{border:1px solid var(--line);border-radius:10px;background:#fff;margin:10px 0}
+.driverPhotoGroup>summary{cursor:pointer;padding:14px;font-weight:700;min-height:48px}
+.driverPhotoGroup .vehiclePhotoGrid{padding:0 10px 10px}
+body.driver-mode .cameraBox:not(.camera-active):not(.preview-open) .cameraPreview{display:none}
+body.driver-mode .cameraBox.camera-active .storedPhoto{display:none}
+body.driver-mode .cameraAreaTab{min-height:54px}
 @media(max-width:700px){
  body.driver-mode .sidebar,body.driver-mode .top{display:none!important}
  body.driver-mode .main{margin-left:0!important;width:100%!important}
@@ -1021,6 +1039,22 @@ document.addEventListener("DOMContentLoaded",()=>{
    storeReady=true;
     role=["client","driver"].includes(previewRole)?previewRole:"admin";
     currentUser=role==="client"?{name:"Prestige Motors Ltd",userName:"Client User"}:role==="driver"?{name:"James Wilson"}:{name:"System Admin"};
+     if(role==="driver"){
+      // Local visual preview only; no real accounts, bookings or uploads.
+      currentSession={user:{id:"local-preview-driver"}};
+      const sample=(ref,status,vehicle,reg,pickup,destination)=>({
+       ref,status,vehicle,reg,pickup,destination,driver:"James Wilson",
+       _normalizedId:"local-"+ref,_driverId:"local-preview-driver",
+       receiver:"Alex Morgan",receiverMobile:"07000 000000",miles:78,amount:125,
+       pickupPhotos:{},deliveryPhotos:{},timeline:[],paymentStatus:"Pending"
+      });
+      STORE_CACHE.bookings=[
+       sample("PREVIEW-101","Driver Assigned","Ford Transit","AB12 CDE","Leeds, West Yorkshire","Manchester"),
+       sample("PREVIEW-102","Picked Up","Toyota Corolla","FG34 HJK","York","Sheffield"),
+       sample("PREVIEW-103","On Route","Volkswagen Golf","LM56 NOP","Birmingham","Bristol")
+      ];
+      driverSelectedJobRef=previewParams.get("ui-job")||null;
+     }
     page=role==="driver"?"driver":(previewParams.get("ui-page")||"desktop");
    showAuthenticatedPortal();
    document.body.classList.remove("auth-checking");
@@ -1043,6 +1077,7 @@ const LOGO_IMG="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFB
 const KEY="ukow_connected_v1";
 let role="admin", currentUser=null, currentStaffUser=null, page="desktop";
 let STORE_CACHE=null, storeReady=false, currentSession=null;
+let normalizedVisibleIds=new Set();
 let normalizedBookings=[],portalProfiles=[],portalClientProfiles=[],normalizedChannel=null;
 
 // One shared row (id='main') in the app_store table holds all booking/business/driver
@@ -1106,18 +1141,20 @@ function currency(v){return "£"+Number(v||0).toFixed(2)}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
- return {_normalizedId:b.id,_businessId:b.business_id,_createdById:b.created_by,_driverId:b.driver_id,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+ return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
 }
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
  try{
   const [br,pr,cr,er,ir]=await Promise.all([sb.from("bookings").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("id,name,full_name,email,role,status,business_name,business_id"),sb.from("businesses").select("id,legal_name,trading_name"),sb.from("booking_evidence").select("*").order("captured_at",{ascending:true}),sb.from("booking_inspections").select("*")]);
   if(br.error)throw br.error;
+  normalizedVisibleIds=new Set((br.data||[]).map(b=>b.id));
   portalProfiles=pr.data||[];
   const pm=Object.fromEntries(portalProfiles.map(x=>[x.id,x])),bm=Object.fromEntries((cr.data||[]).map(x=>[x.id,x]));
   normalizedBookings=(br.data||[]).map(x=>normalizedBookingToPortal(x,pm,bm));
   if(er.error)console.warn("Booking evidence could not be loaded:",er.error);
   else if(er.data?.length){
+   try{
    const rows=er.data.filter(e=>normalizedBookings.some(b=>b._normalizedId===e.booking_id));
    const signed=await sb.storage.from("booking-evidence").createSignedUrls(rows.map(e=>e.storage_path),3600);
    if(signed.error)console.warn("Evidence photo links could not be created:",signed.error);
@@ -1128,6 +1165,7 @@ async function loadNormalizedPortalData(){
     booking[collection]=booking[collection]||{};
     booking[collection][e.id]={image:signed.data?.[i]?.signedUrl||"",storagePath:e.storage_path,label:e.label,timestamp:e.captured_at,latitude:e.latitude,longitude:e.longitude,accuracy:e.accuracy_metres};
    });
+   }catch(e){console.warn("Evidence previews could not be loaded; booking list remains available:",e)}
   }
   if(!ir.error)(ir.data||[]).forEach(inspection=>{
    const booking=normalizedBookings.find(x=>x._normalizedId===inspection.booking_id);if(!booking)return;
@@ -1173,6 +1211,10 @@ function migrateClientData(){
 }
 
 function applyAuthenticatedProfile(profile,session){
+ if(currentSession?.user?.id!==session?.user?.id){
+  driverSelectedJobRef=null;
+  Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
+ }
  currentSession=session;
  role=profile.role;
  currentStaffUser=null;
@@ -1223,12 +1265,17 @@ async function restoreSupabaseSession(){
 }
 
 async function logoutNow(){
+ if(role==="driver"&&driverPhotoIsSaving())return;
+ closeDriverCameras();
  try{
    if(sb)await sb.auth.signOut();
  }catch(e){
    console.error("Supabase sign out failed:",e);
  }
  currentSession=null;
+ normalizedVisibleIds=new Set();
+ driverSelectedJobRef=null;
+ Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
  currentUser=null;
  currentStaffUser=null;
  STORE_CACHE=null;
@@ -1774,8 +1821,8 @@ function go(p){
 function visibleBookings(){
  const s=getStore();
  if(role==="client"){
-   return (s.bookings||[]).filter(b=>b._normalizedId?
-    (b._createdById===currentSession?.user?.id||!!(currentUser?.businessId&&b._businessId===currentUser.businessId)):
+  return (s.bookings||[]).filter(b=>b._normalizedId?
+   normalizedVisibleIds.has(b._normalizedId):
     b.business===currentUser?.name);
  }
  if(role==="driver")return (s.bookings||[]).filter(b=>b._normalizedId?b._driverId===currentSession?.user?.id:b.driver===currentUser?.name);
@@ -4170,6 +4217,7 @@ function openStatusPage(status){
 
 function drawStatusPage(c){
  const rows=getStore().bookings.filter(b=>b.status===selectedStatusPage);
+ const activeDrivers=portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active");
  const titleMap={
   "New Booked Vehicle":"New Booked Vehicles",
   "Driver Assigned":"Driver Assigned",
@@ -4233,7 +4281,8 @@ function drawStatusPage(c){
       <td><span class="badge ${(b.paymentStatus==="Paid")?"green":"amber"}">${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</span></td>
       <td>${b.invoiceNo||"—"}</td>
       <td>${b.pickupCaptureMode?`<span class="badge green">${b.pickupCaptureMode}</span>`:"—"}</td>
-      <td><button class="btn secondary" onclick="viewStatusBooking('${b.ref}')">View Details</button></td>
+      <td><button class="btn secondary" onclick="viewStatusBooking('${b.ref}')">View Details</button>
+      ${!b._normalizedId&&["Driver Assigned","Picked Up","On Route","Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?`<select id="legacyDriver_${b.ref}" aria-label="Driver for ${b.ref}"><option value="">Choose linked Driver</option>${activeDrivers.map(d=>`<option value="${escapeHtml(d.id)}" ${(d.full_name||d.name)===b.driver?"selected":""}>${escapeHtml(d.full_name||d.name||d.email)}</option>`).join("")}</select><button class="btn primary" onclick="linkExistingDriverBooking('${b.ref}')">Enable Photo Evidence</button>`:""}</td>
     </tr>`).join("")}
    </table>
   </div>
@@ -4392,10 +4441,6 @@ function evidenceSection(b){
     <div><b>Driver</b><p>${de.driver||b.driver||"—"}</p></div>
     <div><b>Delivery Date / Time</b><p>${de.deliveredAt?new Date(de.deliveredAt).toLocaleString():"—"}</p></div>
    </div>
-   <div class="cards">
-    <div class="card"><b>Receiver Signature</b>${de.receiverSignature?`<br><img src="${de.receiverSignature}" style="max-width:320px;width:100%;height:120px;object-fit:contain">`:"<p class='muted'>Not available</p>"}</div>
-    <div class="card"><b>Driver Signature</b>${de.driverSignature?`<br><img src="${de.driverSignature}" style="max-width:320px;width:100%;height:120px;object-fit:contain">`:"<p class='muted'>Not available</p>"}</div>
-   </div>
  </div>`;
 }
 
@@ -4444,6 +4489,29 @@ function drawBooking(c){
  <div id="tariffInfo" class="full muted"></div>
  <div class="actions"><button class="btn primary" onclick="createBooking()">Create Booking</button></div></div>`;
  toggleCustomerTypeFields();
+}
+async function createLinkedBooking(booking,existingRef=null,driverId=null){
+ let businessId=null;
+ if(booking.customerType==="Business"){
+  const matching=(getStore().businesses||[]).filter(x=>x.name===booking.business&&x.id);
+  if(matching.length!==1)throw new Error("Select a registered business with a Client portal account. Manually entered businesses cannot receive shared photos.");
+  businessId=matching[0].id;
+ }
+ if(booking.customerType==="Private"&&!booking.privateCustomerEmail?.trim())throw new Error("Enter the private Client's portal email so the delivery photos can be shared.");
+ const parts=String(booking.vehicle||"").trim().split(/\s+/);
+ const {data,error}=await sb.rpc("admin_create_delivery_booking",{
+  p_customer_type:booking.customerType||"Business",p_business_id:businessId,p_private_client_email:booking.privateCustomerEmail||null,
+  p_vehicle_make:parts.shift()||"Vehicle",p_vehicle_model:parts.join(" "),p_vehicle_registration:booking.reg,
+  p_service_type:booking.service,p_pickup_address:booking.pickup,p_destination_address:booking.destination,
+  p_receiver_name:booking.receiver||null,p_receiver_mobile:booking.receiverMobile||null,
+  p_requested_delivery_date:booking.deliveryDate||null,p_booking_date:booking.bookingDate||null,
+  p_miles:Number(booking.miles||0),p_amount:Number(booking.amount||0),p_notes:booking.notes||null,
+  p_reference:existingRef,p_driver_id:driverId,
+  p_current_status:driverId?booking.status:null
+ });
+ if(error)throw new Error(error.message+" (apply supabase/driver_photo_workflow_patch.sql if this function is missing)");
+ if(!data?.id)throw new Error("The linked booking was not returned by Supabase.");
+ return data;
 }
 function toggleCustomerTypeFields(){
  const type=document.getElementById("customerType")?.value||"Business";
@@ -4530,6 +4598,7 @@ async function createBooking(){
   amount:Number(document.getElementById("amount")?.value||0),
   status:"New Booked Vehicle",
   paymentStatus:"Pending",
+   notes:document.getElementById("notes")?.value.trim()||"",
   driver:"",
   createdBy:role==="client"?(currentUser?.userName||currentUser?.name||"Client"):(currentUser?.name||"Admin"),
   createdAt:new Date().toLocaleString(),
@@ -4549,7 +4618,17 @@ async function createBooking(){
    alert("Booking created successfully. Admin and authorised Staff can now see it.");
    page="clientBookings";render();return;
   }
-  s.bookings.unshift(booking);
+   if(SUPABASE_CONFIGURED&&currentSession){
+    try{
+     if(role==="admin"||role==="staff"){
+      const linked=await createLinkedBooking(booking);
+      await loadNormalizedPortalData();
+      alert("Booking created successfully: "+linked.reference);
+      page="desktop";render();return;
+     }
+    }catch(e){return alert("Booking was not created: "+e.message)}
+   }
+   s.bookings.unshift(booking);
  s.notifications=s.notifications||[];
  s.notifications.unshift({title:"New Booking",text:`${ref} created for ${role==="client"?business:(type==="Private"?privateCustomerNameValue:business)}.`});
  saveStore(s);
@@ -4796,6 +4875,8 @@ function addBusiness(){ alert('Use the full Create Business form above.'); }
 function drawAssign(c){
  const s=getStore();
  const rows=s.bookings.filter(b=>b.status==="New Booked Vehicle");
+ const drivers=SUPABASE_CONFIGURED?portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active").map(x=>({id:x.id,name:x.full_name||x.name||x.email,phone:""})):
+  s.drivers.map(x=>({id:x.name,name:x.name,phone:x.phone}));
  c.innerHTML=`<div class="panel">
    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
      <div><h2 style="margin:0">Assign Driver</h2><p class="muted" style="margin:6px 0 0">Review the full vehicle and client details before assigning the correct driver.</p></div>
@@ -4853,7 +4934,7 @@ function drawAssign(c){
      <div class="form">
        <select id="driver_${b.ref}">
          <option value="">Select Driver *</option>
-         ${s.drivers.map(d=>`<option value="${d.name}">${d.name} — ${d.phone}</option>`).join("")}
+         ${drivers.map(d=>`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}${d.phone?" — "+escapeHtml(d.phone):""}</option>`).join("")}
        </select>
        <input id="assignDate_${b.ref}" type="date" title="Assignment date">
        <input id="assignTime_${b.ref}" type="time" title="Assignment time">
@@ -4869,15 +4950,28 @@ function drawAssign(c){
 async function assignSpecificDriver(ref){
  let s=getStore();
  const b=s.bookings.find(x=>x.ref===ref);
- const driverName=document.getElementById("driver_"+ref).value;
- if(!b||!driverName)return alert("Please select a driver for this booking.");
- if(b._normalizedId){
-  const dp=portalProfiles.find(x=>String(x.role).toLowerCase()==="driver"&&(x.full_name===driverName||x.name===driverName));
-  if(!dp)return alert("This driver does not yet have a Driver account in Supabase. Change their role to Driver in Settings first.");
+ const driverId=document.getElementById("driver_"+ref).value;
+ if(!b||!driverId)return alert("Please select a driver for this booking.");
+  const dp=portalProfiles.find(x=>x.id===driverId&&String(x.role).toLowerCase()==="driver");
+  if(SUPABASE_CONFIGURED&&!dp)return alert("This driver does not yet have a Driver account in Supabase. Change their role to Driver in Settings first.");
+  const driverName=dp?.full_name||dp?.name||driverId;
+  let assignedDuringLink=false;
+  if(SUPABASE_CONFIGURED&&currentSession&&!b._normalizedId){
+   try{
+    const linked=await createLinkedBooking(b,b.ref,dp.id);
+    b._normalizedId=linked.id;
+    b._businessId=linked.business_id;
+    b._clientId=linked.client_id;
+    b._createdById=linked.created_by;
+    assignedDuringLink=true;
+   }catch(e){return alert("Driver was not assigned because this booking cannot store shared photographs: "+e.message)}
+  }
+  if(b._normalizedId&&!assignedDuringLink){
   const notes=document.getElementById("driverNotes_"+ref).value.trim();
   const {error}=await sb.rpc("assign_booking_driver",{p_booking_id:b._normalizedId,p_driver_id:dp.id,p_notes:notes||null});
   if(error)return alert("Driver assignment failed: "+error.message);
  }
+  if(b._normalizedId)b._driverId=dp.id;
 
  b.driver=driverName;
  b.status="Driver Assigned";
@@ -4901,6 +4995,22 @@ async function assignSpecificDriver(ref){
  await loadNormalizedPortalData();
  alert(driverName+" assigned successfully to "+ref+".");
  drawAssign(document.getElementById("content"));
+}
+async function linkExistingDriverBooking(ref){
+ const s=getStore(),b=s.bookings.find(x=>x.ref===ref);
+ if(!b||b._normalizedId||!["Driver Assigned","Picked Up","On Route","Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status))return;
+ const driverId=document.getElementById("legacyDriver_"+ref)?.value;
+ const dp=portalProfiles.find(x=>x.id===driverId&&String(x.role).toLowerCase()==="driver");
+ if(!dp)return alert("Choose the assigned Driver's active Supabase account before enabling photographs.");
+ try{
+  const linked=await createLinkedBooking(b,b.ref,dp.id);
+  b._normalizedId=linked.id;b._driverId=dp.id;b._businessId=linked.business_id;b.driver=dp.full_name||dp.name;
+  b._clientId=linked.client_id;b._createdById=linked.created_by;
+  saveStore(s);
+  await loadNormalizedPortalData();
+  draw();
+  alert("Photo evidence is enabled for "+ref+". The Driver can now capture pictures.");
+ }catch(e){alert("Photo evidence could not be enabled: "+e.message)}
 }
 function assignDriver(){ alert("Please use the designated assignment area on the booking you want to assign."); }
 
@@ -5079,9 +5189,64 @@ function drawReports(c){
 }
 
 let driverMobileTab="jobs";
+let driverSelectedJobRef=null;
+const driverFormDrafts={};
+function driverPhotoIsSaving(){
+ if(document.querySelector("#driverActiveJob .camActions .primary:disabled")){
+  alert("Please wait for the photo to finish saving before changing jobs.");
+  return true;
+ }
+ return false;
+}
+function saveDriverFormDraft(){
+ if(!driverSelectedJobRef)return;
+ const card=document.getElementById("driverActiveJob");
+ if(!card)return;
+ const draft={};
+ card.querySelectorAll("input[id],select[id],textarea[id]").forEach(el=>{
+  draft[el.id]=el.type==="checkbox"?el.checked:el.value;
+ });
+ driverFormDrafts[driverSelectedJobRef]=draft;
+}
+function restoreDriverFormDraft(){
+ const draft=driverFormDrafts[driverSelectedJobRef]||{};
+ for(const [id,value] of Object.entries(draft)){
+  const el=document.getElementById(id);
+  if(el){if(el.type==="checkbox")el.checked=value;else el.value=value}
+ }
+}
+function closeDriverCameras(){
+ if(driverPhotoIsSaving())return false;
+ for(const key of Object.keys(cameraStreams)){
+  const video=document.getElementById("v_"+key)||document.getElementById("dv_"+key.replace(/^delivery_/,""));
+  stopEvidenceCamera(key,video);
+ }
+ return true;
+}
+function openDriverJob(ref){
+ if(driverPhotoIsSaving())return;
+ saveDriverFormDraft();
+ closeDriverCameras();
+ driverSelectedJobRef=ref;
+ drawDriver(document.getElementById("content"));
+ window.scrollTo(0,0);
+}
+function showDriverJobList(){
+ if(driverPhotoIsSaving())return;
+ saveDriverFormDraft();
+ closeDriverCameras();
+ driverSelectedJobRef=null;
+ drawDriver(document.getElementById("content"));
+ window.scrollTo(0,0);
+}
 function setDriverMobileTab(tab){
+ if(driverPhotoIsSaving())return;
+ saveDriverFormDraft();
+ closeDriverCameras();
+ if(tab==="jobs"&&driverMobileTab==="jobs")driverSelectedJobRef=null;
  driverMobileTab=tab;
  drawDriver(document.getElementById("content"));
+ window.scrollTo(0,0);
 }
 function driverAssignedRows(){
  const s=getStore();
@@ -5112,13 +5277,14 @@ function driverMobileJobCard(b){
   </div>
   <h3>${b.vehicle||"Vehicle"} <span class="muted">${b.reg||""}</span></h3>
   <div class="driverRoute"><b>${b.pickup||"—"}</b><br><span class="muted">↓ deliver to</span><br><b>${b.destination||"—"}</b></div>
-  <div class="driverMeta">
+  <details class="driverExtras"><summary>Receiver & booking details</summary><div class="driverMeta">
    <div><b>Receiver</b><br>${b.receiver||"—"}</div>
    <div><b>Mobile</b><br>${b.receiverMobile||"—"}</div>
    <div><b>Miles</b><br>${b.miles||0}</div>
    <div><b>Amount</b><br>£${Number(b.amount||0).toFixed(2)}</div>
-  </div>
-  ${b.status==="Driver Assigned"?pickupSteps(b):
+  </div></details>
+   ${!b._normalizedId&&SUPABASE_CONFIGURED?`<div class="panel" role="alert">Ask Admin to enable photo evidence for this older booking before taking pictures.</div>`:
+     b.status==="Driver Assigned"?pickupSteps(b):
     b.status==="Picked Up"?onRouteSteps(b):
     b.status==="On Route"||["Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?journeySteps(b):
     b.status==="Delivered"?`<div class="panel" style="margin-top:12px;background:#eef9f3"><b>${ico("check")} Delivery Complete</b><p class="muted">Pickup and delivery evidence is available to Admin and Client.</p></div>`:
@@ -5131,8 +5297,18 @@ function driverMobileJobCard(b){
 function drawDriverJobsMobile(){
  const rows=driverAssignedRows();
  const live=rows.filter(b=>b.status!=="Delivered");
+ const selected=live.find(b=>b.ref===driverSelectedJobRef);
+ if(selected)return `<button type="button" class="driverBack" onclick="showDriverJobList()">← All jobs (${live.length})</button>
+ <div class="driverJobIntro">Only <b>${escapeHtml(selected.ref)}</b> is open. Photos and updates stay with this booking.</div>
+ <div id="driverActiveJob">${driverMobileJobCard(selected)}</div>`;
+ driverSelectedJobRef=null;
  return `<div class="driverSectionTitle"><h3 style="margin:0">My Jobs</h3><span class="driverPill">${live.length} active</span></div>
- ${live.length?live.map(driverMobileJobCard).join(""):`<div class="driverEmpty">No active jobs assigned.</div>`}`;
+ ${live.length?`<p class="muted" style="margin:0 0 14px">Choose a booking to see its pickup or delivery steps.</p><div class="driverJobList">${live.map(b=>`<button type="button" class="driverJobSelect" onclick="openDriverJob('${b.ref}')" aria-label="Open booking ${escapeHtml(b.ref)}">
+  <span class="driverJobSelectTop"><span class="badge">${escapeHtml(b.status)}</span><span class="driverPill">${escapeHtml(b.ref)}</span></span>
+  <strong>${escapeHtml(b.vehicle||"Vehicle")} ${escapeHtml(b.reg||"")}</strong>
+  <span class="driverJobRoute">${escapeHtml(b.pickup||"Collection address not set")} → ${escapeHtml(b.destination||"Delivery address not set")}</span>
+  <span class="driverJobAction">${b.status==="Driver Assigned"?"Start pickup":b.status==="Picked Up"?"Start journey":"Continue delivery"} →</span>
+ </button>`).join("")}</div>`:`<div class="driverEmpty">No active jobs assigned.</div>`}`;
 }
 function drawDriverHolidaysMobile(){
  const s=ensureHRData(),name=currentUser?.name||currentStaffUser?.name||"Driver";
@@ -5175,6 +5351,7 @@ function drawDriverProfileMobile(){
 function drawDriver(c){
  document.body.classList.add("driver-mode");
  const rows=driverAssignedRows(),counts=driverStatusCounts(rows),name=currentUser?.name||currentStaffUser?.name||"Driver";
+ const showingJob=driverMobileTab==="jobs"&&rows.some(b=>b.ref===driverSelectedJobRef&&b.status!=="Delivered");
  let body="";
  if(driverMobileTab==="jobs")body=drawDriverJobsMobile();
  else if(driverMobileTab==="holidays")body=drawDriverHolidaysMobile();
@@ -5182,15 +5359,15 @@ function drawDriver(c){
  else body=drawDriverProfileMobile();
 
  c.innerHTML=`<div class="driverApp">
-  <div class="driverHeader">
+   <div class="driverHeader ${showingJob?"driverHeaderCompact":""}">
     <button class="driverProfileShortcut" title="Open profile" onclick="setDriverMobileTab('profile')">${ICONS.user}</button>
    <small>UK ON WHEELS DRIVER</small>
-   <h2>Hello, ${name}</h2>
-   <div class="driverSummary">
+    <h2>${showingJob?"Working on "+escapeHtml(driverSelectedJobRef):"Hello, "+escapeHtml(name)}</h2>
+    ${showingJob?"":`<div class="driverSummary">
     <div><strong>${counts.assigned}</strong><small>Assigned</small></div>
     <div><strong>${counts.active}</strong><small>Active</small></div>
     <div><strong>${counts.delivered}</strong><small>Delivered</small></div>
-   </div>
+    </div>`}
   </div>
   <div class="driverBody">${body}</div>
   ${driverMobileNav()}
@@ -5198,18 +5375,23 @@ function drawDriver(c){
 }
 function driverCard(b){
  return `<div class="panel"><div><span class="badge">${b.status}</span></div><h2>${b.ref} — ${b.vehicle}</h2><p><b>${b.pickup}</b> → <b>${b.destination}</b></p>
- ${b.status==="Driver Assigned"?pickupSteps(b):b.status==="Picked Up"?onRouteSteps(b):b.status==="On Route"||["Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?journeySteps(b):b.status==="Delivered"?`<div class="badge green">${ico("check")} Delivered</div>`:"<p class='muted'>Waiting for next stage.</p>"}
+  ${!b._normalizedId&&SUPABASE_CONFIGURED?"<p class='muted'>Ask Admin to enable photo evidence for this older booking before taking pictures.</p>":b.status==="Driver Assigned"?pickupSteps(b):b.status==="Picked Up"?onRouteSteps(b):b.status==="On Route"||["Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?journeySteps(b):b.status==="Delivered"?`<div class="badge green">${ico("check")} Delivered</div>`:"<p class='muted'>Waiting for next stage.</p>"}
  <h3>Journey Timeline</h3>${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")}</div>`;
 }
 function pickupSteps(b){
  const names=["Front","Rear","Left Side","Right Side","Interior Front","Interior Rear","Dashboard / Mileage","Existing Damage (optional)"];
+ const stored=Object.values(b.pickupPhotos||{}).filter(x=>x.storagePath||(!b._normalizedId&&x.image));
+ const required=names.slice(0,7).filter(label=>stored.some(x=>x.label===label)).length;
+ const keysStored=stored.some(x=>x.label==="Keys");
  return `<div class="step"><h4>1. Ready to Pickup</h4><label><input type="checkbox" id="ready_${b.ref}"> Ready to Pickup</label></div>
  <div class="step"><h4>2. Live Vehicle Camera</h4>
  <p class="muted"><b>Camera only:</b> gallery/saved photo upload is disabled. Each photo is captured live and stamped with date, time and GPS location.</p>
- <div class="vehiclePhotoGrid">${names.map((x,i)=>cameraSlot(b,i,x,i<2)).join("")}</div></div>
+ <details class="driverPhotoGroup" data-kind="vehicle" open ontoggle="if(!this.open&&!closeDriverCameras())this.open=true"><summary>Vehicle photos — <span class="photoCount">${required}/7 required stored</span></summary>
+ <div class="vehiclePhotoGrid">${names.map((x,i)=>cameraSlot(b,i,x,i<2)).join("")}</div></details></div>
  <div class="step"><h4>3. Documents & Items — Live Camera</h4>
- <p class="muted">Logbook/V5C, keys, service history, mats and other items are recorded through the live camera.</p>
- <div class="vehiclePhotoGrid">${["Logbook / V5C","Keys","Service History Book","Mats","Other Documents / Items"].map((x,i)=>cameraSlot(b,"d"+i,x,i===4)).join("")}</div></div>
+ <p class="muted">A live photo of the keys is required. Add the other items when provided.</p>
+ <details class="driverPhotoGroup" data-kind="keys" ontoggle="if(!this.open&&!closeDriverCameras())this.open=true"><summary>Documents & keys — <span class="photoCount">${keysStored?"keys stored":"keys photo needed"}</span></summary>
+ <div class="vehiclePhotoGrid">${["Logbook / V5C","Keys","Service History Book","Mats","Other Documents / Items"].map((x,i)=>cameraSlot(b,"d"+i,x,i===4)).join("")}</div></details></div>
   <div class="step"><h4>4. Vehicle Inspection Report</h4><div class="form">
    <select id="condition_${b.ref}"><option value="">Overall vehicle condition *</option><option>Good</option><option>Fair</option><option>Damage Present</option><option>Not Roadworthy</option></select>
    <input id="mileage_${b.ref}" type="number" min="0" placeholder="Odometer mileage *">
@@ -5221,8 +5403,8 @@ function pickupSteps(b){
 }
 function cameraSlot(b,id,label,wide=false){
  const ref=b.ref,photo=Object.values(b.pickupPhotos||{}).filter(p=>p.label===label||p.label===String(id)).sort((a,z)=>new Date(z.timestamp||0)-new Date(a.timestamp||0))[0],image=photo?.image||"";
- return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}">
-   <button type="button" class="cameraAreaTab" onclick="startCamera('${ref}','${id}')"><span>${label}</span><span class="areaState">${photo?"✓ Stored":"Tap to photograph"}</span></button>
+ return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}" ${id!=="7"&&id!==7&&(id==="d1"||!String(id).startsWith("d"))?'data-required="1"':""}>
+   <button type="button" class="cameraAreaTab" onclick="${photo?"toggleStoredPhoto(this)":"startCamera('"+ref+"','"+id+"')"}"><span>${label}</span><span class="areaState">${photo?"✓ Stored · View":"Tap to photograph"}</span></button>
    <div class="cameraPreview">
    ${image?`<img class="storedPhoto" src="${image}" alt="${label} captured evidence">`:""}
    <video id="v_${ref}_${id}" playsinline autoplay></video>
@@ -5254,10 +5436,24 @@ function cameraSlot(b,id,label,wide=false){
   let preview=box.querySelector(".storedPhoto");
   if(!preview){preview=document.createElement("img");preview.className="storedPhoto";preview.alt=label+" captured evidence";box.querySelector(".cameraPreview").prepend(preview)}
   preview.src=image;
-  box.classList.add("photo-stored");box.classList.remove("camera-active");
-  const areaState=box.querySelector(".areaState");if(areaState)areaState.textContent="✓ Stored";
+  box.classList.add("photo-stored");box.classList.remove("camera-active","preview-open");
+  const areaState=box.querySelector(".areaState");if(areaState)areaState.textContent="✓ Stored · View";
+  const tab=box.querySelector(".cameraAreaTab");if(tab)tab.onclick=()=>toggleStoredPhoto(tab);
   status.dataset.captured="1";status.classList.remove("error");
   status.innerHTML=`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${dateText} ${timeText}<br>${locationText}</div>`;
+ refreshDriverPhotoProgress(box.closest(".driverPhotoGroup"));
+ }
+ function refreshDriverPhotoProgress(group){
+  if(!group)return;
+  const count=Array.from(group.querySelectorAll('.cameraBox[data-required="1"]')).filter(box=>box.querySelector(".captureMeta")?.dataset.captured==="1").length;
+  const counter=group.querySelector(".photoCount");
+  if(counter)counter.textContent=group.dataset.kind==="keys"?(count?"keys stored":"keys photo needed"):`${count}/${group.dataset.kind==="vehicle"?7:6} ${group.dataset.kind==="vehicle"?"required stored":"stored"}`;
+ }
+ function toggleStoredPhoto(button){
+  const box=button.closest(".cameraBox");
+  const wasOpen=box.classList.contains("preview-open");
+  box.classList.toggle("preview-open",!wasOpen);
+  button.setAttribute("aria-expanded",String(!wasOpen));
  }
 async function uploadBookingEvidence(b,canvas,evidenceType,label,latitude,longitude,accuracy,capturedAt){
   if(!SUPABASE_CONFIGURED||!b?._normalizedId||!currentSession?.user?.id)throw new Error("This booking is not linked to a Supabase booking or Driver session. Photo cannot be stored.");
@@ -5281,6 +5477,7 @@ async function startCamera(ref,id){
     }
    }
     document.querySelectorAll(".cameraBox.camera-active").forEach(x=>x.classList.remove("camera-active"));
+    document.getElementById(`box_${ref}_${id}`)?.classList.remove("preview-open");
     document.getElementById(`box_${ref}_${id}`)?.classList.add("camera-active");
    if(cameraStreams[ref+"_"+id]) cameraStreams[ref+"_"+id].getTracks().forEach(t=>t.stop());
     const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
@@ -5372,6 +5569,7 @@ async function captureCamera(ref,id){
   button.disabled=false;
 }
 async function completePickup(ref){
+ if(driverPhotoIsSaving())return;
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
  if(!document.getElementById("ready_"+ref).checked)return alert("Confirm Ready to Pickup.");
  for(let i=0;i<7;i++){
@@ -5405,6 +5603,7 @@ async function completePickup(ref){
   b.pickupInspection={condition,mileage:Number(mileage),fuelLevel:fuel,notes:inspectionNotes||"No additional inspection notes",completedAt:new Date().toISOString(),driver:b.driver};
  b.timeline.unshift({title:"Picked Up",text:"Live camera pickup evidence, timestamp, GPS and declaration completed at "+new Date().toLocaleString()});
  s.notifications.unshift({title:"Picked Up",text:b.ref+" has been picked up by "+b.driver+" with live camera and GPS evidence."});
+ delete driverFormDrafts[ref];
   saveStore(s);
  draw();
  }function driverMapLink(b){return `<a class="btn secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.pickup||"")}&destination=${encodeURIComponent(b.destination||"")}">${ico("route")} Open Route Map</a>`}
@@ -5412,26 +5611,25 @@ async function completePickup(ref){
  async function startJourney(ref){let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,"On Route","Journey started"))return;b.status="On Route";b.timeline.unshift({title:"On Route",text:"Journey started at "+new Date().toLocaleString()});saveStore(s);queueCustomerStatusMessage(b,"onRoute");draw()}
 function journeySteps(b){
  const deliveryPhotos=["Front at Delivery","Rear at Delivery","Left Side at Delivery","Right Side at Delivery","Interior at Delivery","Dashboard / Mileage at Delivery"];
- return `<div class="actions">${driverMapLink(b)}</div><div class="grid2"><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn warn" onclick="incident('${b.ref}','Fault On Route')">Vehicle Fault</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Accident</button><button class="btn secondary" onclick="incident('${b.ref}','Assigned AA on Route')">AA Assistance</button></div>
+ const stored=Object.values(b.deliveryPhotos||{}).filter(x=>x.storagePath||(!b._normalizedId&&x.image));
+ const done=deliveryPhotos.filter(label=>stored.some(x=>x.label===label)).length;
+ return `<div class="actions">${driverMapLink(b)}</div><details class="driverExtras"><summary>Report a delay, fault or accident</summary><div class="grid2"><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn warn" onclick="incident('${b.ref}','Fault On Route')">Vehicle Fault</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Accident</button><button class="btn secondary" onclick="incident('${b.ref}','Assigned AA on Route')">AA Assistance</button></div></details>
  <div class="step"><h4>Delivery Evidence — Live Camera</h4><p class="muted">Take live delivery photographs before handover.</p>
-  <div class="vehiclePhotoGrid">${deliveryPhotos.map((x,i)=>deliveryCameraSlot(b,i,x)).join("")}</div></div>
- <div class="step"><h4>Receiver & Driver Signatures</h4>
+  <details class="driverPhotoGroup" data-kind="delivery" open ontoggle="if(!this.open&&!closeDriverCameras())this.open=true"><summary>Delivery photos — <span class="photoCount">${done}/6 stored</span></summary>
+  <div class="vehiclePhotoGrid">${deliveryPhotos.map((x,i)=>deliveryCameraSlot(b,i,x)).join("")}</div></details></div>
+  <div class="step"><h4>Confirm Handover</h4>
   <input id="rn_${b.ref}" value="${b.receiver||""}" placeholder="Person receiving vehicle">
   <input id="rm_${b.ref}" value="${b.receiverMobile||""}" placeholder="Receiver mobile">
-  <label><b>Receiver Signature</b></label><canvas class="signaturePad" id="receiverSig_${b.ref}"></canvas>
-  <div class="actions"><button class="btn secondary" onclick="clearSignature('receiverSig_${b.ref}')">Clear Receiver Signature</button></div>
-  <label><b>Driver Signature</b></label><canvas class="signaturePad" id="driverSig_${b.ref}"></canvas>
-  <div class="actions"><button class="btn secondary" onclick="clearSignature('driverSig_${b.ref}')">Clear Driver Signature</button></div>
   <label><input type="checkbox" id="dc_${b.ref}"> Vehicle handed over to receiver</label>
   <button class="btn primary" onclick="deliver('${b.ref}')">Mark Delivered</button>
- </div>
- <script>setTimeout(()=>{initSignaturePad('receiverSig_${b.ref}');initSignaturePad('driverSig_${b.ref}')},0)<\/script>`;
+  </div>`;
+ if(driverMobileTab==="jobs"&&driverSelectedJobRef)restoreDriverFormDraft();
 }
 
 function deliveryCameraSlot(b,id,label){
  const ref=b.ref,photo=Object.values(b.deliveryPhotos||{}).filter(p=>p.label===label||p.label===String(id)).sort((a,z)=>new Date(z.timestamp||0)-new Date(a.timestamp||0))[0];
- return `<div class="cameraBox ${photo?"photo-stored":""}">
-  <button type="button" class="cameraAreaTab" onclick="startDeliveryCamera('${ref}','${id}')"><span>${label}</span><span class="areaState">${photo?"✓ Stored":"Tap to photograph"}</span></button>
+ return `<div class="cameraBox ${photo?"photo-stored":""}" data-required="1">
+  <button type="button" class="cameraAreaTab" onclick="${photo?"toggleStoredPhoto(this)":"startDeliveryCamera('"+ref+"','"+id+"')"}"><span>${label}</span><span class="areaState">${photo?"✓ Stored · View":"Tap to photograph"}</span></button>
   <div class="cameraPreview">
   ${photo?.image?`<img class="storedPhoto" src="${photo.image}" alt="${label} delivery evidence">`:""}
   <video id="dv_${ref}_${id}" playsinline autoplay></video>
@@ -5454,6 +5652,9 @@ async function startDeliveryCamera(ref,id){
     stopEvidenceCamera(otherKey,other);
    }
   }
+  document.querySelectorAll(".cameraBox.camera-active").forEach(x=>x.classList.remove("camera-active"));
+  video.closest(".cameraBox")?.classList.remove("preview-open");
+  video.closest(".cameraBox")?.classList.add("camera-active");
   if(cameraStreams[key])cameraStreams[key].getTracks().forEach(t=>t.stop());
   const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
   cameraStreams[key]=stream;video.srcObject=stream;video.style.display="block";await video.play();
@@ -5497,32 +5698,17 @@ async function captureDeliveryCamera(ref,id){
  stopEvidenceCamera("delivery_"+ref+"_"+id,video);
  button.disabled=false;
 }
-const signaturePads={};
-function initSignaturePad(id){
- const canvas=document.getElementById(id);if(!canvas||signaturePads[id])return;
- canvas.width=canvas.clientWidth*2||700;canvas.height=300;
- const ctx=canvas.getContext("2d");ctx.scale(2,2);ctx.lineWidth=2;ctx.lineCap="round";
- let drawing=false,last=null;
- const point=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}};
- const start=e=>{drawing=true;last=point(e);canvas.dataset.signed="1";e.preventDefault()};
- const move=e=>{if(!drawing)return;const p=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;e.preventDefault()};
- const stop=e=>{drawing=false;e.preventDefault()};
- canvas.addEventListener("mousedown",start);canvas.addEventListener("mousemove",move);window.addEventListener("mouseup",stop);
- canvas.addEventListener("touchstart",start,{passive:false});canvas.addEventListener("touchmove",move,{passive:false});canvas.addEventListener("touchend",stop,{passive:false});
- signaturePads[id]=true;
-}
-function clearSignature(id){const c=document.getElementById(id);if(!c)return;const ctx=c.getContext("2d");ctx.clearRect(0,0,c.width,c.height);c.dataset.signed="";}
 async function incident(ref,status){let note=await crmPrompt("Add location / notes for "+status,"","Report "+status);let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,status,note||"No notes"))return;b.status=status;b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
 async function deliver(ref){
+ if(driverPhotoIsSaving())return;
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
  if(!b)return;
  for(let i=0;i<6;i++){
   if(document.getElementById(`ds_${ref}_${i}`)?.dataset.captured!=="1")return alert("Please take all required delivery photographs.");
  }
  if(!document.getElementById("dc_"+ref)?.checked)return alert("Confirm vehicle handover.");
- const receiverCanvas=document.getElementById("receiverSig_"+ref),driverCanvas=document.getElementById("driverSig_"+ref);
- if(receiverCanvas?.dataset.signed!=="1")return alert("Receiver signature is required.");
- if(driverCanvas?.dataset.signed!=="1")return alert("Driver signature is required.");
+  if(!await persistNormalizedStatus(b,"Delivered","Delivery photographs and handover completed"))return;
+  b=s.bookings.find(x=>x.ref===ref)||b;
  b.status="Delivered";
  b.receiver=document.getElementById("rn_"+ref)?.value||b.receiver;
  b.receiverMobile=document.getElementById("rm_"+ref)?.value||b.receiverMobile;
@@ -5530,14 +5716,11 @@ async function deliver(ref){
  b.deliveryEvidence=b.deliveryEvidence||{};
  b.deliveryEvidence.receiverName=b.receiver;
  b.deliveryEvidence.receiverMobile=b.receiverMobile;
- b.deliveryEvidence.receiverSignature=receiverCanvas.toDataURL("image/png");
- b.deliveryEvidence.driverSignature=driverCanvas.toDataURL("image/png");
  b.deliveryEvidence.driver=b.driver;
  b.deliveryEvidence.deliveredAt=b.deliveryCapturedAt;
  if(!b.paymentStatus)b.paymentStatus="Pending";
- b.timeline.unshift({title:"Delivered",text:"Vehicle delivered with delivery photographs, receiver signature and driver signature at "+new Date().toLocaleString()});
- s.notifications.unshift({title:"Delivered",text:b.ref+" has been delivered with signed delivery evidence."});
-  if(!await persistNormalizedStatus(b,"Delivered","Delivery evidence and signatures completed"))return;
+  b.timeline.unshift({title:"Delivered",text:"Vehicle delivered with delivery photographs and handover confirmation at "+new Date().toLocaleString()});
+  s.notifications.unshift({title:"Delivered",text:b.ref+" has been delivered with photographic evidence."});
   saveStore(s);queueCustomerStatusMessage(b,"delivered");draw();
 }
 window.addEventListener("storage",()=>{if(!app.classList.contains("hidden"))draw()});
