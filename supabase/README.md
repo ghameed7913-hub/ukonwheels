@@ -54,6 +54,31 @@ Business clients also use:
 
 Invoice and tariff fields should be controlled by Admin.
 
+## Driver incident reports
+
+After the base production architecture is installed, open a new SQL Editor query
+and run the full contents of `supabase/incident_reports_patch.sql`.
+
+This creates dedicated report and photo-metadata tables, secure save/submit
+functions and the **private** `incident-evidence` bucket. It does not delete
+bookings, evidence, users or `app_store` records.
+
+- Only active Drivers can create their own reports and add photos to drafts.
+- Drivers can reopen their own reports; Admin can review all reports.
+- Clients and ordinary Staff cannot access incident reports or licence/insurance
+  images. These are separate from Client-visible collection/delivery evidence.
+- Submitted reports and registered photos cannot be edited or deleted through
+  the portal. Save a draft to continue entering details later.
+- Images support JPEG, PNG and WebP, up to 10 MB each, with no small fixed
+  photo-count limit. File bytes stay in Storage, not JSON or browser storage.
+- Viewing links expire; **Refresh viewing links** issues new authorized links
+  without replacing or deleting the stored images.
+
+In the Driver portal, open **Incidents**, or **Full incident report** on a job.
+Admin reviews reports through **Incident Reports**. Apply this SQL before
+releasing the updated frontend; missing setup produces an explicit error rather
+than a false save confirmation.
+
 ## Important
 
 Do not remove `app_store` after running this migration. The current portal still uses it. Once the SQL succeeds, the frontend can be migrated module-by-module to the secure tables with `app_store` retained as a rollback source.

@@ -9,6 +9,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" href="./uk-on-wheels-logo.jpg">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="./driver-incidents.css">
+<script src="./incident-api.js"></script>
+<script src="./driver-incidents.js"></script>
 <style>
 :root{--navy:#071a31;--navy2:#0d2547;--blue:#2f6fe0;--brand-red:#e2131f;--brand-red-dark:#b30f19;--bg:#f4f7fb;--line:#e2e8f0;--text:#132238;--muted:#718096;--green:#159a62;--amber:#d99516;--red:#d9363e;--purple:#7457d6}
 *{box-sizing:border-box}body{margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
@@ -1054,6 +1057,7 @@ document.addEventListener("DOMContentLoaded",()=>{
        sample("PREVIEW-103","On Route","Volkswagen Golf","LM56 NOP","Birmingham","Bristol")
       ];
       driverSelectedJobRef=previewParams.get("ui-job")||null;
+      driverMobileTab=previewParams.get("ui-tab")==="incidents"?"incidents":"jobs";
      }
     page=role==="driver"?"driver":(previewParams.get("ui-page")||"desktop");
    showAuthenticatedPortal();
@@ -1275,6 +1279,7 @@ function migrateClientData(){
 
 function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
+  IncidentUI.reset();
   driverSelectedJobRef=null;
   Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
  }
@@ -1330,6 +1335,8 @@ async function restoreSupabaseSession(){
 }
 
 async function logoutNow(){
+ if(IncidentUI.isSaving?.()){crmToast("Please wait for the incident report to finish saving before signing out.","Report saving");return;}
+ if(IncidentUI.hasUnsaved?.()&&!await crmConfirm("Your incident form has unsaved changes. Save a draft before signing out to keep them.","Unsaved incident report","Sign out without saving",true))return;
  if(role==="driver"&&driverPhotoIsSaving())return;
  closeDriverCameras();
  if(sharedSavePending){
@@ -1348,6 +1355,7 @@ async function logoutNow(){
    console.error("Supabase sign out failed:",e);
  }
  currentSession=null;
+ IncidentUI.reset();
  normalizedVisibleIds=new Set();
  driverSelectedJobRef=null;
  Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
@@ -1637,6 +1645,7 @@ function nav(){
   ]},
   {key:"businesses",label:"Businesses",icon:"building"},
   {key:"assign",label:"Assign Driver",icon:"truck"},
+  {key:"incidents",label:"Incident Reports",icon:"clipboard"},
   {group:"status",key:"status",label:"Status Update",icon:"edit",items:[
     {key:"singleUpdate",label:"Single Booking Update"},
     {key:"approvals",label:"Update Approvals"}
@@ -1923,6 +1932,10 @@ function statusTabs(){
 }
 function draw(){
  const c=document.getElementById("content");
+ if(page==="incidents"){
+  if(role!=="admin"){c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;}
+  return IncidentUI.renderAdmin(c);
+ }
  if(role!=="client"){
    const permissionMap={desktop:"desktop",booking:"booking",businesses:"businesses",assign:"assign",status:"status",statusPage:"status",singleUpdate:"status",approvals:"status",miles:"miles",amount:"amount",destination:"destination",accounts:"accounts",expenses:"accounts",invoices:"reports",payments:"accounts",pendingPayments:"accounts",accountReports:"reports",pnl:"accounts",reports:"reports",hr:"hr",hrRegister:"hr",hrHolidays:"hr",hrPayslips:"hr",hrNonResidents:"hr",hrShareCodes:"hr",hrDvla:"hr",messageCentre:"notifications",notifications:"notifications",settings:"settings",users:"users",createUsers:"users",assignRoles:"users",driver:"driver"};
    if(permissionMap[page] && !hasPermission(permissionMap[page])){
@@ -5491,6 +5504,8 @@ function showDriverJobList(){
  window.scrollTo(0,0);
 }
 function setDriverMobileTab(tab){
+ if(IncidentUI.isSaving?.()){crmToast("Please wait for the incident report to finish saving.","Report saving");return;}
+ IncidentUI.captureForm();
  if(driverPhotoIsSaving())return;
  saveDriverFormDraft();
  closeDriverCameras();
@@ -5514,6 +5529,7 @@ function driverStatusCounts(rows){
 function driverMobileNav(){
  return `<div class="driverBottomNav">
   <button class="${driverMobileTab==="jobs"?"active":""}" onclick="setDriverMobileTab('jobs')"><span>${ico("car")}</span>Jobs</button>
+  <button class="${driverMobileTab==="incidents"?"active":""}" onclick="setDriverMobileTab('incidents')"><span>${ico("clipboard")}</span>Incidents</button>
   <button class="${driverMobileTab==="holidays"?"active":""}" onclick="setDriverMobileTab('holidays')"><span>${ico("calendar")}</span>Holidays</button>
   <button class="${driverMobileTab==="history"?"active":""}" onclick="setDriverMobileTab('history')"><span>${ico("receipt")}</span>History</button>
   <button class="${driverMobileTab==="profile"?"active":""}" onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
@@ -5540,6 +5556,7 @@ function driverMobileJobCard(b){
     b.status==="On Route"||["Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?journeySteps(b):
     b.status==="Delivered"?`<div class="panel" style="margin-top:12px;background:#eef9f3"><b>${ico("check")} Delivery Complete</b><p class="muted">Pickup and delivery evidence is available to Admin and Client.</p></div>`:
     `<p class="muted">Waiting for next stage.</p>`}
+  <div class="actions"><button type="button" class="btn secondary" data-incident-booking="${escapeHtml(b.ref)}" onclick="IncidentUI.open(this.dataset.incidentBooking,'Incident')">Full incident report</button></div>
   <details style="margin-top:12px"><summary><b>Journey Timeline</b></summary>
    ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
   </details>
@@ -5600,11 +5617,13 @@ function drawDriverProfileMobile(){
  </div>`;
 }
 function drawDriver(c){
+ IncidentUI.captureForm();
  document.body.classList.add("driver-mode");
  const rows=driverAssignedRows(),counts=driverStatusCounts(rows),name=currentUser?.name||currentStaffUser?.name||"Driver";
  const showingJob=driverMobileTab==="jobs"&&rows.some(b=>b.ref===driverSelectedJobRef&&b.status!=="Delivered");
  let body="";
  if(driverMobileTab==="jobs")body=drawDriverJobsMobile();
+ else if(driverMobileTab==="incidents")body=IncidentUI.renderDriver();
  else if(driverMobileTab==="holidays")body=drawDriverHolidaysMobile();
  else if(driverMobileTab==="history")body=drawDriverHistoryMobile();
  else body=drawDriverProfileMobile();
@@ -5623,6 +5642,7 @@ function drawDriver(c){
   <div class="driverBody">${body}</div>
   ${driverMobileNav()}
  </div>`;
+ if(driverMobileTab==="incidents")IncidentUI.mountDriver();
 }
 function driverCard(b){
  return `<div class="panel"><div><span class="badge">${b.status}</span></div><h2>${b.ref} — ${b.vehicle}</h2><p><b>${b.pickup}</b> → <b>${b.destination}</b></p>
@@ -5978,7 +5998,7 @@ async function deliver(ref){
 }
 window.addEventListener("storage",refreshPortalSafely);
 window.addEventListener("ukowupdate",refreshPortalSafely);
-window.addEventListener("beforeunload",event=>{if(sharedSavePending){event.preventDefault();event.returnValue=""}});
+window.addEventListener("beforeunload",event=>{if(sharedSavePending||IncidentUI.hasUnsaved?.()||IncidentUI.isSaving?.()){event.preventDefault();event.returnValue=""}});
 </script>
 </body>
 </html>

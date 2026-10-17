@@ -1,0 +1,75 @@
+/* UK On Wheels - Incident reports */
+.inc{max-width:720px;margin:0 auto;color:var(--text,#132238);font-size:14px;min-width:0}
+.inc *{min-width:0}
+.inc h3{margin:0;font-size:17px;font-weight:700;color:var(--navy,#071a31)}
+.inc h4{margin:0 0 10px;font-size:13px;font-weight:700;color:var(--navy,#071a31);text-transform:uppercase;letter-spacing:.05em}
+.incHead{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:6px 0 12px;flex-wrap:wrap}
+.incHead p{margin:3px 0 0;color:var(--muted,#718096);font-size:12px}
+.incSafety{border:1px solid #f3c7ca;border-left:4px solid var(--brand-red,#e2131f);background:#fff6f6;border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.5;margin-bottom:12px}
+.incSafety strong{color:var(--brand-red-dark,#b30f19)}
+.incSafety ul{margin:4px 0 0;padding-left:18px}
+.incTabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#e7edf5;padding:4px;border-radius:10px;margin-bottom:12px}
+.incTabs button{border:0;background:transparent;border-radius:7px;padding:10px;font-weight:600;color:#40536b;cursor:pointer;min-height:42px}
+.incTabs button[aria-pressed=true]{background:#fff;color:var(--navy,#071a31);box-shadow:0 1px 3px rgba(7,26,49,.12)}
+.incCard{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:14px;margin-bottom:10px}
+.incGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.incGrid .full{grid-column:1/-1}
+.incField label{display:block;font-size:12px;font-weight:600;color:#3d4f66;margin-bottom:4px}
+.incField label em{font-style:normal;font-weight:500;color:var(--muted,#718096)}
+.incField input,.incField select,.incField textarea{width:100%;padding:10px 11px;border:1px solid #cfd8e3;border-radius:8px;background:#fff;color:inherit;font-size:14px}
+.incField textarea{min-height:84px;resize:vertical}
+.incField input:focus,.incField select:focus,.incField textarea:focus{outline:none;border-color:var(--navy2,#0d2547);box-shadow:0 0 0 3px rgba(13,37,71,.12)}
+.incField [aria-invalid=true]{border-color:var(--brand-red,#e2131f);background:#fff8f8}
+.incHint{font-size:11.5px;color:var(--muted,#718096);margin-top:4px;line-height:1.4}
+.incFault{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.incFault label{position:relative;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #cfd8e3;border-radius:8px;padding:9px 6px;font-size:12.5px;font-weight:600;cursor:pointer;text-align:center;margin:0}
+.incFault input[type=radio]{position:absolute;left:8px;top:50%;width:1px;height:1px;min-height:0;margin:0;opacity:0;pointer-events:none}
+.incFault label:has(input:checked){background:var(--navy,#071a31);border-color:var(--navy,#071a31);color:#fff}
+.incFault label:has(input:focus-visible){outline:3px solid var(--brand-red,#e2131f);outline-offset:2px}
+.incOther{border-top:1px dashed #d4dce6;margin-top:12px;padding-top:12px}
+.incPick{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.incPick label.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:1;min-width:140px;margin:0}
+.incPick input[type=file]{position:absolute;left:8px;top:50%;width:1px;height:1px;min-height:0;opacity:0}
+.incPick label.btn:focus-within{outline:3px solid var(--brand-red,#e2131f);outline-offset:2px}
+.incThumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:10px}
+.incThumb{border:1px solid var(--line,#e2e8f0);border-radius:9px;overflow:hidden;background:#f8fafc;font-size:11.5px;display:flex;flex-direction:column}
+.incThumb img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#e5ebf2}
+.incThumb .ph{aspect-ratio:4/3;display:grid;place-items:center;color:var(--muted,#718096);background:#e9eef5;padding:6px;text-align:center}
+.incThumb .meta{padding:6px 7px;display:grid;gap:3px;overflow-wrap:anywhere}
+.incThumb .meta b{font-weight:600}
+.incThumb button{border:0;border-top:1px solid var(--line,#e2e8f0);background:#fff;color:#b31d2c;font-weight:600;padding:8px;cursor:pointer;min-height:38px}
+.incThumb a{display:block;text-align:center;border-top:1px solid var(--line,#e2e8f0);padding:8px;color:#17416e;font-weight:600;text-decoration:none}
+.incState{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:#edf3fb;color:#17416e;justify-self:start}
+.incState.done{background:#e8f8f0;color:#08784b}.incState.failed{background:#ffe8eb;color:#b31d2c}.incState.uploading{background:#fff4db;color:#966000}
+.incMsg{border-radius:9px;padding:10px 12px;font-size:12.5px;line-height:1.45;margin:10px 0;overflow-wrap:anywhere}
+.incMsg.error{background:#fff0f1;border:1px solid #ffd2d6;color:#a2212c}
+.incMsg.info{background:#edf5ff;border:1px solid #d3e4fb;color:#1e4f8f}
+.incMsg.ok{background:#ecf9f2;border:1px solid #ceeddb;color:#177047}
+.incMsg code{font-size:11.5px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px}
+.incProg{height:6px;border-radius:6px;background:#e3e9f1;overflow:hidden;margin-top:8px}
+.incProg i{display:block;height:100%;background:var(--brand-red,#e2131f);transform-origin:left;transition:transform .25s ease}
+.incBar{position:static;display:flex;gap:8px;padding:10px 0}
+.incBar .btn{flex:1}
+.incBar .btn[disabled],.inc .btn[disabled]{opacity:.55;cursor:not-allowed}
+.incList{display:grid;gap:8px}
+.incItem{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:11px;padding:12px 13px;cursor:pointer;color:inherit}
+.incItem:hover{border-color:#b9c6d6}
+.incItem:focus-visible{outline:3px solid var(--brand-red,#e2131f);outline-offset:2px}
+.incItemTop{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.incItem strong{display:block;font-size:14.5px;margin:6px 0 2px;overflow-wrap:anywhere}
+.incItem small{color:var(--muted,#718096);overflow-wrap:anywhere}
+.incDl{display:grid;grid-template-columns:minmax(110px,34%) 1fr;gap:0;margin:0;font-size:13px}
+.incDl dt,.incDl dd{padding:7px 0;border-bottom:1px solid #eef2f6;margin:0;overflow-wrap:anywhere}
+.incDl dt{color:var(--muted,#718096);font-weight:600;padding-right:10px}
+.incDl dd{white-space:pre-wrap}
+.incEmpty{border:1px dashed #cdd6e2;border-radius:12px;padding:24px;text-align:center;color:var(--muted,#718096);background:#fff}
+.incSkel{height:62px;border-radius:11px;background:linear-gradient(90deg,#e9eef4,#f5f8fb,#e9eef4);background-size:200% 100%;animation:incSk 1.2s linear infinite}
+@keyframes incSk{to{background-position:-200% 0}}
+.incAdmin{display:grid;grid-template-columns:minmax(240px,340px) 1fr;gap:12px;max-width:none}
+.incAdmin .incList{max-height:70vh;overflow:auto}
+.incItem.sel{border-color:var(--brand-red,#e2131f);box-shadow:inset 3px 0 var(--brand-red,#e2131f)}
+@media(max-width:860px){.incAdmin{grid-template-columns:1fr}.incAdmin .incList{max-height:none}}
+@media(max-width:560px){.incGrid{grid-template-columns:1fr}.incGrid .full{grid-column:auto}.incFault{grid-template-columns:1fr 1fr}.incDl{grid-template-columns:1fr}.incDl dt{border-bottom:0;padding-bottom:0}.incCard{padding:12px}.incBar{flex-direction:column}}
+/* Five-item driver bottom nav (Incidents added) */
+.driverApp .driverBottomNav{grid-template-columns:repeat(5,minmax(0,1fr))}
+.driverBottomNav button{min-width:0;overflow-wrap:anywhere}
