@@ -1146,12 +1146,13 @@ function normalizedBookingToPortal(b,pm={},bm={}){
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
  try{
-  const [br,pr,cr,er,ir]=await Promise.all([sb.from("bookings").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("id,name,full_name,email,role,status,business_name,business_id"),sb.from("businesses").select("id,legal_name,trading_name"),sb.from("booking_evidence").select("*").order("captured_at",{ascending:true}),sb.from("booking_inspections").select("*")]);
+  const [br,pr,cr,er,ir]=await Promise.all([sb.from("bookings").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("id,name,full_name,email,role,status,business_name,business_id"),sb.from("businesses").select("*"),sb.from("booking_evidence").select("*").order("captured_at",{ascending:true}),sb.from("booking_inspections").select("*")]);
   if(br.error)throw br.error;
   normalizedVisibleIds=new Set((br.data||[]).map(b=>b.id));
   portalProfiles=pr.data||[];
   const pm=Object.fromEntries(portalProfiles.map(x=>[x.id,x])),bm=Object.fromEntries((cr.data||[]).map(x=>[x.id,x]));
   normalizedBookings=(br.data||[]).map(x=>normalizedBookingToPortal(x,pm,bm));
+  if(!cr.error&&(role==="admin"||role==="staff"))mergeSavedBusinesses(cr.data||[]);
   normalizedBookings.forEach(b=>{b._evidenceLoadError=er.error?.message||null});
   if(er.error)console.warn("Booking evidence could not be loaded:",er.error);
   else if(er.data?.length){
@@ -4503,6 +4504,51 @@ function showTab(status,btn){
  const rows=visibleBookings().filter(b=>b.status===status);
  tabarea.innerHTML=`<div class="panel"><h3>${status}</h3><div class="scroll"><table style="min-width:1450px"><tr><th>Booking Ref</th><th>Vehicle</th><th>Reg No</th><th>Collection</th><th>Delivery</th><th>Service</th><th>Miles</th><th>Booking Date</th><th>Delivery Date</th><th>Receiver</th><th>Mobile</th><th>Drop-off Till</th><th>Driver</th><th>Status</th></tr>${rows.map(b=>`<tr><td><b>${b.ref}</b></td><td>${b.vehicle}</td><td>${b.reg}</td><td>${b.pickup}</td><td>${b.destination}</td><td>${b.service}</td><td>${b.miles||0}</td><td>${b.bookingDate||""}</td><td>${b.deliveryDate||""}</td><td>${b.receiver||""}</td><td>${b.receiverMobile||""}</td><td>${b.dropoffTill||""}</td><td>${b.driver||"Not assigned"}</td><td><span class="badge">${b.status}</span>${b.pickupCaptureMode?`<div class="muted" style="font-size:10px;margin-top:4px">${b.pickupCaptureMode}</div>`:""}</td></tr>`).join("")}</table></div>${rows.length?"":"<p class='muted'>No vehicles in this status.</p>"}</div>`;
 }
+function mergeSavedBusinesses(rows){
+ const s=getStore(),previous=s.businesses||[];
+ const key=value=>String(value||"").trim().toLowerCase();
+ const saved=rows.map(row=>{
+  const old=previous.find(b=>b.id===row.id)||previous.find(b=>!b.id&&key(b.name)===key(row.trading_name||row.legal_name))||{};
+  return {...old,id:row.id,name:row.trading_name||row.legal_name,accountType:"business",
+   clientName:row.contact_name||old.clientName||"",type:row.business_type||"",email:row.email||"",phone:row.phone||"",
+   address:row.address_line_1||"",postcode:row.postcode||"",vatNumber:row.vat_number||"",companyReg:row.company_number||"",
+   invoiceCycle:row.invoice_cycle||"",accountsName:row.accounts_contact_name||"",accountsPhone:row.accounts_phone||"",accountsEmail:row.accounts_email||"",
+   tariffType:row.tariff_type||"",perMile:Number(row.per_mile_rate||0),minimumCharge:Number(row.minimum_charge||0),status:row.status||"Active"};
+ });
+ s.businesses=[...saved,...previous.filter(old=>!old.id&&!saved.some(b=>key(b.name)===key(old.name)))];
+ STORE_CACHE=s;
+ return s.businesses;
+}
+function selectedBookingBusiness(value){
+ const rows=getStore().businesses||[];
+ return rows.find(b=>b.id&&b.id===value)||rows.find(b=>!b.id&&b.name===value);
+}
+function bookingBusinessOptions(){
+ return `<option value="">Select Business</option>`+(getStore().businesses||[]).filter(b=>String(b.accountType||"business").toLowerCase()==="business").map(b=>{
+  const inactive=String(b.status||"Active").toLowerCase()!=="active";
+  const unlinked=SUPABASE_CONFIGURED&&!b.id;
+  return `<option value="${escapeHtml(b.id||b.name)}" ${inactive||unlinked?"disabled":""}>${escapeHtml(b.name)}${inactive?" — inactive":unlinked?" — needs a linked business account":""}</option>`;
+ }).join("")+(!SUPABASE_CONFIGURED?'<option value="__manual__">+ Add manually</option>':"");
+}
+async function loadBookingBusinesses(){
+ const select=document.getElementById("biz"),notice=document.getElementById("businessLoadStatus");
+ if(!select||role==="client"||!SUPABASE_CONFIGURED)return;
+ const selected=select.value;
+ select.disabled=true;
+ if(notice)notice.textContent="Loading saved businesses…";
+ try{
+  const result=await sb.from("businesses").select("*").order("legal_name");
+  if(result.error)throw result.error;
+  if(!select.isConnected)return;
+  mergeSavedBusinesses(result.data||[]);
+  select.innerHTML=bookingBusinessOptions();
+  select.value=selectedBookingBusiness(selected)?selected:"";
+  if(notice)notice.textContent=(result.data||[]).length?"":"No saved business records were returned. Create a Business Client account in Clients & Businesses first.";
+  showBusinessTariff();
+ }catch(e){
+  if(notice&&select.isConnected)notice.innerHTML=`Saved businesses could not be refreshed: ${escapeHtml(e.message||e)}. <button type="button" class="btn secondary" onclick="loadBookingBusinesses()">Retry</button>`;
+ }finally{if(select.isConnected)select.disabled=false}
+}
 function drawBooking(c){
  const s=getStore();
  c.innerHTML=`<div class="panel"><h3>Create Booking</h3>
@@ -4512,7 +4558,7 @@ function drawBooking(c){
     : `<select id="customerType" onchange="toggleCustomerTypeFields()"><option value="Business">Business Customer</option><option value="Private">Private Customer — Admin Only</option></select>`}
   ${role==="client"
       ? `<input id="biz" type="hidden" value="${currentUser?.name||"Prestige Motors Ltd"}"><div class="panel" style="padding:10px"><b>Business:</b> ${currentUser?.name||"Prestige Motors Ltd"}</div>`
-      : `<select id="biz" onchange="showBusinessTariff()"><option value="">Select Business</option>${s.businesses.map(b=>`<option>${b.name}</option>`).join("")}<option value="__manual__">+ Add manually</option></select>`}
+      : `<div id="bookingBusinessField"><select id="biz" aria-label="Saved business" onchange="showBusinessTariff()">${bookingBusinessOptions()}</select><div id="businessLoadStatus" role="status" class="muted"></div></div>`}
   <input id="privateCustomerName" placeholder="Private Customer Name *" style="display:none">
   <input id="privateCustomerMobile" placeholder="Private Customer Mobile Number" style="display:none">
   <input id="privateCustomerEmail" type="email" placeholder="Private Customer Email" style="display:none">
@@ -4534,11 +4580,12 @@ function drawBooking(c){
  <div id="tariffInfo" class="full muted"></div>
  <div class="actions"><button class="btn primary" onclick="createBooking()">Create Booking</button></div></div>`;
  toggleCustomerTypeFields();
+ loadBookingBusinesses();
 }
 async function createLinkedBooking(booking,existingRef=null,driverId=null){
  let businessId=null;
  if(booking.customerType==="Business"){
-  const matching=(getStore().businesses||[]).filter(x=>x.name===booking.business&&x.id);
+  const matching=(getStore().businesses||[]).filter(x=>x.id&&(booking._businessId?x.id===booking._businessId:x.name===booking.business));
   if(matching.length!==1)throw new Error("Select a registered business with a Client portal account. Manually entered businesses cannot receive shared photos.");
   businessId=matching[0].id;
  }
@@ -4566,6 +4613,8 @@ function toggleCustomerTypeFields(){
  const emailEl=document.getElementById("privateCustomerEmail");
  const tariffEl=document.getElementById("tariffInfo");
  const isPrivate=type==="Private";
+ const businessField=document.getElementById("bookingBusinessField");
+ if(businessField)businessField.style.display=isPrivate?"none":"block";
  if(bizEl)bizEl.style.display=isPrivate?"none":"block";
  if(nameEl)nameEl.style.display=isPrivate?"block":"none";
  if(mobileEl)mobileEl.style.display=isPrivate?"block":"none";
@@ -4577,7 +4626,7 @@ function showBusinessTariff(){
  const s=getStore();
  const bizEl=document.getElementById("biz");
  const tariffEl=document.getElementById("tariffInfo");
- const b=s.businesses.find(x=>x.name===(bizEl?.value||""));
+ const b=selectedBookingBusiness(bizEl?.value||"");
  if(!b){if(tariffEl)tariffEl.innerHTML="";return}
  tariffEl.innerHTML=`<div class="panel" style="padding:10px"><b>Assigned Tariff:</b> ${b.tariffType||"Not set"} ${b.perMile?`· £${Number(b.perMile).toFixed(2)} per mile`:""} ${b.minimumCharge?`· Minimum £${Number(b.minimumCharge).toFixed(2)}`:""} · Invoice: ${b.invoiceCycle||"Not set"}</div>`;
 }
@@ -4586,6 +4635,7 @@ async function createBooking(){
  const type=role==="client"?"Business":(document.getElementById("customerType")?.value||"Business");
 
  let business="";
+ let selectedBusinessId=null;
  let privateCustomerNameValue="";
  let privateCustomerMobileValue="";
  let privateCustomerEmailValue="";
@@ -4593,7 +4643,11 @@ async function createBooking(){
  if(role==="client"){
    business=currentUser?.name||"Prestige Motors Ltd";
  }else if(type==="Business"){
-   business=document.getElementById("biz")?.value||"";
+   const businessSelect=document.getElementById("biz");
+   if(businessSelect?.disabled)return alert("Please wait for saved businesses to finish loading.");
+   const selectedBusiness=selectedBookingBusiness(businessSelect?.value||"");
+   selectedBusinessId=selectedBusiness?.id||null;
+   business=selectedBusiness?.name||businessSelect?.value||"";
    if(business==="__manual__"){
     business=await crmPrompt("Business name","","Add business name");
      if(!business)return;
@@ -4625,6 +4679,7 @@ async function createBooking(){
  const booking={
   ref,
   customerType:type,
+  _businessId:selectedBusinessId,
   business,
   privateCustomerName:privateCustomerNameValue,
   privateCustomerMobile:privateCustomerMobileValue,
