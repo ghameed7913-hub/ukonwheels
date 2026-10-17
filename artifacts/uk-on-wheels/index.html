@@ -1152,6 +1152,7 @@ async function loadNormalizedPortalData(){
   portalProfiles=pr.data||[];
   const pm=Object.fromEntries(portalProfiles.map(x=>[x.id,x])),bm=Object.fromEntries((cr.data||[]).map(x=>[x.id,x]));
   normalizedBookings=(br.data||[]).map(x=>normalizedBookingToPortal(x,pm,bm));
+  normalizedBookings.forEach(b=>{b._evidenceLoadError=er.error?.message||null});
   if(er.error)console.warn("Booking evidence could not be loaded:",er.error);
   else if(er.data?.length){
    try{
@@ -1900,7 +1901,19 @@ function openClientStatusPage(status){
  page="clientStatusPage";
  render();
 }
-async function showEvidence(ref){
+function bookingEvidenceCount(b,stage="pickup"){
+ const photos=stage==="delivery"?b.deliveryPhotos:b.pickupPhotos;
+ return Object.values(photos||{}).filter(p=>p.storagePath||p.image).length;
+}
+function bookingEvidenceButton(b,stage="pickup"){
+ const count=bookingEvidenceCount(b,stage);
+ const label=stage==="delivery"?"delivery":"pickup";
+ return `<button class="btn secondary" data-booking-ref="${escapeHtml(b.ref)}" data-evidence-stage="${stage}" onclick="showEvidence(this.dataset.bookingRef,this.dataset.evidenceStage)">View ${label} evidence${!b._evidenceLoadError&&count?` (${count})`:""}</button>`;
+}
+function bookingEvidenceControls(b){
+ return `<section aria-label="Booking evidence"><h4>Pickup & delivery evidence</h4><div class="actions">${bookingEvidenceButton(b)}${bookingEvidenceButton(b,"delivery")}</div>${b._evidenceLoadError?`<p role="status">Photo records could not be loaded. Open evidence to retry.</p>`:""}</section>`;
+}
+async function showEvidence(ref,stage="pickup"){
  const b=visibleBookings().find(x=>x.ref===ref);
  if(!b)return;
  const viewerId=currentSession?.user?.id;
@@ -1915,20 +1928,24 @@ async function showEvidence(ref){
    if(result.error)throw result.error;
    const rows=result.data||[];
    const signed=rows.length?await sb.storage.from("booking-evidence").createSignedUrls(rows.map(e=>e.storage_path),3600):{data:[]};
-   if(signed.error)throw signed.error;
+   if(signed.error)error="Photo records were found, but viewing links could not be created: "+signed.error.message;
    const failed=signed.data?.find(entry=>entry.error||!entry.signedUrl);
-   if(failed)throw new Error(failed.error||"A stored photo link could not be created.");
-   b.pickupPhotos={};b.deliveryPhotos={};
+   if(failed)error="Some saved photo links could not be loaded. Other available photos are shown below.";
+   // Preserve older, unsynced evidence while loading durable photo records.
+   const unsynced=photos=>Object.fromEntries(Object.entries(photos||{}).filter(([,p])=>!p.storagePath&&p.image));
+   b.pickupPhotos=unsynced(b.pickupPhotos);b.deliveryPhotos=unsynced(b.deliveryPhotos);
    rows.forEach((e,i)=>{
     const collection=e.evidence_type==="delivery"?"deliveryPhotos":"pickupPhotos";
     b[collection][e.id]={image:signed.data?.[i]?.signedUrl||"",storagePath:e.storage_path,label:e.label,timestamp:e.captured_at,latitude:e.latitude,longitude:e.longitude,accuracy:e.accuracy_metres};
    });
-  }catch(e){error=e.message||"Evidence could not be loaded";console.error("Booking evidence load failed:",e)}
+   b._evidenceLoadError=null;
+  }catch(e){error=e.message||"Evidence could not be loaded";b._evidenceLoadError=error;console.error("Booking evidence load failed:",e)}
  }
  if(!wrap.isConnected)return;
  if(viewerId!==currentSession?.user?.id||!visibleBookings().some(x=>x.ref===ref)){wrap.remove();return}
- wrap.firstElementChild.innerHTML=`<div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button><button class="btn secondary" data-refresh-evidence>Refresh pictures</button></div>${error?`<div class="panel" role="alert" style="color:#a71919">Could not load saved booking photos: ${escapeHtml(error)}. Use Refresh pictures to retry.</div>`:evidenceSection(b)}`;
- wrap.querySelector("[data-refresh-evidence]").onclick=()=>showEvidence(ref);
+ wrap.firstElementChild.innerHTML=`<div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button><button class="btn secondary" data-refresh-evidence>Refresh pictures</button></div>${error?`<div class="panel" role="alert" style="color:#a71919">Evidence loading warning: ${escapeHtml(error)}. Use Refresh pictures to retry.</div>`:""}${evidenceSection(b)}`;
+ wrap.querySelector("[data-refresh-evidence]").onclick=()=>showEvidence(ref,stage);
+ if(stage==="delivery")wrap.querySelector('[data-evidence-section="delivery"]')?.scrollIntoView({block:"start"});
 }
 async function renewEvidenceImage(image){
  const failed=()=>{
@@ -1987,7 +2004,8 @@ function drawClientBookings(c){
 function clientViewBooking(ref){
  const b=visibleBookings().find(x=>x.ref===ref),box=document.getElementById("clientBookingDetail");
  if(!b||!box)return;
-  box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>${b.ref} — ${b.vehicle}</h3>
+   box.innerHTML=`<div class="panel" style="margin-top:12px"><h3>${b.ref} — ${b.vehicle}</h3>
+   ${bookingEvidenceControls(b)}
   <div class="form">
    <div><b>Status</b><p><span class="badge">${b.status}</span></p></div>
    <div><b>Driver</b><p>${b.driver||"Not assigned"}</p></div>
@@ -1998,7 +2016,6 @@ function clientViewBooking(ref){
    <div><b>Amount</b><p>${currency(b.amount)}</p></div>
    <div><b>Payment</b><p>${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</p></div>
   </div>
-   <div class="actions"><button class="btn primary" onclick="showEvidence('${b.ref}')">View pickup & delivery pictures</button></div>
   <h4>Journey Timeline</h4>
   ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
  </div>`;
@@ -4306,7 +4323,7 @@ function drawStatusPage(c){
       <td><span class="badge">${b.status}</span></td>
       <td><span class="badge ${(b.paymentStatus==="Paid")?"green":"amber"}">${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</span></td>
       <td>${b.invoiceNo||"—"}</td>
-      <td>${b.pickupCaptureMode?`<span class="badge green">${b.pickupCaptureMode}</span>`:"—"}</td>
+      <td>${bookingEvidenceButton(b)}</td>
       <td><button class="btn secondary" onclick="viewStatusBooking('${b.ref}')">View Details</button>
       ${!b._normalizedId&&["Driver Assigned","Picked Up","On Route","Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?`<select id="legacyDriver_${b.ref}" aria-label="Driver for ${b.ref}"><option value="">Choose linked Driver</option>${activeDrivers.map(d=>`<option value="${escapeHtml(d.id)}" ${(d.full_name||d.name)===b.driver?"selected":""}>${escapeHtml(d.full_name||d.name||d.email)}</option>`).join("")}</select><button class="btn primary" onclick="linkExistingDriverBooking('${b.ref}')">Enable Photo Evidence</button>`:""}</td>
     </tr>`).join("")}
@@ -4322,6 +4339,7 @@ function viewStatusBooking(ref){
  if(!b)return;
  statusBookingDetail.innerHTML=`<div class="panel" style="margin-top:12px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h3>${b.ref} — ${b.vehicle}</h3><div class="actions"><span class="badge">${b.status}</span>${role==="admin"||role==="staff"?`<button class="btn primary" onclick="editBooking('${b.ref}')">Edit Booking</button>`:""}</div></div>
+  ${bookingEvidenceControls(b)}
   <div class="form">
     <div><b>Business Name</b><p>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</p></div>
     <div><b>Registration</b><p>${b.reg||"—"}</p></div>
@@ -4339,7 +4357,7 @@ function viewStatusBooking(ref){
     <div><b>Payment Status</b><p><span class="badge ${(b.paymentStatus==="Paid")?"green":"amber"}">${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</span></p></div>
     <div><b>Invoice Number</b><p>${b.invoiceNo||"—"}</p></div>
     <div><b>Payment Date</b><p>${b.paidDate||"—"}</p></div>
-    <div><b>Pickup Evidence</b><p>${b.pickupCaptureMode||"Not recorded"}</p></div>
+    <div><b>Pickup Photos Loaded</b><p>${b._evidenceLoadError?"Unavailable — open evidence to retry":bookingEvidenceCount(b)}</p></div>
   </div>
   <h4>Journey Timeline</h4>
   ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
@@ -4459,10 +4477,10 @@ function evidenceSection(b){
      <div><b>Inspected By</b><p>${inspection.driver||b.driver||"—"}</p></div>
      <div class="full"><b>Inspection Notes</b><p>${inspection.notes||"No inspection report available yet."}</p></div>
     </div>
-    <h4>Pickup Pictures (${pickup.length})</h4>
-   <div class="evidenceGrid">${pickup.length?pickup.map(p=>img(p,"Pickup Photo")).join(""):"<p class='muted'>Pickup pictures not available yet.</p>"}</div>
-    <h4 style="margin-top:18px">Delivery Pictures (${delivery.length})</h4>
-   <div class="evidenceGrid">${delivery.length?delivery.map(p=>img(p,"Delivery Photo")).join(""):"<p class='muted'>Delivery pictures not available yet.</p>"}</div>
+    <h4 data-evidence-section="pickup">Pickup Pictures (${pickup.length})</h4>
+    <div class="evidenceGrid">${pickup.length?pickup.map(p=>img(p,"Pickup Photo")).join(""):`<p class='muted'>${b._evidenceLoadError?"Pickup records could not be checked. Refresh pictures to retry.":b._normalizedId?"No saved pickup photo records were returned for this booking.":"No pickup pictures are available in this older booking record."}</p>`}</div>
+    <h4 style="margin-top:18px" data-evidence-section="delivery">Delivery Pictures (${delivery.length})</h4>
+    <div class="evidenceGrid">${delivery.length?delivery.map(p=>img(p,"Delivery Photo")).join(""):`<p class='muted'>${b._evidenceLoadError?"Delivery records could not be checked. Refresh pictures to retry.":"No saved delivery photo records were returned for this booking."}</p>`}</div>
    <div class="form" style="margin-top:16px">
     <div><b>Received By</b><p>${de.receiverName||b.receiver||"—"}</p></div>
     <div><b>Driver</b><p>${de.driver||b.driver||"—"}</p></div>
