@@ -1267,6 +1267,7 @@ async function restoreSupabaseSession(){
 async function logoutNow(){
  if(role==="driver"&&driverPhotoIsSaving())return;
  closeDriverCameras();
+ document.getElementById("evidenceOverlay")?.remove();
  try{
    if(sb)await sb.auth.signOut();
  }catch(e){
@@ -1900,8 +1901,9 @@ function openClientStatusPage(status){
  render();
 }
 async function showEvidence(ref){
- const b=getStore().bookings.find(x=>x.ref===ref);
+ const b=visibleBookings().find(x=>x.ref===ref);
  if(!b)return;
+ const viewerId=currentSession?.user?.id;
  const existing=document.getElementById("evidenceOverlay");if(existing)existing.remove();
  const wrap=document.createElement("div");wrap.id="evidenceOverlay";wrap.style.cssText="position:fixed;inset:0;background:#0008;z-index:9999;overflow:auto;padding:24px";
  wrap.innerHTML=`<div style="max-width:1100px;margin:auto"><div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button></div><div class="panel">Loading booking photographs…</div></div>`;
@@ -1924,7 +1926,30 @@ async function showEvidence(ref){
   }catch(e){error=e.message||"Evidence could not be loaded";console.error("Booking evidence load failed:",e)}
  }
  if(!wrap.isConnected)return;
- wrap.firstElementChild.innerHTML=`<div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button></div>${error?`<div class="panel" role="alert" style="color:#a71919">Could not load saved booking photos: ${escapeHtml(error)}. <button class="btn secondary" onclick="showEvidence('${ref}')">Retry</button></div>`:evidenceSection(b)}`;
+ if(viewerId!==currentSession?.user?.id||!visibleBookings().some(x=>x.ref===ref)){wrap.remove();return}
+ wrap.firstElementChild.innerHTML=`<div class="actions"><button class="btn secondary" onclick="document.getElementById('evidenceOverlay').remove()">Close</button><button class="btn secondary" data-refresh-evidence>Refresh pictures</button></div>${error?`<div class="panel" role="alert" style="color:#a71919">Could not load saved booking photos: ${escapeHtml(error)}. Use Refresh pictures to retry.</div>`:evidenceSection(b)}`;
+ wrap.querySelector("[data-refresh-evidence]").onclick=()=>showEvidence(ref);
+}
+async function renewEvidenceImage(image){
+ const failed=()=>{
+  image.hidden=true;
+  const message=image.closest(".evidenceCard")?.querySelector(".evidenceImageError");
+  if(message)message.hidden=false;
+ };
+ const path=image.dataset.storagePath;
+ if(!path||!sb||!currentSession||image.dataset.renewAttempted==="1"){failed();return}
+ const viewerId=currentSession.user.id;
+ image.dataset.renewAttempted="1";
+ try{
+  const result=await sb.storage.from("booking-evidence").createSignedUrl(path,3600);
+  if(result.error||!result.data?.signedUrl)throw result.error||new Error("Photo link unavailable");
+  if(!image.isConnected||viewerId!==currentSession?.user?.id)return;
+  image.closest("a").href=result.data.signedUrl;
+  image.src=result.data.signedUrl;
+ }catch(e){
+  console.warn("Saved photo could not be displayed:",e.message||e);
+  failed();
+ }
 }
 function drawClientStatusPage(c){
  const rows=visibleBookings().filter(b=>b.status===selectedClientStatus);
@@ -1973,6 +1998,7 @@ function clientViewBooking(ref){
    <div><b>Amount</b><p>${currency(b.amount)}</p></div>
    <div><b>Payment</b><p>${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</p></div>
   </div>
+   <div class="actions"><button class="btn primary" onclick="showEvidence('${b.ref}')">View pickup & delivery pictures</button></div>
   <h4>Journey Timeline</h4>
   ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
  </div>`;
@@ -4421,9 +4447,10 @@ function evidenceSection(b){
  const delivery=Object.values(b.deliveryPhotos||{});
  const de=b.deliveryEvidence||{};
  const inspection=b.pickupInspection||{};
- const img=(p,label)=>`<div class="evidenceCard"><b>${escapeHtml(p.label||label)}</b>${p.image?`<a href="${p.image}" target="_blank" rel="noopener"><img src="${p.image}" loading="lazy" alt="${escapeHtml(p.label||label)} evidence" style="width:100%;max-width:260px;border-radius:8px"></a>`:"<p class='muted'>Stored photo link unavailable. Reopen Pictures to retry.</p>"}<div class="muted">${p.timestamp?new Date(p.timestamp).toLocaleString("en-GB"):`${p.dateText||""} ${p.timeText||""}`}</div></div>`;
+ const img=(p,label)=>`<div class="evidenceCard"><b>${escapeHtml(p.label||label)}</b>${p.image?`<a href="${escapeHtml(p.image)}" target="_blank" rel="noopener"><img src="${escapeHtml(p.image)}" data-storage-path="${escapeHtml(p.storagePath||"")}" onerror="renewEvidenceImage(this)" loading="lazy" alt="${escapeHtml(p.label||label)} evidence" style="width:100%;max-width:260px;border-radius:8px"></a><p class="muted evidenceImageError" role="status" hidden>Photo could not be displayed. Use Refresh pictures to load a new viewing link.</p>`:"<p class='muted'>Stored photo link unavailable. Use Refresh pictures to retry.</p>"}<div class="muted">${p.timestamp?new Date(p.timestamp).toLocaleString("en-GB"):`${p.dateText||""} ${p.timeText||""}`}</div></div>`;
  return `<div class="panel" style="margin-top:12px">
-   <h3>Vehicle Evidence — ${b.ref}</h3>
+    <h3>Vehicle Evidence — ${escapeHtml(b.ref)}</h3>
+    ${b._normalizedId?`<p class="muted">Uploaded photos are saved against this booking, including after delivery or sign-out. Viewing links are renewed when needed. Use Refresh pictures to check for new uploads.</p>`:""}
     <h4>Pickup Inspection Report</h4>
     <div class="form">
      <div><b>Vehicle Condition</b><p>${inspection.condition||"Not completed"}</p></div>
@@ -4432,9 +4459,9 @@ function evidenceSection(b){
      <div><b>Inspected By</b><p>${inspection.driver||b.driver||"—"}</p></div>
      <div class="full"><b>Inspection Notes</b><p>${inspection.notes||"No inspection report available yet."}</p></div>
     </div>
-   <h4>Pickup Pictures</h4>
+    <h4>Pickup Pictures (${pickup.length})</h4>
    <div class="evidenceGrid">${pickup.length?pickup.map(p=>img(p,"Pickup Photo")).join(""):"<p class='muted'>Pickup pictures not available yet.</p>"}</div>
-   <h4 style="margin-top:18px">Delivery Pictures</h4>
+    <h4 style="margin-top:18px">Delivery Pictures (${delivery.length})</h4>
    <div class="evidenceGrid">${delivery.length?delivery.map(p=>img(p,"Delivery Photo")).join(""):"<p class='muted'>Delivery pictures not available yet.</p>"}</div>
    <div class="form" style="margin-top:16px">
     <div><b>Received By</b><p>${de.receiverName||b.receiver||"—"}</p></div>
