@@ -1,0 +1,26 @@
+.expenseBulk{margin-top:12px}
+.expenseBulk.ebClosed{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.expenseBulk .ebHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.expenseBulk .ebHead h3{margin:0}.expenseBulk .ebHead p{margin:4px 0 0;font-size:13px}
+.expenseBulk .ebRows{display:grid;gap:10px;margin-top:12px}
+.expenseBulk .ebRow{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcff}
+.expenseBulk .ebRow.hasError{border-color:#f3b4bb;background:#fff8f9}
+.expenseBulk .ebRowHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.expenseBulk .ebNum{font-weight:800;font-size:13px;color:#17416e}
+.expenseBulk .ebRemove{padding:7px 11px;font-size:12px}
+.expenseBulk .ebGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.expenseBulk .ebWide{grid-column:2/-1}
+.expenseBulk .ebField label{display:block;font-size:11px;font-weight:700;color:#536176;margin-bottom:3px}
+.expenseBulk input,.expenseBulk select,.expenseBulk textarea{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.expenseBulk textarea{resize:vertical;min-height:40px}
+.expenseBulk [aria-invalid=true]{border-color:#d9363e}
+.expenseBulk :disabled{opacity:.6;cursor:not-allowed}
+.expenseBulk .ebErr,.expenseBulk .ebBatchErr{margin-top:8px;color:#a2212c;background:#fff0f1;border:1px solid #ffd8dc;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600}
+.expenseBulk .ebWarn{margin-top:10px;color:#7a4f00;background:#fff4db;border:1px solid #f4d38a;border-radius:8px;padding:10px;font-size:13px}
+.expenseBulk .ebOk{margin-top:10px;color:#177047;background:#ecf9f2;border:1px solid #ceeddb;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:600}
+.expenseBulk .ebFoot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;position:sticky;bottom:0;background:#fff;padding:10px 0}
+.expenseBulk .ebSum{margin-left:auto;display:flex;gap:14px;font-size:13px;color:var(--muted)}
+.expenseBulk .ebSum strong{color:var(--text);font-size:16px}
+.expenseBulk .ebLimit{font-size:12px}
+@media(max-width:800px){.expenseBulk .ebGrid{grid-template-columns:1fr 1fr}.expenseBulk .ebWide{grid-column:1/-1}}
+@media(max-width:520px){.expenseBulk .ebGrid{grid-template-columns:1fr}.expenseBulk input,.expenseBulk select,.expenseBulk textarea{min-height:44px;font-size:16px}.expenseBulk .ebFoot .btn{width:100%}.expenseBulk .ebSum{margin-left:0;width:100%;justify-content:space-between}}

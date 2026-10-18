@@ -15,6 +15,9 @@
 <link rel="stylesheet" href="./driver-identity.css">
 <script src="./driver-identity-api.js"></script>
 <script src="./payroll-payments.js"></script>
+<link rel="stylesheet" href="./expense-bulk.css">
+<script src="./expense-bulk-ui.js"></script>
+<script src="./expense-bulk.js"></script>
 <link rel="stylesheet" href="./driver-payments.css">
 <script src="./driver-payments-ui.js"></script>
 <script src="./driver-payments.js"></script>
@@ -1086,6 +1089,13 @@ document.addEventListener("DOMContentLoaded",()=>{
        DriverPayments.acceptScopedStore(STORE_CACHE);
       }
      }
+    if(role==="admin"&&previewParams.get("ui-page")==="expenses"){
+      currentSession={user:{id:"local-preview-admin"}};
+      STORE_CACHE.expenses=[];STORE_CACHE.invoices=[];STORE_CACHE.transactions=[];
+      STORE_CACHE.invoiceSettings=ensureInvoiceSettings({}).invoiceSettings;
+      expenseCanManage=true;
+      if(previewParams.has("ui-bulk"))ExpenseBulk.open();
+    }
     page=role==="driver"?"driver":(previewParams.get("ui-page")||"desktop");
    showAuthenticatedPortal();
    document.body.classList.remove("auth-checking");
@@ -1333,6 +1343,7 @@ function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
   window.DriverIdentityUI?.reset();
   window.DriverPayments?.reset();
+  window.ExpenseBulk?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
   window.BulkBooking?.clearSession();
@@ -1407,6 +1418,7 @@ async function logoutNow(){
  window.DriverCompliance?.stop();
  window.DriverIdentityUI?.reset();
  window.DriverPayments?.reset();
+ window.ExpenseBulk?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
   await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
@@ -3478,14 +3490,16 @@ function money(v){return "£"+Number(v||0).toFixed(2)}
 
 function monthOf(d){return d?String(d).slice(0,7):""}
 
-let payrollCanManage=null,payrollViewRequest=0;
+let payrollCanManage=null,payrollViewRequest=0,expenseCanManage=false;
 function mergePayrollFinances(data){
  const s=getStore();
  if(Array.isArray(data.payslips))s.payslips=data.payslips;
  s.expenses=data.expenses;payrollCanManage=!!data.canManage;
+ expenseCanManage=data.canManageExpenses===true||role==="admin";
  STORE_CACHE=s;return s;
 }
 function loadPayrollView(c,draw,loaded){
+ if(window.ExpenseBulk?.isLocalPreview())return false;
  if(typeof SUPABASE_CONFIGURED==="undefined"||!SUPABASE_CONFIGURED||loaded)return false;
  const request=++payrollViewRequest,actor=currentSession?.user?.id,target=page;
  c.innerHTML='<div class="panel"><h2>Loading saved payroll and expenses…</h2></div>';
@@ -3519,6 +3533,11 @@ function drawAdminAccounts(c,loaded=false){
  </div><div class="panel"><h3>Accounts</h3><p class="muted">Use the Accounts menu for expenses, invoices, transactions, pending payments, reports and monthly P&L.</p></div>`;
 }
 
+function expenseRegisterHtml(s){
+ return `<h3>Expense Register</h3><div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
+ ${s.expenses.slice().reverse().map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":x.source==="expense-batch"?" · Bulk expense":""}</td></tr>`).join("")}
+ </table></div>`;
+}
 function drawExpenses(c,loaded=false){
  if(loadPayrollView(c,drawExpenses,loaded))return;
  const s=ensureAccountsData(), cats=["Wages","Salary","Fuel","Rent","Office","Entertainment","Utility Bills","Rider Fuel","Staff Fuel","Hotel Expense","Vehicle Recovery Expenses","Insurance","Other Expenses"];
@@ -3526,10 +3545,10 @@ function drawExpenses(c,loaded=false){
  <input id="exDate" type="date"><select id="exCat"><option value="">Expense Type *</option>${cats.map(x=>`<option>${x}</option>`).join("")}</select>
  <input id="exAmount" type="number" step="0.01" placeholder="Amount (£) *"><select id="exMethod"><option>Cash</option><option>Bank Transfer</option><option>Card</option></select>
  <input id="exRef" placeholder="Receipt / Reference"><input id="exPayee" placeholder="Supplier / Paid To"><textarea id="exNotes" class="full" placeholder="Notes"></textarea>
- </div><div class="actions"><button class="btn primary" onclick="saveExpense()">Add Expense</button></div></div>
- <div class="panel" style="margin-top:12px"><h3>Expense Register</h3><div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
- ${s.expenses.slice().reverse().map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":""}</td></tr>`).join("")}
- </table></div></div>`;
+ </div><div class="actions"><button class="btn primary" data-single-expense-save onclick="saveExpense()">Add Expense</button></div></div>
+ <div id="expenseBulkPanel">${ExpenseBulkUI.render(ExpenseBulk.state())}</div>
+ <div class="panel" style="margin-top:12px" id="expenseRegister">${expenseRegisterHtml(s)}</div>`;
+ ExpenseBulk.paint();
 }
 
 function saveExpense(){
