@@ -48,7 +48,7 @@ function configured(email = "admin@example.invalid") {
 function asUser(id, statement, role = "authenticated") {
   return `begin; set local role ${role};
     set local request.jwt.claim.sub = '${id}';
-    ${statement}
+    ${statement};
     commit;`;
 }
 function stillPopulated() {
@@ -256,6 +256,100 @@ test("Invoice logos: only authorized Operations can upload; setup is repeatable 
   assert.equal(scalar("select count(*) from auth.users"),"3");
   assert.equal(scalar("select count(*) from storage.objects where bucket_id='invoice-branding'"),"1");
   assert.equal(scalar("select count(*) from storage.buckets where id in ('booking-evidence','incident-evidence','profile-documents')"),"3");
+});
+
+function installHR() {
+  installInvoiceSettings();
+  sql("grant select on storage.objects to authenticated;");
+  sql(readFileSync(join(root,"hr-screening-patch.sql"),"utf8"));
+}
+const hrId="40000000-0000-4000-8000-000000000001";
+function hrInput(overrides={}) {
+  return {id:hrId,version:0,data:{firstName:"Synthetic",lastName:"Employee",email:"hr@example.invalid",
+    addressHistory:"2021-2026: synthetic address",employmentGaps:"None",references:"Synthetic referee"},
+    checks:{},decision:"Draft",decisionNote:"",...overrides};
+}
+function saveHR(input,actor=admin,success=true) {
+  return sql(asUser(actor,`select public.save_hr_employee('${JSON.stringify(input).replaceAll("'","''")}'::jsonb);`),success);
+}
+test("HR: separate employee drafts persist without creating sign-ins or changing the shared store",()=>{
+  installHR();
+  const before=scalar("select data from public.app_store where id='main'");
+  const saved=JSON.parse(saveHR(hrInput()).stdout.trim());
+  assert.match(saved.reference,/^HR-\d{4}-\d{6,}$/);
+  assert.equal(saved.checks.identity.status,"Pending");
+  assert.equal(saved.reviewed_by,null);
+  assert.equal(scalar("select count(*) from auth.users"),"3");
+  assert.equal(scalar("select data from public.app_store where id='main'"),before);
+  const reload=JSON.parse(scalar(asUser(admin,`select to_jsonb(r) from public.hr_employee_records r where id='${hrId}'`)));
+  assert.equal(reload.data.references,"Synthetic referee");
+  const other=JSON.parse(saveHR(hrInput({id:"40000000-0000-4000-8000-000000000002"})).stdout.trim());
+  assert.notEqual(saved.reference,other.reference);
+});
+test("HR: required checks and review notes gate approval; server stamps reviewers",()=>{
+  installHR();saveHR(hrInput());
+  assert.notEqual(saveHR(hrInput({version:1,decision:"Approved",decisionNote:"Reviewed"}),admin,false).status,0);
+  const checks=Object.fromEntries(["identity","rightToWork","addressHistory","employmentHistory","references","dvla","qualifications","dbs"]
+    .map(k=>[k,{status:"Passed",required:true,notes:"Manually checked",reviewedBy:driver,reviewedAt:"2000-01-01"}]));
+  const saved=JSON.parse(saveHR(hrInput({version:1,checks,decision:"Approved",decisionNote:"Reviewed and approved"})).stdout.trim());
+  assert.equal(saved.reviewed_by,admin);assert.equal(saved.checks.identity.reviewedBy,admin);
+  assert.ok(saved.checks.identity.reviewedAt.startsWith(new Date().getFullYear().toString()));
+  assert.equal(saved.decision,"Approved");
+  const reopened=JSON.parse(saveHR(hrInput({version:2,checks,decision:"Draft"})).stdout.trim());
+  assert.equal(reopened.reviewed_at,null);assert.equal(reopened.decision,"Draft");
+});
+test("HR: failed, blank-note and non-applicable checks cannot silently approve an employee",()=>{
+  installHR();
+  const checks=Object.fromEntries(["identity","rightToWork","addressHistory","employmentHistory","references","dvla","qualifications","dbs"]
+    .map(k=>[k,{status:"Passed",required:true,notes:"Checked"}]));
+  for (const change of [{status:"Failed",required:true,notes:"Failed check"},{status:"Passed",required:true,notes:""},{status:"Pending",required:false,notes:""}]) {
+    assert.notEqual(saveHR(hrInput({checks:{...checks,identity:change},decision:"Approved",decisionNote:"Review"}),admin,false).status,0);
+  }
+  assert.equal(scalar("select count(*) from public.hr_employee_records"),"0");
+});
+test("HR: Clients, Drivers, inactive accounts and unrelated Staff cannot access private records or files",()=>{
+  installHR();saveHR(hrInput());
+  const path=hrId+"/50000000-0000-4000-8000-000000000001.pdf";
+  sql(`insert into storage.objects(bucket_id,name) values('hr-screening','${path}')`);
+  for (const actor of [client,driver]) {
+    assert.equal(scalar(asUser(actor,"select count(*) from public.hr_employee_records")),"0");
+    assert.equal(scalar(asUser(actor,"select count(*) from storage.objects where bucket_id='hr-screening'")),"0");
+    assert.notEqual(saveHR(hrInput({version:1}),actor,false).status,0);
+  }
+  sql(`update public.profiles set role='staff' where id='${client}'`);
+  assert.equal(scalar(asUser(client,"select public.hr_screening_access(false)")),"f");
+  sql(`update public.profiles set status='Inactive' where id='${admin}'`);
+  assert.notEqual(saveHR(hrInput({version:1}),admin,false).status,0);
+});
+test("HR: HR-view Staff can read but only HR-manage Staff can edit or upload",()=>{
+  installHR();saveHR(hrInput());
+  sql(`update public.profiles set role='staff' where id='${client}';
+    insert into public.user_permissions(profile_id,permission_key,granted_by) values('${client}','hr:view','${admin}')`);
+  assert.equal(scalar(asUser(client,"select count(*) from public.hr_employee_records")),"1");
+  assert.notEqual(saveHR(hrInput({version:1}),client,false).status,0);
+  const path=hrId+"/50000000-0000-4000-8000-000000000001.pdf";
+  assert.notEqual(sql(asUser(client,`insert into storage.objects(bucket_id,name) values('hr-screening','${path}')`),false).status,0);
+  sql(`insert into public.user_permissions(profile_id,permission_key,granted_by) values('${client}','hr:manage','${admin}')`);
+  assert.equal(saveHR(hrInput({version:1}),client).status,0);
+  assert.equal(sql(asUser(client,`insert into storage.objects(bucket_id,name) values('hr-screening','${path}')`)).status,0);
+});
+test("HR: stale saves are rejected and uploaded documents stay private with versioned metadata",()=>{
+  installHR();saveHR(hrInput());
+  saveHR(hrInput({version:1,data:{firstName:"Updated",lastName:"Employee",email:"hr@example.invalid"}}));
+  assert.notEqual(saveHR(hrInput({version:1}),admin,false).status,0);
+  assert.equal(scalar(`select data->>'firstName' from public.hr_employee_records where id='${hrId}'`),"Updated");
+  const path=hrId+"/50000000-0000-4000-8000-000000000001.pdf";
+  const register=asUser(admin,`select public.register_hr_employee_document('${hrId}','${path}','evidence.pdf','Identity',2);`);
+  assert.notEqual(sql(register,false).status,0);
+  sql(asUser(admin,`insert into storage.objects(bucket_id,name) values('hr-screening','${path}')`));
+  const doc=JSON.parse(sql(register).stdout.trim());
+  assert.equal(doc.recordVersion,3);assert.equal(doc.created_by,admin);
+  assert.equal(scalar("select public from storage.buckets where id='hr-screening'"),"f");
+  assert.equal(scalar(asUser(client,"select count(*) from public.hr_employee_documents")),"0");
+  assert.notEqual(saveHR(hrInput({version:2}),admin,false).status,0);
+  sql(readFileSync(join(root,"hr-screening-patch.sql"),"utf8"));
+  assert.equal(scalar("select count(*) from public.hr_employee_documents"),"1");
+  assert.equal(scalar("select count(*) from auth.users"),"3");
 });
 
 before(() => {

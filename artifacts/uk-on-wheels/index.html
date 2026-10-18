@@ -15,6 +15,9 @@
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
+  <script src="./hr-screening-api.js"></script>
+  <script src="./hr-registration.js"></script>
+  <link rel="stylesheet" href="./hr-registration.css">
 <script type="module" src="./src/booking-excel-entry.js"></script>
 <script src="./incident-api.js"></script>
 <script src="./driver-incidents.js"></script>
@@ -2860,7 +2863,7 @@ function viewRoleEmployee(index){
    <div><b>Last Updated</b><p>${u.updatedAt||"—"}</p></div>
   </div>
   <div class="actions">
-   <button class="btn primary" onclick="page='createUsers';render();setTimeout(()=>editUserInformation(${index}),50)">Edit Employee</button>
+   <button class="btn primary" onclick="go('hrRegister')">HR Employee Registration</button>
    <button class="btn secondary" onclick="document.getElementById('roleEmployeeDetail').innerHTML=''">Close</button>
   </div>
  </div>`;
@@ -3988,7 +3991,7 @@ function drawHR(c){
  const pending=s.holidays.filter(h=>h.status==="Pending").length;
  c.innerHTML=`<div class="panel"><h2>HR</h2><p class="muted">Employee records, holidays, payslips, right-to-work, share codes and DVLA compliance.</p></div>
  <div class="cards" style="margin-top:12px">
-  <div class="card" style="cursor:pointer" onclick="page='hrRegister';render()"><b>Employee Registration</b><strong>+</strong><small>Same form as Create Users</small></div>
+  <div class="card" style="cursor:pointer" onclick="page='hrRegister';render()"><b>Employee Registration</b><strong>+</strong><small>Private employee records, screening and vetting</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrHolidays';render()"><b>Holidays</b><strong>${pending}</strong><small>Pending requests</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrPayslips';render()"><b>Payslips</b><strong>${s.payslips.length}</strong><small>Generated</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrNonResidents';render()"><b>Non-Resident Records</b><strong>${nonResidents}</strong><small>Non-British staff</small></div>
@@ -3998,8 +4001,7 @@ function drawHR(c){
 }
 
 function drawEmployeeRegistration(c){
- drawCreateUsers(c);
- const h=c.querySelector("h2");if(h)h.textContent="Employee Registration";
+ return HRRegistration.draw(c);
 }
 
 function drawHRHolidays(c){
