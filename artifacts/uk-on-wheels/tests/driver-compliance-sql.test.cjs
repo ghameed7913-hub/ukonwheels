@@ -118,6 +118,109 @@ test("Real SQL: date validation, own-account notices, API/storage lock and HR re
     `);
     assert.match(sql("select array_to_string(rolconfig,',') from pg_roles where rolname='authenticator'"),
       /pgrst.db_pre_request=public.enforce_driver_document_access/);
+    // Company ID tests extend this isolated fixture; no live storage is touched.
+    sql(`
+      alter table public.profiles add column name text default 'Test Driver';
+      alter table public.profiles add column full_name text;
+      alter table public.profiles add column phone text;
+      alter table storage.objects add column metadata jsonb default '{}';
+      drop policy test_existing_storage_permission on storage.objects;
+    `);
+    const identityPatch=fs.readFileSync(path.join(root,"supabase/driver-company-id.sql"),"utf8");
+    sql(identityPatch);sql(identityPatch);
+    sql(`
+      set role authenticated;
+      set request.jwt.claim.sub='${driver}';
+      set request.method='POST';
+      set request.path='/rpc/save_pickup_inspection';
+      do $$begin
+        if public.driver_has_required_photo() then raise exception 'Missing photo treated as ready';end if;
+        begin
+          perform public.enforce_driver_document_access();
+          raise exception 'Driver can act without compulsory portrait';
+        exception when insufficient_privilege then null;end;
+        begin
+          perform public.list_driver_identities();
+          raise exception 'Driver can read HR identity directory';
+        exception when insufficient_privilege then null;end;
+        begin
+          perform public.issue_driver_company_id('${driver}',null,0);
+          raise exception 'Driver can issue own ID';
+        exception when insufficient_privilege then null;end;
+        begin
+          perform public.driver_identity_snapshot('00000000-0000-0000-0000-000000000003');
+          raise exception 'Driver can inspect another Driver identity';
+        exception when insufficient_privilege then null;end;
+      end$$;
+      set request.path='/rpc/own_driver_identity';
+      select public.enforce_driver_document_access();
+      select public.own_driver_identity();
+      insert into storage.objects(bucket_id,name,metadata) values('driver-portraits',
+        '${driver}/11111111-1111-1111-1111-111111111111.jpg','{"mimetype":"image/jpeg","size":2000}');
+      select public.register_driver_portrait('${driver}/11111111-1111-1111-1111-111111111111.jpg');
+      select public.register_driver_portrait('${driver}/11111111-1111-1111-1111-111111111111.jpg');
+      do $$begin
+        if not public.driver_has_required_photo() then raise exception 'Saved photo not ready';end if;
+        if (public.own_driver_identity()->>'version')::integer<>1 then raise exception 'Photo retry changed version';end if;
+      end$$;
+      set request.path='/rpc/save_pickup_inspection';
+      select public.enforce_driver_document_access();
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+      do $$begin
+        if exists(select 1 from storage.objects where bucket_id='driver-portraits') then
+          raise exception 'Another Driver can read portrait';end if;
+        begin
+          perform public.register_driver_portrait('${driver}/11111111-1111-1111-1111-111111111111.jpg');
+          raise exception 'Another Driver can register portrait';
+        exception when raise_exception then
+          if sqlerrm='Another Driver can register portrait' then raise;end if;
+        end;
+      end$$;
+      set request.jwt.claim.sub='${admin}';
+      select public.issue_driver_company_id('${driver}',null,1);
+      do $$declare s jsonb;begin
+        s:=public.list_driver_identities();
+        if not (s->>'canIssue')::boolean then raise exception 'Admin cannot issue';end if;
+      end$$;
+      set request.jwt.claim.sub='${driver}';
+      do $$declare s jsonb;begin
+        s:=public.own_driver_identity();
+        if s->'card'->>'state'<>'active' or s->'card'->>'reference'!~'^UKOW-ID-[0-9]+$' then raise exception 'Issued card missing';end if;
+        begin
+          perform public.revoke_driver_company_id('${driver}','Tampering',2);
+          raise exception 'Driver can revoke own company ID';
+        exception when insufficient_privilege then null;end;
+      end$$;
+      insert into storage.objects(bucket_id,name,metadata) values('driver-portraits',
+        '${driver}/22222222-2222-2222-2222-222222222222.jpg','{"mimetype":"image/jpeg","size":2000}');
+      select public.register_driver_portrait('${driver}/22222222-2222-2222-2222-222222222222.jpg');
+      do $$begin
+        if public.own_driver_identity()->'card'->>'state'<>'revoked' then raise exception 'Photo replacement did not invalidate ID';end if;
+      end$$;
+      set request.jwt.claim.sub='${admin}';
+      do $$begin
+        begin
+          perform public.issue_driver_company_id('${driver}',null,2);
+          raise exception 'Stale HR update was allowed';
+        exception when raise_exception then
+          if sqlerrm='Stale HR update was allowed' then raise;end if;
+        end;
+      end$$;
+      select public.issue_driver_company_id('${driver}',null,3);
+      select public.revoke_driver_company_id('${driver}','Card no longer authorised',4);
+      set request.jwt.claim.sub='${driver}';
+      do $$begin if public.own_driver_identity()->'card'->>'state'<>'revoked' then raise exception 'HR revocation invisible';end if;end$$;
+      reset role;
+      -- ID expiry and account suspension override issued/active appearance.
+      update public.driver_identities set revoked_at=null,valid_until='2000-01-01' where user_id='${driver}';
+      set request.jwt.claim.sub='${driver}';
+      do $$begin if public.own_driver_identity()->'card'->>'state'<>'expired' then raise exception 'Expired card active';end if;end$$;
+      update public.driver_identities set valid_until=null where user_id='${driver}';
+      update public.profiles set status='Inactive' where id='${driver}';
+      do $$begin
+        if public.driver_identity_snapshot('${driver}')->'card'->>'state'<>'suspended' then raise exception 'Inactive account ID active';end if;
+      end$$;
+    `);
   } finally {
     if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"],{encoding:"utf8"});
     fs.rmSync(dir,{recursive:true,force:true});
