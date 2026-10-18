@@ -112,9 +112,9 @@ test("Blank rows are skipped and more than 100 vehicles are rejected without dro
   while(sheet.rowCount<103)sheet.addRow(sample);
   assert.throws(()=>recordsFromSheet(sheet),/up to 100/);
 });
-test("Formula cells, numeric phone numbers and invalid dates/times remain row-specific visible errors",async()=>{
+test("Formula cells, ambiguous numeric phone numbers and invalid dates/times remain row-specific visible errors",async()=>{
   const {recordsFromSheet}=await library;
-  const {sheet}=await workbook([{...sample,notes:{formula:'HYPERLINK("https://example.test","bad")',result:"bad"},mobile:7123456789,ddate:"31/02/2026",dropoff:"25:99"}]);
+  const {sheet}=await workbook([{...sample,notes:{formula:'HYPERLINK("https://example.test","bad")',result:"bad"},mobile:1234567890,ddate:"31/02/2026",dropoff:"25:99"}]);
   const [record]=recordsFromSheet(sheet);
   assert.match(record.errors.notes,/formulas are not allowed/);
   assert.match(record.errors.mobile,/leading zeros/);
@@ -149,6 +149,38 @@ test("UK dates and 1900/1904 Excel dates use unambiguous calendar dates and vali
   assert.throws(()=>dateValue("2026-02-29"),/real date/);
   assert.equal(timeValue("9:05"),"09:05");
   assert.equal(timeValue(new Date("2026-11-01T17:15:00Z")),"17:15");
+});
+test("UK hyphenated dates and compact 24-hour times normalise without accepting impossible values",async()=>{
+  const {dateValue,timeValue}=await library;
+  assert.equal(dateValue("17-10-2026"),"2026-10-17");
+  assert.equal(dateValue("18-10-2026"),"2026-10-18");
+  assert.equal(dateValue("1-2-2026"),"2026-02-01");
+  assert.throws(()=>dateValue("31-02-2026"),/real date/);
+  assert.throws(()=>dateValue("17-10/2026"),/enter a date/);
+  for (const value of ["1400",1400]) assert.equal(timeValue(value),"14:00");
+  assert.equal(timeValue("0000"),"00:00");
+  assert.equal(timeValue("0930"),"09:30");
+  for (const value of ["2400","1460",1460,2400]) assert.throws(()=>timeValue(value),/time/);
+});
+test("Actual XLSX round trip handles hyphenated dates, compact times and numeric UK mobiles with visible repair warnings",async()=>{
+  const {readFile}=await library;
+  const {book}=await workbook([
+    {...sample,bdate:"17-10-2026",ddate:"18-10-2026",dropoff:"1400",mobile:7123456789,service:"delivery"},
+    {...sample,reg:"AB11CDE",mobile:447123456789,dropoff:1400},
+    {...sample,reg:"AB12CDE",mobile:"07123456789"},
+  ]);
+  const rows=await readFile(file(await book.xlsx.writeBuffer()));
+  assert.equal(rows[0].values.bdate,"2026-10-17");
+  assert.equal(rows[0].values.ddate,"2026-10-18");
+  assert.equal(rows[0].values.dropoff,"14:00");
+  assert.equal(rows[0].values.mobile,"07123456789");
+  assert.equal(rows[0].values.service,"Vehicle Delivery");
+  assert.match(rows[0].warnings.mobile,/Restored 07123456789.*check it before saving/);
+  assert.equal(rows[1].values.mobile,"+447123456789");
+  assert.equal(rows[1].values.dropoff,"14:00");
+  assert.equal(rows[2].values.mobile,"07123456789");
+  for (const row of rows) assert.deepEqual(row.errors,{});
+  assert.deepEqual(rows[2].warnings,{});
 });
 test("Client SQL derives ownership from auth, checks active membership and uses idempotent reference locking",()=>{
   const sql=fs.readFileSync(path.join(__dirname,"../../../supabase/client-bulk-booking-patch.sql"),"utf8");

@@ -14,11 +14,11 @@ export const columns = [
   ["dest","Delivery address",40,"Required. Include street, town and postcode."],
   ["service","Service type",31,"Vehicle Delivery, Vehicle Collection & Delivery, or Recovery / AA. Blank means Vehicle Delivery."],
   ["miles","Estimated miles",20,"Optional non-negative number; blank means zero."],
-  ["bdate","Booking date",20,"Optional YYYY-MM-DD or DD/MM/YYYY. Blank means today."],
-  ["ddate","Requested delivery date",24,"Optional YYYY-MM-DD or DD/MM/YYYY."],
+  ["bdate","Booking date",20,"Optional YYYY-MM-DD, DD/MM/YYYY or DD-MM-YYYY. Blank means today."],
+  ["ddate","Requested delivery date",24,"Optional YYYY-MM-DD, DD/MM/YYYY or DD-MM-YYYY."],
   ["receiver","Person receiving vehicle",28,"Required. Full name."],
   ["mobile","Receiver mobile number",25,"Required. Keep as text, including the leading zero or +."],
-  ["dropoff","Latest drop-off time",22,"Optional 24-hour HH:mm, for example 17:30."],
+  ["dropoff","Latest drop-off time",22,"Optional 24-hour HH:mm or HHmm, for example 17:30 or 1730."],
   ["amount","Customer charge (£)",24,"Admin/authorised Staff only: optional non-negative amount. Clients must leave this blank; Operations sets charges."],
   ["notes","Special instructions",48,"Optional collection, delivery or vehicle instructions."],
 ];
@@ -56,19 +56,21 @@ export function dateValue(value,date1904=false) {
   const text=String(value).trim();
   let match=text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (match) return calendarDate(+match[1],+match[2],+match[3]);
-  match=text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (match) return calendarDate(+match[3],+match[2],+match[1]);
-  throw new Error("enter a date as YYYY-MM-DD or DD/MM/YYYY");
+  match=text.match(/^(\d{1,2})([/-])(\d{1,2})\2(\d{4})$/);
+  if (match) return calendarDate(+match[4],+match[3],+match[1]);
+  throw new Error("enter a date as YYYY-MM-DD, DD/MM/YYYY or DD-MM-YYYY");
 }
 export function timeValue(value) {
   if (value === "" || value == null) return "";
   if (value instanceof Date) value=value.getUTCHours()+":"+String(value.getUTCMinutes()).padStart(2,"0");
   if (typeof value === "number") {
+    if (Number.isInteger(value) && value>=100 && value<=2359) return timeValue(String(value).padStart(4,"0"));
     if (!Number.isFinite(value) || value<0 || value>=1) throw new Error("enter a time as HH:mm");
     const minutes=Math.round(value*1440)%1440;
     value=Math.floor(minutes/60)+":"+String(minutes%60).padStart(2,"0");
   }
-  const match=String(value).trim().match(/^(\d{1,2}):(\d{2})(?::00)?$/);
+  const text=String(value).trim().replace(/^(\d{2})(\d{2})$/,"$1:$2");
+  const match=text.match(/^(\d{1,2}):(\d{2})(?::00)?$/);
   if (!match || +match[1]>23 || +match[2]>59) throw new Error("enter a 24-hour time as HH:mm");
   return match[1].padStart(2,"0")+":"+match[2];
 }
@@ -93,7 +95,7 @@ export function recordsFromSheet(sheet,date1904=false) {
   for (const name of headers.keys()) if (!expected.some(([,label])=>normal(label)===name)) throw new Error('Do not mix Business and Private Customer template columns.');
   const records=[];
   for (let number=2;number<=sheet.rowCount;number++) {
-    const row=sheet.getRow(number),values={},errors={};
+    const row=sheet.getRow(number),values={},errors={},warnings={};
     let populated=false;
     for (const [field,label] of columns) {
       if (!headers.has(normal(label))) { values[field]=""; continue; }
@@ -103,7 +105,19 @@ export function recordsFromSheet(sheet,date1904=false) {
         if (String(value).trim()!=="") populated=true;
         if (["bdate","ddate"].includes(field)) value=dateValue(value,date1904);
         else if (field==="dropoff") value=timeValue(value);
-        else if (["mobile","privateCustomerMobile"].includes(field) && typeof value==="number") throw new Error("keep phone numbers as text to preserve leading zeros");
+        else if (field==="service") {
+          const services={"delivery":"Vehicle Delivery","vehicle delivery":"Vehicle Delivery","vehicle collection & delivery":"Vehicle Collection & Delivery","recovery / aa":"Recovery / AA"};
+          value=services[normal(value)] || String(value).trim();
+        }
+        else if (["mobile","privateCustomerMobile"].includes(field) && typeof value==="number") {
+          const digits=String(value);
+          if (!Number.isSafeInteger(value) || value<0) throw new Error("enter the full phone number as text, including its leading zero or +country code");
+          if (/^7\d{9}$/.test(digits)) {
+            value="0"+digits;
+            warnings[field]=label+": Excel removed the leading zero. Restored "+value+" as a UK mobile number; check it before saving.";
+          } else if (/^447\d{9}$/.test(digits)) value="+"+digits;
+          else throw new Error("keep phone numbers as text to preserve leading zeros; enter the full number including its leading zero or +country code");
+        }
         else value=String(value).trim();
         if (String(value).length>10000) throw new Error("cell is too long (maximum 10,000 characters)");
         values[field]=value;
@@ -114,7 +128,7 @@ export function recordsFromSheet(sheet,date1904=false) {
     }
     if (populated) {
       if (format !== "legacy") values.customerType=format;
-      records.push({values,errors,excelRow:number});
+      records.push({values,errors,warnings,excelRow:number});
     }
     if (records.length>MAX_VEHICLES) throw new Error("A file can contain up to 100 vehicles. Split it into smaller files.");
   }

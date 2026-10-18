@@ -70,6 +70,27 @@ function setup(options = {}) {
     blockStorage:()=>{writesBlocked=true;},failRefresh:()=>{refreshFails=true;},cancel:()=>{confirmation=false;}};
 }
 
+test("Excel correction badges and repaired phone warnings stay visible and editable before saving",async()=>{
+  const s=setup({empty:true});
+  s.context.window.BookingExcel={readFile:async()=>[
+    {excelRow:2,values:{customerType:"Business",biz:"business-1",vehicle:"Ford Focus",reg:"AB10CDE",pickup:"Collection A",dest:"Delivery B",receiver:"Test Receiver",mobile:"07123456789",bdate:"2026-10-17",ddate:"2026-10-18",dropoff:"14:00",service:"delivery"},
+      errors:{},warnings:{mobile:"Excel removed the leading zero. Restored 07123456789; check it before saving."}},
+    {excelRow:3,values:{customerType:"Business",biz:"business-1",vehicle:"Ford Focus",reg:"AB11CDE"},errors:{bdate:"Booking date: enter a real date"},warnings:{}},
+  ]};
+  await s.api.uploadFile({name:"synthetic.xlsx"});
+  assert.equal(s.calls.length,0,"Import only previews, never saves");
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/Needs correction/);
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/Restored 07123456789/);
+  assert.equal(s.state().rows[0].details.dropoff,"14:00");
+  assert.match(s.state().rows[0].importWarnings.mobile,/leading zero/);
+  s.api.updateDetail(s.state().rows[0].id,"mobile","07987654321");
+  assert.equal(s.state().rows[0].importWarnings.mobile,undefined);
+  const refreshed=s.context.BulkBookingUI.renderRows(s.state().rows,false,{},s.store.businesses,true,{});
+  assert.doesNotMatch(refreshed,/Restored 07123456789/);
+  await s.api.submit();
+  assert.equal(s.calls.length,0,"An invalid second row still blocks the entire batch");
+});
+
 test("Bulk mode adds/removes vehicles and keeps the single booking path available",()=>{
   const s=setup();
   assert.equal(s.state().rows.length,2);

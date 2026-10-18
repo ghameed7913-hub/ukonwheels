@@ -30,6 +30,7 @@ function renderRows(rows,busy,shared,businesses,linkedOnly,context){
  var head='<div class="bulk-review-head"><b>'+rows.length+' vehicle'+(rows.length===1?'':'s')+' to review</b>'+(context.sourceName?'<span class="muted">from '+esc(context.sourceName)+'</span>':'')+'</div>';
  return head+rows.map(function(r,i){
   var st=LABEL[r.status]?r.status:"editing",n=i+1,lock=!!busy||st==="saving"||st==="saved"||st==="uncertain";
+  var needsCorrection=st==="editing"&&(!!r.message||Object.keys(r.importErrors||{}).length>0);
   var id=js(r.id),dis=lock?" disabled":"",pid="bulk-"+esc(r.id)+"-";
   var own=!!r.details,imported=own&&r.excelRow!=null,v=r.details||shared;
   function inp(f,label,val,type,ph,req,extraDis,hint){
@@ -77,9 +78,10 @@ function renderRows(rows,busy,shared,businesses,linkedOnly,context){
    inp("reg","Registration",r.reg,"text","e.g. AB12 CDE",true)+
    inp("miles","Estimated miles",r.miles,"number",own?"0":shared.miles||"0",false)+
    inp("amount","Customer charge (£)",client?"":r.amount,"number",client?"Set by Operations":(own?"0":shared.amount||"0"),false,client,client?"Operations sets charges":"")+
-   '<div class="bulk-state"><span class="badge '+CLS[st]+'">'+LABEL[st]+'</span>'+
+   '<div class="bulk-state"><span class="badge '+(needsCorrection?'red':CLS[st])+'">'+(needsCorrection?'Needs correction':LABEL[st])+'</span>'+
    (st==="saved"&&r.reference?'<span class="bulk-ref">Ref '+esc(r.reference)+'</span>':'')+
-   (msg?'<span class="bulk-msg'+(st==="failed"||(r.message&&st==="editing")?' bulk-err':'')+'">'+msg+'</span>':'')+'</div>'+
+   (msg?'<span class="bulk-msg'+(st==="failed"||(r.message&&st==="editing")?' bulk-err':'')+'">'+msg+'</span>':'')+
+   (st!=="saved"?Object.values(r.importWarnings||{}).map(function(w){return '<span class="bulk-msg">'+esc(w)+'</span>';}).join(""):'')+'</div>'+
    '<button type="button" class="btn danger bulk-remove" aria-label="Remove vehicle '+n+'"'+dis+' onclick="BulkBooking.removeRow('+id+')">Remove</button>'+
    overview+details+
   '</div>';

@@ -134,6 +134,7 @@
     const row = rows.find(r=>r.id === id);
     if (!row || ["saved","uncertain","saving"].includes(row.status) || (role === "client" && field === "amount")) return;
     if (row.importErrors) delete row.importErrors[field];
+    if (row.importWarnings) delete row.importWarnings[field];
     row[field] = value; row.status = "editing"; row.message = "";
     persist();
   }
@@ -159,6 +160,7 @@
     if (!row?.details || !fieldIds.includes(field) || ["miles","amount"].includes(field)) return;
     if (role === "client" && ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail"].includes(field)) return;
     if (row.importErrors) delete row.importErrors[field];
+    if (row.importWarnings) delete row.importWarnings[field];
     row.details[field] = value; row.status = "editing"; row.message = "";
     persist();
     if (field === "customerType") draw();
@@ -249,7 +251,7 @@
       assertOwner(id);
       const imported = records.map(record=>{
         const row = newRow(), values = {...record.values};
-        row.excelRow = record.excelRow; row.importErrors = {...record.errors};
+        row.excelRow = record.excelRow; row.importErrors = {...record.errors}; row.importWarnings = {...record.warnings};
         if (role === "client") {
           const own = ownClientDetails(values);
           for (const field of ["customerType","biz","privateCustomerName","privateCustomerEmail"]) {
