@@ -14,6 +14,8 @@ window.DriverIdentityAPI = (() => {
   function check(result) {
     if (!result.error) return result.data;
     const e = result.error;
+    if (e.code==="PGRST202" && /register_hr_driver_portrait/i.test(e.message||""))
+      throw Error("HR photo upload needs setup. Ask Admin to run supabase/hr-driver-photo-upload.sql.");
     if (["42P01","42883","PGRST202","PGRST205"].includes(e.code) || /bucket not found/i.test(e.message || ""))
       throw Error("Driver company IDs need setup. Ask Admin to run supabase/driver-company-id.sql.");
     throw Error(e.message || "The change could not be confirmed. Please retry.");
@@ -69,6 +71,21 @@ window.DriverIdentityAPI = (() => {
     if (!versions.has(userId)) throw Error("Refresh the Driver list before changing a company ID.");
     return versions.get(userId);
   }
+  async function uploadPortrait(file,target,hr) {
+    const id=actor(), expected=hr?version(target):null;
+    let upload=pending.get(file);
+    if(!upload||upload.actor!==id||upload.target!==target) {
+      upload={actor:id,target,path:target+"/"+crypto.randomUUID()+".jpg",blob:await normalize(file),uploaded:false};
+      same(id);pending.set(file,upload);
+    }
+    if(!upload.uploaded) {
+      check(await sb.storage.from("driver-portraits").upload(upload.path,upload.blob,{contentType:"image/jpeg",upsert:false}));
+      upload.uploaded=true;
+    }
+    same(id);
+    return hr?rpc("register_hr_driver_portrait",{p_user_id:target,p_path:upload.path,p_expected_version:expected})
+      :rpc("register_driver_portrait",{p_path:upload.path});
+  }
   return {
     own() { return rpc("own_driver_identity"); },
     async list() {
@@ -80,20 +97,9 @@ window.DriverIdentityAPI = (() => {
       return {...data,drivers};
     },
     async uploadPhoto(file) {
-      const id = actor();
-      let upload = pending.get(file);
-      if (!upload || upload.actor !== id) {
-        upload = {actor:id,path:id+"/"+crypto.randomUUID()+".jpg",blob:await normalize(file),uploaded:false};
-        pending.set(file,upload);
-      }
-      same(id);
-      if (!upload.uploaded) {
-        check(await sb.storage.from("driver-portraits").upload(upload.path,upload.blob,{contentType:"image/jpeg",upsert:false}));
-        upload.uploaded = true;
-      }
-      same(id);
-      return rpc("register_driver_portrait",{p_path:upload.path});
+      return uploadPortrait(file,actor(),false);
     },
+    uploadHRPhoto(userId,file) { return uploadPortrait(file,userId,true); },
     issue(userId,validUntil) {
       const id = actor(); same(id);
       return rpc("issue_driver_company_id",{p_user_id:userId,p_valid_until:validUntil||null,p_expected_version:version(userId)});

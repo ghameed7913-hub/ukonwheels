@@ -221,6 +221,58 @@ test("Real SQL: date validation, own-account notices, API/storage lock and HR re
         if public.driver_identity_snapshot('${driver}')->'card'->>'state'<>'suspended' then raise exception 'Inactive account ID active';end if;
       end$$;
     `);
+    const hrPortrait=fs.readFileSync(path.join(root,"supabase/hr-driver-photo-upload.sql"),"utf8");
+    sql(hrPortrait);sql(hrPortrait);
+    sql(`
+      update public.profiles set status='Active' where id='${driver}';
+      set role authenticated;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+      insert into storage.objects(bucket_id,name,metadata) values('driver-portraits',
+        '${driver}/33333333-3333-3333-3333-333333333333.jpg','{"mimetype":"image/jpeg","size":2000}');
+      do $$declare before_version integer; snapshot jsonb;
+      begin
+        before_version:=(public.list_driver_identities()->'drivers'->0->>'version')::integer;
+        -- Retrieve the target version without relying on directory ordering.
+        select (r->>'version')::integer into before_version
+          from jsonb_array_elements(public.list_driver_identities()->'drivers') r
+          where r->>'user_id'='${driver}';
+        snapshot:=public.register_hr_driver_portrait('${driver}',
+          '${driver}/33333333-3333-3333-3333-333333333333.jpg',before_version);
+        if snapshot->'card'->>'state'<>'revoked' then raise exception 'HR photo failed to invalidate ID';end if;
+        if (snapshot->>'version')::integer<>before_version+1 then raise exception 'HR photo version incorrect';end if;
+        snapshot:=public.register_hr_driver_portrait('${driver}',
+          '${driver}/33333333-3333-3333-3333-333333333333.jpg',before_version);
+        if (snapshot->>'version')::integer<>before_version+1 then raise exception 'Retry changed version';end if;
+        begin
+          perform public.register_hr_driver_portrait('${driver}',
+            '${driver}/11111111-1111-1111-1111-111111111111.jpg',before_version);
+          raise exception 'Stale HR photo accepted';
+        exception when raise_exception then if sqlerrm='Stale HR photo accepted' then raise;end if;end;
+        begin
+          perform public.register_hr_driver_portrait('${driver}',
+            '00000000-0000-0000-0000-000000000003/11111111-1111-1111-1111-111111111111.jpg',before_version+1);
+          raise exception 'Wrong Driver photo accepted';
+        exception when raise_exception then if sqlerrm='Wrong Driver photo accepted' then raise;end if;end;
+      end$$;
+      set request.jwt.claim.sub='${driver}';
+      do $$begin
+        if public.own_driver_identity()->>'photo_path'<>'${driver}/33333333-3333-3333-3333-333333333333.jpg' then
+          raise exception 'HR photo missing from Driver portal';
+        end if;
+        begin
+          perform public.register_hr_driver_portrait('${driver}',
+            '${driver}/33333333-3333-3333-3333-333333333333.jpg',0);
+          raise exception 'Driver used HR portrait writer';
+        exception when insufficient_privilege then null;end;
+      end$$;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
+      do $$begin
+        if public.driver_portrait_permission('${driver}/44444444-4444-4444-4444-444444444444.jpg',true) then
+          raise exception 'Client can upload Driver portraits';
+        end if;
+      end$$;
+      reset role;
+    `);
   } finally {
     if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"],{encoding:"utf8"});
     fs.rmSync(dir,{recursive:true,force:true});

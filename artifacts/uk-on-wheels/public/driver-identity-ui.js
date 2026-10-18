@@ -192,21 +192,22 @@ function reset(){resetDriver();if(S.admin)S.admin.gen=-1;S.admin=null;}
 async function drawAdmin(container){
   if(!container)return;
   var gen=++S.gen;S.admin={container:container,gen:gen,data:null,q:"",open:null};
-  container.innerHTML='<div class="hrr-wrap di-admin"><div class="panel"><div class="hrr-head"><div><h2 style="margin:0">Driver company IDs</h2><div class="muted">Issue, renew and revoke digital Driver identity cards.</div></div></div><div data-body aria-busy="true"><div class="hrr-skel"></div><div class="hrr-skel"></div><div class="hrr-skel"></div></div></div></div>';
+  container.innerHTML='<div class="hrr-wrap di-admin"><div class="panel"><div class="hrr-head"><div><h2 style="margin:0">Driver photos &amp; company IDs</h2><div class="muted">Upload Driver profile photos, then issue or manage digital company IDs. Identity documents belong in HR Employee Registration.</div></div></div><div data-body aria-busy="true"><div class="hrr-skel"></div><div class="hrr-skel"></div><div class="hrr-skel"></div></div></div></div>';
   var a=api();
   if(!a||typeof a.list!=="function"){adminBody('<div class="hrr-msg err" role="alert">Company ID service is not available. Run supabase/driver-company-id.sql.</div>');return;}
   try{
     var res=await a.list();
-    if(!S.admin||S.admin.gen!==gen||!container.isConnected)return;
+    if(!S.admin||S.admin.gen!==gen||!adminLive(S.admin))return;
     S.admin.data={canIssue:!!(res&&res.canIssue),drivers:(res&&res.drivers)||[]};
     adminRender();
   }catch(e){
-    if(!S.admin||S.admin.gen!==gen||!container.isConnected)return;
+    if(!S.admin||S.admin.gen!==gen||!adminLive(S.admin))return;
     adminBody('<div class="hrr-msg err" role="alert">'+esc(errText(e))+'</div><p><button class="btn secondary" type="button" data-di-a="reload">Retry</button></p>');
     bindAdmin();
   }
 }
-function adminBody(html){var b=S.admin&&S.admin.container.querySelector("[data-body]");if(b){b.removeAttribute("aria-busy");b.innerHTML=html;}}
+function adminLive(A){return !!(A&&S.admin===A&&A.container.isConnected&&(typeof page==="undefined"||page==="driverCompanyIDs"));}
+function adminBody(html){if(!adminLive(S.admin))return;var b=S.admin.container.querySelector("[data-body]");if(b){b.removeAttribute("aria-busy");b.innerHTML=html;}}
 function adminRender(){
   var A=S.admin,d=A.data,q=A.q.toLowerCase();
   var rows=d.drivers.filter(function(r){return !q||[r.name,r.email,r.card&&r.card.reference].join(" ").toLowerCase().indexOf(q)>=0;});
@@ -214,7 +215,7 @@ function adminRender(){
   var h='<div class="di-admin-stats"><span><b>'+counts.active+'</b> active</span><span><b>'+counts.none+'</b> not issued</span><span><b>'+counts.other+'</b> revoked / expired / suspended</span>'+
     (d.canIssue?'':'<span class="di-tag">View only</span>')+'</div>'+
     '<div class="hrr-toolbar"><input type="search" data-di-a="search" aria-label="Search Drivers" placeholder="Search name, email or card reference" value="'+esc(A.q)+'"><button class="btn secondary" type="button" data-di-a="reload">Refresh</button></div>';
-  if(!d.drivers.length)h+='<div class="hrr-empty">No Driver accounts yet. Drivers appear here once they have a portal login.</div>';
+  if(!d.drivers.length)h+='<div class="hrr-empty">No Driver accounts yet. Use Create User, then assign the Driver role. HR employee registration alone does not create a Driver login.</div>';
   else if(!rows.length)h+='<div class="hrr-empty">No Drivers match that search.</div>';
   else h+='<ul class="di-admin-list">'+rows.map(adminRow).join("")+'</ul>';
   adminBody(h);bindAdmin();
@@ -227,15 +228,16 @@ function adminRow(r){
     '<div class="di-arow-card"><span class="di-mono">'+esc(c?c.reference:"—")+'</span><span class="di-badge di-'+si.key+'">'+esc(si.label)+'</span>'+
     (c&&c.valid_until?'<span class="di-small">until '+esc(fmtDate(c.valid_until))+'</span>':'')+'</div>';
   if(A.data.canIssue){
-    h+='<div class="di-arow-act"><button class="btn" type="button" data-di-a="open-issue"'+(r.photo_path?'':' disabled title="Driver must upload a portrait first"')+'>'+(c?(c.state==="active"?"Reissue":"Renew / reissue"):"Issue ID")+'</button>'+
+    h+='<div class="di-arow-act"><button class="btn secondary" type="button" data-di-a="open-photo">'+(r.photo_path?"Replace profile photo":"Upload profile photo")+'</button><button class="btn" type="button" data-di-a="open-issue"'+(r.photo_path?'':' disabled title="Upload a profile photo first"')+'>'+(c?(c.state==="active"?"Reissue":"Renew / reissue"):"Issue ID")+'</button>'+
       (c&&c.state==="active"?'<button class="btn secondary di-danger" type="button" data-di-a="open-revoke">Revoke</button>':'')+'</div>';
   }
   h+='</div>';
   if(open&&A.data.canIssue){
     var fid="di-f-"+id;
-    if(open.kind==="issue")h+='<form class="di-aform" data-di-a="issue"><label class="hrr-f" for="'+fid+'"><span>Valid until (optional)</span><input id="'+fid+'" type="date" name="until"><small>Leave blank for no expiry. A new card reference replaces any previous card.</small></label>';
+    if(open.kind==="photo")h+='<form class="di-aform" data-di-a="photo"><label class="hrr-f" for="'+fid+'"><span>Driver profile photo</span><input id="'+fid+'" type="file" name="portrait" accept="image/jpeg,image/png,image/webp" required><small>JPEG, PNG or WebP, up to 10 MB. Saved privately and displayed in the Driver portal. Replacing a photo invalidates the current ID until HR reissues it.</small></label>';
+    else if(open.kind==="issue")h+='<form class="di-aform" data-di-a="issue"><label class="hrr-f" for="'+fid+'"><span>Valid until (optional)</span><input id="'+fid+'" type="date" name="until"><small>Leave blank for no expiry. Reissuing keeps the existing company ID reference.</small></label>';
     else h+='<form class="di-aform" data-di-a="revoke"><label class="hrr-f" for="'+fid+'"><span>Reason for revoking (required)</span><textarea id="'+fid+'" name="reason" required minlength="3" maxlength="500"></textarea></label>';
-    h+='<div class="di-aform-msg" role="status" aria-live="polite"></div><div class="hrr-toolbar"><button class="btn'+(open.kind==="revoke"?" di-danger-solid":"")+'" type="submit">'+(open.kind==="issue"?"Confirm issue":"Confirm revoke")+'</button><button class="btn secondary" type="button" data-di-a="cancel">Cancel</button></div></form>';
+    h+='<div class="di-aform-msg" role="status" aria-live="polite"></div><div class="hrr-toolbar"><button class="btn'+(open.kind==="revoke"?" di-danger-solid":"")+'" type="submit">'+(open.kind==="photo"?"Upload profile photo":open.kind==="issue"?"Confirm issue":"Confirm revoke")+'</button><button class="btn secondary" type="button" data-di-a="cancel">Cancel</button></div></form>';
   }
   return h+'</li>';
 }
@@ -243,45 +245,61 @@ function bindAdmin(){
   var A=S.admin;if(!A)return;var c=A.container;
   if(c.dataset.diBound===String(A.gen))return;c.dataset.diBound=String(A.gen);
   c.addEventListener("click",function(ev){
-    if(!S.admin||S.admin.container!==c)return;
+    if(!adminLive(A)||S.admin.gen!==A.gen||A.busy)return;
     var b=ev.target.closest("[data-di-a]");if(!b||b.tagName==="FORM"||b.tagName==="INPUT")return;
     var act=b.getAttribute("data-di-a"),li=b.closest(".di-arow");
     if(act==="reload"){drawAdmin(c);return;}
     if(act==="cancel"){S.admin.open=null;adminRender();return;}
-    if(act==="open-issue"||act==="open-revoke"){S.admin.open={id:li.getAttribute("data-uid"),kind:act==="open-issue"?"issue":"revoke"};adminRender();var f=c.querySelector(".di-aform input,.di-aform textarea");if(f)f.focus();}
+    if(act==="open-issue"||act==="open-revoke"||act==="open-photo"){S.admin.open={id:li.getAttribute("data-uid"),kind:act==="open-photo"?"photo":act==="open-issue"?"issue":"revoke"};adminRender();var f=c.querySelector(".di-aform input,.di-aform textarea");if(f)f.focus();}
   });
   c.addEventListener("input",function(ev){
+    if(!adminLive(A)||S.admin.gen!==A.gen||A.busy)return;
     if(ev.target.matches('[data-di-a="search"]')){S.admin.q=ev.target.value;var pos=ev.target.selectionStart;adminRender();var s=c.querySelector('[data-di-a="search"]');if(s){s.focus();try{s.setSelectionRange(pos,pos);}catch(e){}}}
   });
   c.addEventListener("submit",function(ev){
+    if(!adminLive(A)||S.admin.gen!==A.gen)return;
     var f=ev.target.closest(".di-aform");if(!f)return;ev.preventDefault();adminSubmit(f);
   });
 }
 async function adminSubmit(f){
   var A=S.admin,gen=A.gen,kind=f.getAttribute("data-di-a"),uid=f.closest(".di-arow").getAttribute("data-uid"),a=api();
+  if(!adminLive(A)||A.busy||!A.data.canIssue)return;
   var msg=f.querySelector(".di-aform-msg"),btn=f.querySelector('button[type="submit"]');
   function say(cls,t){msg.innerHTML="";var d=document.createElement("div");d.className="hrr-msg "+cls;if(cls==="err")d.setAttribute("role","alert");d.textContent=t;msg.appendChild(d);}
   var row=A.data.drivers.find(function(r){return String(r.user_id)===uid;});
   try{
-    if(kind==="issue"){
+    if(kind==="photo"){
+      var file=f.elements.portrait.files[0];
+      if(!file){say("err","Choose a Driver profile photo first.");return;}
+      if(row&&row.card&&row.card.state==="active"){
+        var warning="Replace the profile photo for "+(row.name||"this Driver")+"? The current company ID will be invalid until HR reissues it.";
+        if(!(typeof crmConfirm==="function"?await crmConfirm(warning,"Replace Driver photo","Replace photo"):window.confirm(warning)))return;
+      }
+      if(A.busy)return;
+      A.busy=true;btn.disabled=true;f.elements.portrait.disabled=true;say("info","Uploading profile photo...");
+      var snap=await a.uploadHRPhoto(uid,file);
+    }else if(kind==="issue"){
       var until=f.until.value||null;
       if(until&&new Date(until+"T23:59:59")<new Date()){say("err","Valid-until date must be in the future.");return;}
       if(row&&row.card&&row.card.state==="active"){var m="Reissue the ID for "+(row.name||"this Driver")+"? The current card "+row.card.reference+" will be replaced.";if(!(typeof crmConfirm==="function"?await crmConfirm(m,"Reissue company ID","Reissue"):window.confirm(m)))return;}
-      btn.disabled=true;say("info","Issuing...");
-      var snap=await a.issue(uid,until);
+      if(A.busy)return;
+      A.busy=true;btn.disabled=true;say("info","Issuing...");
+      snap=await a.issue(uid,until);
     }else{
       var reason=f.reason.value.trim();
       if(reason.length<3){f.reason.setAttribute("aria-invalid","true");say("err","Enter a reason for revoking this ID.");f.reason.focus();return;}
-      btn.disabled=true;say("info","Revoking...");
+      A.busy=true;btn.disabled=true;say("info","Revoking...");
       snap=await a.revoke(uid,reason);
     }
-    if(!S.admin||S.admin.gen!==gen||!A.container.isConnected)return;
-    A.data.drivers=A.data.drivers.map(function(r){return String(r.user_id)===uid?(snap||r):r;});
+    if(!adminLive(A)||S.admin.gen!==gen)return;
+    if(!snap||String(snap.user_id)!==uid)throw Error("The Driver update could not be confirmed. Refresh before continuing.");
+    A.busy=false;A.data.drivers=A.data.drivers.map(function(r){return String(r.user_id)===uid?snap:r;});
     A.open=null;adminRender();
-    if(typeof crmToast==="function")crmToast(kind==="issue"?"Company ID issued.":"Company ID revoked.","Driver company ID");
+    if(typeof crmToast==="function")crmToast(kind==="photo"?"Profile photo saved. It is now available in the Driver portal.":kind==="issue"?"Company ID issued.":"Company ID revoked.","Driver company ID");
   }catch(e){
-    if(!S.admin||S.admin.gen!==gen)return;
-    btn.disabled=false;say("err",errText(e));
+    if(!adminLive(A)||S.admin.gen!==gen)return;
+    A.busy=false;btn.disabled=false;if(f.elements.portrait)f.elements.portrait.disabled=false;
+    say("err",errText(e)+(kind==="photo"?" Your file is still selected; retry when ready.":""));
   }
 }
 

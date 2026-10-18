@@ -86,6 +86,7 @@ window.HRRegistration = (() => {
     c.innerHTML = `<div class="hrr-wrap"><div class="panel"><div class="hrr-head"><div><h2>Employee Registration</h2>
       <p class="muted">Register and vet employees. Vetting records are separate from portal sign-in accounts.</p></div>
       <div class="actions">${st.caps.canWrite ? `<button type="button" class="btn primary" data-a="new">Register employee</button>` : `<span class="badge">Read only</span>`}
+      <button type="button" class="btn secondary" data-a="photos">Driver photos &amp; company IDs</button>
       <button type="button" class="btn secondary" data-a="reload">Reload</button></div></div>
       <div class="hrr-toolbar" style="margin-top:10px"><label class="hrr-f" style="flex:1"><span>Search employees</span>
       <input type="search" data-a="q" value="${E(st.q)}" placeholder="Name, email or reference"></label></div>
@@ -101,6 +102,7 @@ window.HRRegistration = (() => {
     c.querySelector('[data-a="q"]').addEventListener("input", e => { st.q = e.target.value; paint(); });
     c.querySelector('[data-a="reload"]').addEventListener("click", () => drawList(c, ++gen));
     c.querySelector('[data-a="new"]')?.addEventListener("click", () => drawForm(c, ++gen, null, []));
+    c.querySelector('[data-a="photos"]').addEventListener("click", () => go("driverCompanyIDs"));
     body.addEventListener("click", e => { const b = e.target.closest("[data-open]"); if (b) openRec(c, b.dataset.open); });
     try {
       const list = await HRScreeningAPI.list();
@@ -159,8 +161,8 @@ window.HRRegistration = (() => {
     }).join("");
     c.innerHTML = `<div class="hrr-wrap"><div class="panel">
       <div class="hrr-head"><div><h2>${rec ? E([d.firstName, d.lastName].filter(Boolean).join(" ") || "Employee record") : "Register employee"}</h2>
-      <p class="muted">${rec ? `Ref ${E(rec.reference)} &middot; version ${E(rec.version)} &middot; ${badge(rec.decision)}${rec.reviewed_at ? ` &middot; decided ${fmt(rec.reviewed_at)}` : ""}` : "New employee - save as draft before uploading documents."}${ro ? ' &middot; <span class="badge">Read only</span>' : ""}</p></div>
-      <div class="actions"><button type="button" class="btn secondary" data-a="back">Back to list</button>${rec ? `<button type="button" class="btn secondary" data-a="reload">Reload</button>` : ""}</div></div>
+      <p class="muted">${rec ? `Ref ${E(rec.reference)} &middot; version <span data-record-version>${E(s.version)}</span> &middot; ${badge(rec.decision)}${rec.reviewed_at ? ` &middot; decided ${fmt(rec.reviewed_at)}` : ""}` : "New employee - save as draft before uploading documents."}${ro ? ' &middot; <span class="badge">Read only</span>' : ""}</p></div>
+      <div class="actions"><button type="button" class="btn primary" data-a="documents">ID documents (${s.docs.length})</button><button type="button" class="btn secondary" data-a="back">Back to list</button>${rec ? `<button type="button" class="btn secondary" data-a="reload">Reload</button>` : ""}</div></div>
       <p class="muted" style="font-size:12px">All checks are recorded manually by HR. This portal does not perform automated identity, DVLA, right-to-work or DBS verification.</p>
       <div data-msg></div>
       <form data-form novalidate class="hrr-wrap">
@@ -171,7 +173,10 @@ window.HRRegistration = (() => {
         <div class="hrr-f full"><label for="${p}-dn"><span>Decision note</span></label><textarea id="${p}-dn" data-dn aria-describedby="${p}-dnh"${ro ? " disabled" : ""}>${E(rec?.decision_note)}</textarea><small id="${p}-dnh">Required to approve or reject. Approval needs every required check passed with notes.</small></div></div></fieldset>
       ${ro ? "" : `<div class="hrr-sticky"><button type="submit" class="btn secondary" data-dec="Draft">Save draft</button><button type="button" class="btn primary" data-dec="Approved">Approve</button><button type="button" class="btn danger" data-dec="Rejected">Reject</button></div>`}
       </form></div>
-      <div class="panel"><h3>Documents</h3><div data-docmsg></div>
+      <div class="panel" data-document-panel tabindex="-1"><h3>Upload ID documents</h3>
+      <p class="muted">Add a driving licence, passport, visa or other screening evidence. These files stay private to authorised HR staff; uploading them does not pass a screening check.</p>
+      ${!ro && (!s.id || rec?.decision !== "Draft") ? `<p>${s.id ? "This record is not a draft. Reopen it as Draft before adding documents; HR must review it again." : "Complete the required personal details, then save a draft to enable uploads."}</p><button type="button" class="btn secondary" data-a="enable-docs">${s.id ? "Reopen as Draft to add documents" : "Save draft to enable uploads"}</button>` : ""}
+      <div data-docmsg></div>
       ${ro ? "" : `<div class="hrr-grid" data-up>
         <div class="hrr-f"><label for="${p}-file"><span>File</span></label><input id="${p}-file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" aria-describedby="${p}-fh"><small id="${p}-fh">PNG, JPEG, WebP or PDF, up to 10 MB. Stored privately.</small></div>
         <div class="hrr-f"><label for="${p}-cat"><span>Category</span></label><select id="${p}-cat">${CATS.map(x => `<option>${E(x)}</option>`).join("")}</select></div>
@@ -181,6 +186,9 @@ window.HRRegistration = (() => {
     const form = c.querySelector("[data-form]"), box = c.querySelector("[data-msg]"), dbox = c.querySelector("[data-docmsg]");
     const docsUl = c.querySelector("[data-docs]"), upBtn = c.querySelector('[data-a="upload"]');
     const paintDocs = () => {
+      const shortcut=c.querySelector('[data-a="documents"]'), version=c.querySelector("[data-record-version]");
+      if(shortcut)shortcut.textContent=`ID documents (${s.docs.length})`;
+      if(version)version.textContent=String(s.version);
       docsUl.innerHTML = s.docs.length ? s.docs.map(x => `<li><div><b>${E(x.name)}</b><div class="muted" style="font-size:12px">${E(x.category)} &middot; ${fmt(x.created_at)}</div></div><button type="button" class="btn secondary" data-doc="${E(x.id)}">Open</button></li>`).join("")
         : `<li class="hrr-empty" style="display:block">${s.id ? "No documents uploaded yet." : "Save the employee first to enable uploads."}</li>`;
       if (upBtn) upBtn.disabled = !s.id || rec?.decision !== "Draft";
@@ -189,6 +197,9 @@ window.HRRegistration = (() => {
     paintDocs();
     c.querySelector('[data-a="back"]').addEventListener("click", () => drawList(c, ++gen));
     c.querySelector('[data-a="reload"]')?.addEventListener("click", () => openRec(c, s.id));
+    c.querySelector('[data-a="documents"]').addEventListener("click", () => {
+      const panel=c.querySelector("[data-document-panel]");panel.scrollIntoView({block:"start"});panel.focus({preventScroll:true});
+    });
 
     const collect = () => {
       const data = {};
@@ -215,7 +226,7 @@ window.HRRegistration = (() => {
       return "";
     };
     let busy = false;
-    const save = async dec => {
+    const save = async (dec,showDocuments=false) => {
       if (busy || ro) return;
       const v = collect(), bad = validate(v, dec);
       if (bad) { msg(box, bad, "err"); box.scrollIntoView({ block: "nearest" }); return; }
@@ -230,6 +241,9 @@ window.HRRegistration = (() => {
         if (!live(c, g)) return;
         drawForm(c, g, saved, s.docs);
         msg(c.querySelector("[data-msg]"), dec === "Draft" ? "Draft saved." : `Employee ${dec.toLowerCase()}.`, "ok");
+        if(showDocuments) {
+          const panel=c.querySelector("[data-document-panel]");panel.scrollIntoView({block:"start"});panel.focus({preventScroll:true});
+        }
       } catch (e) {
         if (!live(c, g)) return;
         busy = false; btns.forEach(b => b.disabled = false);
@@ -239,6 +253,10 @@ window.HRRegistration = (() => {
     };
     form.addEventListener("submit", e => { e.preventDefault(); save("Draft"); });
     form.querySelectorAll('[data-dec]:not([type="submit"])').forEach(b => b.addEventListener("click", () => save(b.dataset.dec)));
+    c.querySelector('[data-a="enable-docs"]')?.addEventListener("click", () => {
+      if(s.id && rec?.decision!=="Draft" && !confirm("Reopen this employee as Draft? The current decision will no longer be approved/rejected and HR must review the record again."))return;
+      save("Draft",true);
+    });
 
     upBtn?.addEventListener("click", async () => {
       if (busy) return;

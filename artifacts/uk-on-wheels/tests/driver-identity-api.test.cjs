@@ -6,7 +6,7 @@ const vm=require("node:vm");
 const script=fs.readFileSync(path.join(__dirname,"../public/driver-identity-api.js"),"utf8");
 function setup(){
   let version=1,uploads=0,registers=0,fail=false;
-  const calls=[],urls=[];
+  const calls=[],urls=[],paths=[];
   const snapshot=()=>({user_id:"driver-1",name:"Driver",version,photo_path:"driver-1/portrait.jpg",card:null});
   const context=vm.createContext({
     window:{},SUPABASE_CONFIGURED:true,currentSession:{user:{id:"driver-1"}},
@@ -16,17 +16,17 @@ function setup(){
     document:{createElement:()=>({getContext:()=>({fillRect(){},drawImage(){}}),toBlob:fn=>fn({size:100,type:"image/jpeg"})})},
     sb:{rpc:async(name,args)=>{
       calls.push({name,args});
-      if(name==="register_driver_portrait"){registers++;if(fail)return {error:{message:"Network failure"}}}
+      if(name==="register_driver_portrait"||name==="register_hr_driver_portrait"){registers++;if(fail)return {error:{message:"Network failure"}}}
       if(name==="list_driver_identities")return {data:{canIssue:true,drivers:[snapshot()]}};
       return {data:snapshot()};
     },storage:{from:bucket=>{
       assert.equal(bucket,"driver-portraits");
       return {createSignedUrl:async(p,seconds)=>{urls.push({p,seconds});return {data:{signedUrl:"https://example.invalid/"+p}}},
-        upload:async(p,blob,options)=>{uploads++;assert.equal(blob.type,"image/jpeg");assert.equal(options.upsert,false);return {data:{path:p}}}};
+        upload:async(p,blob,options)=>{uploads++;paths.push(p);assert.equal(blob.type,"image/jpeg");assert.equal(options.upsert,false);return {data:{path:p}}}};
     }}}
   });
   vm.runInContext(script,context);
-  return {api:context.window.DriverIdentityAPI,c:context,calls,urls,uploads:()=>uploads,registers:()=>registers,setFail:v=>fail=v};
+  return {api:context.window.DriverIdentityAPI,c:context,calls,urls,paths,uploads:()=>uploads,registers:()=>registers,setFail:v=>fail=v};
 }
 function file(type="image/jpeg",bytes=[255,216,255]){
   return {type,size:bytes.length,slice:()=>({arrayBuffer:async()=>Uint8Array.from(bytes).buffer})};
@@ -68,4 +68,23 @@ test("Late responses cannot populate another account",async()=>{
   const pending=s.api.own();s.c.currentSession={user:{id:"other"}};
   resolve({data:{user_id:"driver-1",version:1}});
   await assert.rejects(pending,/sign-in changed/);
+});
+test("HR uploads use the selected Driver path and expected version, with safe metadata retry",async()=>{
+  const s=setup(),f=file();s.c.currentSession={user:{id:"admin"}};
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",f),/Refresh/);
+  assert.equal(s.uploads(),0);
+  await s.api.list();s.setFail(true);
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",f),/Network failure/);
+  s.setFail(false);await s.api.uploadHRPhoto("driver-1",f);
+  assert.equal(s.uploads(),1);assert.match(s.paths[0],/^driver-1\//);
+  const calls=s.calls.filter(c=>c.name==="register_hr_driver_portrait");
+  assert.equal(calls.length,2);assert.equal(calls[1].args.p_user_id,"driver-1");
+  assert.equal(calls[1].args.p_expected_version,1);
+  assert.equal(calls[0].args.p_path,calls[1].args.p_path);
+});
+test("HR cannot reuse a cached portrait version after changing accounts",async()=>{
+  const s=setup();await s.api.list();
+  s.c.currentSession={user:{id:"another-admin"}};
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",file()),/Refresh/);
+  assert.equal(s.uploads(),0);
 });
