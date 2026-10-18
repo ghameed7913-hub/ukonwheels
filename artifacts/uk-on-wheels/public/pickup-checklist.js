@@ -51,8 +51,9 @@ function ynControl(key,ref,q,val){
   ' onchange="PickupChecklist.updateConditional(\''+esc(ref)+'\')"> '+(o==="yes"?"Yes":"No")+'</label>'}).join("")+'</fieldset>';
 }
 
-var CSS='.pcYesNo{border:1px solid rgba(0,0,0,.12);border-radius:12px;padding:10px 12px;margin:0}.pcYesNo legend{font-weight:600;padding:0 4px}'+
- '.pcChoice{display:inline-flex;align-items:center;gap:8px;min-height:44px;margin-right:18px;font-size:16px}.pcChoice input{width:22px;height:22px}'+
+var CSS='.pcYesNo{border:1px solid rgba(0,0,0,.12);border-radius:12px;min-width:0;padding:10px 12px;margin:0}.pcYesNo legend{font-weight:600;padding:0 4px}'+
+ '.pcYesNo .pcChoice{display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:76px;margin:0 12px 0 0;padding:0;font-size:16px;white-space:nowrap;cursor:pointer}'+
+ 'body .pcYesNo .pcChoice input[type="radio"]{box-sizing:border-box;flex:0 0 22px;width:22px;min-width:22px;max-width:22px;height:22px;min-height:22px;max-height:22px;padding:0;margin:0;border-radius:50%;appearance:auto;accent-color:#e00820;vertical-align:middle;box-shadow:none}'+
  '.pcCond[hidden]{display:none!important}.pcCond{margin-top:10px}.pcSummary dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0}.pcSummary dt{font-weight:600}';
 
 function render(b,cameraSlot){
