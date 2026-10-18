@@ -22,6 +22,16 @@ export const columns = [
   ["amount","Customer charge (£)",24,"Admin/authorised Staff only: optional non-negative amount. Clients must leave this blank; Operations sets charges."],
   ["notes","Special instructions",48,"Optional collection, delivery or vehicle instructions."],
 ];
+export function templateColumns(format) {
+  if (format === "Business") return columns.filter(([key])=>!["customerType","privateCustomerName","privateCustomerMobile","privateCustomerEmail"].includes(key));
+  if (format === "Private") return columns.filter(([key])=>!["customerType","biz"].includes(key));
+  if (format === "legacy") return columns;
+  throw new Error("Choose the Business or Private Customer booking template.");
+}
+export function templateFilename(format) {
+  if (format!=="Business") throw new Error("Private Clients use the single-vehicle booking form, not Excel bulk booking.");
+  return "UK-On-Wheels-Business-Bookings.xlsx";
+}
 const normal = value => String(value ?? "").trim().toLowerCase().replace(/\s+/g," ");
 function scalar(value) {
   if (value == null) return "";
@@ -72,13 +82,21 @@ export function recordsFromSheet(sheet,date1904=false) {
     if (headers.has(name)) throw new Error("Duplicate column: "+name+". Use each template column once.");
     headers.set(name,index);
   });
-  for (const [,label] of columns) if (!headers.has(normal(label))) throw new Error('Missing column "'+label+'". Download the latest template; do not remove its headings.');
   for (const name of headers.keys()) if (!columns.some(([,label])=>normal(label)===name)) throw new Error('Unrecognised column "'+name+'". Use the template headings.');
+  const has = key => headers.has(normal(columns.find(([field])=>field===key)[1]));
+  // Old mixed workbooks remain readable. New formats derive type from their headings,
+  // never from a filename or editable/hidden metadata cell.
+  const format = has("customerType") || (has("biz") && ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"].some(has))
+    ? "legacy" : has("biz") ? "Business" : ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"].some(has) ? "Private" : "legacy";
+  const expected = templateColumns(format);
+  for (const [,label] of expected) if (!headers.has(normal(label))) throw new Error('Missing column "'+label+'". Download the complete '+(format==="legacy"?"booking":format==="Private"?"Private Customer":"Business")+' template; do not remove its headings.');
+  for (const name of headers.keys()) if (!expected.some(([,label])=>normal(label)===name)) throw new Error('Do not mix Business and Private Customer template columns.');
   const records=[];
   for (let number=2;number<=sheet.rowCount;number++) {
     const row=sheet.getRow(number),values={},errors={};
     let populated=false;
     for (const [field,label] of columns) {
+      if (!headers.has(normal(label))) { values[field]=""; continue; }
       const cell=row.getCell(headers.get(normal(label)));
       try {
         let value=scalar(cell.value);
@@ -94,7 +112,10 @@ export function recordsFromSheet(sheet,date1904=false) {
         errors[field]=label+": "+error.message;
       }
     }
-    if (populated) records.push({values,errors,excelRow:number});
+    if (populated) {
+      if (format !== "legacy") values.customerType=format;
+      records.push({values,errors,excelRow:number});
+    }
     if (records.length>MAX_VEHICLES) throw new Error("A file can contain up to 100 vehicles. Split it into smaller files.");
   }
   if (!records.length) throw new Error("The Bookings sheet has no vehicle rows. Fill in the template before uploading.");
@@ -109,10 +130,13 @@ export async function readFile(file) {
   return recordsFromSheet(workbook.getWorksheet("Bookings"),!!workbook.properties.date1904);
 }
 export async function buildTemplate(context={}) {
+  const format=context.format || "Business";
+  if (format!=="Business" || (context.client && context.accountType!=="business")) throw new Error("Private Clients use the single-vehicle booking form, not Excel bulk booking.");
+  const selected=templateColumns(format);
   const workbook=new ExcelJS.Workbook();
-  workbook.creator="UK On Wheels";workbook.title="Bulk vehicle booking template";
+  workbook.creator="UK On Wheels";workbook.title="Business booking template";
   const sheet=workbook.addWorksheet("Bookings",{views:[{state:"frozen",ySplit:1}]});
-  sheet.columns=columns.map(([key,header,width])=>({key,header,width,style:{numFmt:"@"}}));
+  sheet.columns=selected.map(([key,header,width])=>({key,header,width,style:{numFmt:"@"}}));
   const header=sheet.getRow(1);header.height=36;
   header.eachCell(cell=>{
     cell.font={bold:true,color:{argb:"FFFFFFFF"}};
@@ -120,43 +144,45 @@ export async function buildTemplate(context={}) {
     cell.alignment={vertical:"middle",wrapText:true};
   });
   for (const field of ["vehicle","reg","pickup","dest","receiver","mobile"]) {
-    const cell=header.getCell(columns.findIndex(([key])=>key===field)+1);
+    const cell=header.getCell(selected.findIndex(([key])=>key===field)+1);
     cell.note="Required for every vehicle.";
     cell.font={bold:true,color:{argb:"FFFFD4D4"}};
   }
   for (let row=2;row<=101;row++) {
     sheet.getRow(row).height=24;
-    for (let col=1;col<=columns.length;col++) {
+    for (let col=1;col<=selected.length;col++) {
       const cell=sheet.getCell(row,col);
       cell.numFmt="@";cell.alignment={vertical:"top",wrapText:true};
       if (row%2===0) cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF4F7FB"}};
     }
-    for (const col of [11,17]) {
+    for (const field of ["miles","amount"]) {
+      const col=selected.findIndex(([key])=>key===field)+1;
       sheet.getCell(row,col).numFmt="0.00";
       sheet.getCell(row,col).dataValidation={type:"decimal",operator:"greaterThanOrEqual",formulae:[0],allowBlank:true,showErrorMessage:true,error:"Enter zero or a positive number."};
     }
   }
   const guide=workbook.addWorksheet("Instructions");
   guide.columns=[{header:"Field",key:"field",width:32},{header:"How to complete",key:"help",width:110}];
-  guide.addRow({field:"How to book",help:"Type directly into the Bookings sheet, one vehicle per row. There are no dropdowns or filter arrows. Keep all column headings. Upload the .xlsx file in Create Booking → Bulk vehicles (Excel), review every row, then save."});
+  guide.addRow({field:"How to book",help:"This is the Business booking format. Type directly into the Bookings sheet, one vehicle per row. There are no dropdowns or filter arrows. Keep all column headings. Upload the .xlsx file in Create Booking → Bulk vehicles (Excel), review every row, then save."});
   guide.addRow({field:"Limit",help:"Up to 100 vehicles and 5 MB per file. Blank rows are skipped. Do not use formulas; paste values."});
   guide.addRow({field:"Required for every vehicle",help:"Vehicle make and model, Registration number, Collection address, Delivery address, Person receiving vehicle, Receiver mobile number."});
-  guide.addRow({field:"Client account",help:context.client?"Bookings are linked to your signed-in account only: "+(context.name||"Client")+". Leave customer/account columns and Customer charge blank. You cannot book for another customer or set charges.":"Type Business or Private in Customer type. For Business customers, copy an active saved business name or ID from the Businesses sheet. For Private customers, give the name and active Client portal email."});
+  guide.addRow({field:"Client account",help:context.client?"Bookings are linked to your signed-in account only: "+(context.name||"Client")+". Leave customer/account columns and Customer charge blank. You cannot book for another customer or set charges.":"Copy an active saved business name or ID from the Businesses sheet. Private Clients use the single-vehicle booking form, not Excel bulk booking."});
   guide.addRow({field:"Review and save",help:"Uploading does not create bookings. Fix highlighted errors before saving. Each vehicle gets a separate reference and New Booked Vehicle status. If some fail, retry the remaining rows; saved references are kept."});
-  for (const [,label,,help] of columns) guide.addRow({field:label,help});
+  for (const [,label,,help] of selected) guide.addRow({field:label,help});
   guide.eachRow((row,index)=>{row.alignment={vertical:"top",wrapText:true};row.height=index===1?25:42;});
   const businesses=workbook.addWorksheet("Businesses");
   businesses.columns=[{header:"Saved business name",key:"name",width:40},{header:"Business ID",key:"id",width:42}];
   for (const business of context.businesses || []) businesses.addRow({name:business.name,id:business.id || ""});
   const example=workbook.addWorksheet("Example — do not upload");
-  example.columns=columns.map(([key,header,width])=>({key,header,width,style:{numFmt:"@"}}));
+  example.columns=selected.map(([key,header,width])=>({key,header,width,style:{numFmt:"@"}}));
   example.addRow({vehicle:"Ford Transit",reg:"AB12 CDE",pickup:"10 Example Road, London, SW1A 1AA",dest:"20 Sample Street, Birmingham, B1 1AA",service:"Vehicle Delivery",miles:120,bdate:"2026-11-01",ddate:"2026-11-02",receiver:"Example Receiver",mobile:"07123456789",dropoff:"17:30",notes:"Example only. Enter your real vehicles on the Bookings sheet."});
   return workbook.xlsx.writeBuffer();
 }
 export async function downloadTemplate(context) {
-  const buffer=await buildTemplate(context);
+  const format=context?.format || "Business";
+  const buffer=await buildTemplate({...context,format});
   const url=URL.createObjectURL(new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
-  const link=document.createElement("a");link.href=url;link.download="UK-On-Wheels-Bulk-Booking-Template.xlsx";
+  const link=document.createElement("a");link.href=url;link.download=templateFilename(format);
   document.body.appendChild(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),30000);
 }

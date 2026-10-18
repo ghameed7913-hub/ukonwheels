@@ -5,7 +5,7 @@
   let owner = null, mode = "single", rows = [], common = null, busy = false, generation = 0, sourceName = "";
   const el = id => document.getElementById(id);
   const userId = () => currentSession?.user?.id || (!SUPABASE_CONFIGURED ? currentUser?.email || "local-admin" : null);
-  const allowed = () => role === "client" || ((role === "admin" || role === "staff") && hasPermission("booking"));
+  const allowed = () => (role === "client" && currentUser?.accountType === "business") || ((role === "admin" || role === "staff") && hasPermission("booking"));
   const key = id => "ukow-bulk-booking:" + id;
   const normalReg = value => String(value || "").replace(/[\s-]/g,"").toUpperCase();
   const newRow = () => {
@@ -49,7 +49,21 @@
     } catch (_) { status("The saved bulk draft could not be restored. Check existing bookings before starting again."); }
   }
   function hasCommittedRows() { return rows.some(r => ["saved","uncertain","saving"].includes(r.status)); }
+  function singleOnly() {
+    // Do not restore or delete an old bulk draft for a now-private account.
+    // Existing saved bookings are unchanged, and single-form input values are kept.
+    mode="single";rows=[];common=null;sourceName="";
+    if (el("bulkBookingPanel")) {el("bulkBookingPanel").hidden=true;el("bulkBookingPanel").innerHTML="";}
+    if (el("singleVehicleFields")) el("singleVehicleFields").hidden=false;
+    if (el("bookingSharedFields")) {el("bookingSharedFields").hidden=false;el("bookingSharedFields").disabled=false;}
+    if (el("bulkSharedNotice")) el("bulkSharedNotice").hidden=true;
+    if (el("bookingMode")) {el("bookingMode").value="single";el("bookingMode").disabled=true;}
+    if (el("tariffInfo")) el("tariffInfo").hidden=false;
+    const button=document.querySelector('button[onclick="createBooking()"]');
+    if (button) {button.textContent="Create Booking";button.disabled=busy;}
+  }
   function draw() {
+    if (!allowed()) return singleOnly();
     if (!el("bulkBookingPanel")) return;
     el("bulkBookingPanel").hidden = mode !== "bulk";
     el("singleVehicleFields").hidden = mode === "bulk";
@@ -74,9 +88,10 @@
       : rows.length ? "Restored vehicle draft. Review the rows before saving." : "No file uploaded yet. Download and fill in the template first.";
   }
   function mount() {
-    if (!allowed() || !el("bulkBookingPanel")) return;
+    if (!allowed()) return singleOnly();
+    if (!el("bulkBookingPanel")) return;
     load();
-    el("bulkBookingPanel").innerHTML = BulkBookingUI.shell({client:role === "client"}) + '<div class="actions"><button id="bulkNewBatch" type="button" class="btn secondary" onclick="BulkBooking.newBatch()">Start a new batch</button></div>';
+    el("bulkBookingPanel").innerHTML = BulkBookingUI.shell({client:role === "client",accountType:currentUser?.accountType}) + '<div class="actions"><button id="bulkNewBatch" type="button" class="btn secondary" onclick="BulkBooking.newBatch()">Start a new batch</button></div>';
     if (common && mode === "bulk") {
       for (const id of fieldIds) if (el(id)) el(id).value = common[id] ?? "";
       toggleCustomerTypeFields();
@@ -92,13 +107,15 @@
     draw();
   }
   function refresh() {
+    if (!allowed()) return singleOnly();
     if (mode === "bulk" && !busy && !hasCommittedRows()) {
       common = snapshot(); persist();
     }
     draw();
   }
   function setMode(value) {
-    if (!allowed() || busy) return;
+    if (!allowed()) return singleOnly();
+    if (busy) return;
     load();
     if (value !== "bulk" && hasCommittedRows() && rows.some(r=>r.status !== "saved")) {
       status("Finish or reconcile this batch first, or use Start a new batch. Saved bookings will not be deleted.");
@@ -108,12 +125,12 @@
     common = snapshot(); persist(); draw();
   }
   function addRow() {
-    if (busy || mode !== "bulk") return;
+    if (!allowed() || busy || mode !== "bulk") return;
     if (rows.length >= 100) return status("A batch can contain up to 100 vehicles. Finish this batch before starting another.");
     rows.push(newRow()); persist(); draw();
   }
   function updateRow(id,field,value) {
-    if (busy || !["vehicle","reg","miles","amount"].includes(field)) return;
+    if (!allowed() || busy || !["vehicle","reg","miles","amount"].includes(field)) return;
     const row = rows.find(r=>r.id === id);
     if (!row || ["saved","uncertain","saving"].includes(row.status) || (role === "client" && field === "amount")) return;
     if (row.importErrors) delete row.importErrors[field];
@@ -154,7 +171,7 @@
     rows = rows.filter(r=>r.id !== id); persist(); draw();
   }
   async function newBatch() {
-    if (busy) return;
+    if (!allowed() || busy) return;
     if (rows.some(r=>["uncertain","saving"].includes(r.status))) return status("Retry this batch to check interrupted saves before starting a new batch.");
     if (rows.some(r=>r.status !== "saved" && hasRowInput(r)) &&
       !await crmConfirm("Discard the remaining unsaved vehicle rows? Any bookings already saved will remain.","Start a new batch","Discard unsaved rows")) return;
@@ -203,15 +220,17 @@
     });
     return valid;
   }
-  async function downloadTemplate() {
+  async function downloadTemplate(format) {
     try {
       if (!allowed()) throw new Error("Sign in to a booking account first.");
       if (!window.BookingExcel) throw new Error("Excel tools are still loading. Refresh the page and try again.");
+      format=format || "Business";
+      if (format!=="Business") throw new Error("Excel bulk booking is for businesses. Use the single-vehicle form for a Private Client.");
       await window.BookingExcel.downloadTemplate({
-        client:role === "client",name:currentUser?.name || "",
+        format,client:role === "client",accountType:currentUser?.accountType,name:currentUser?.name || "",
         businesses:role === "client" ? [] : (getStore().businesses || []).filter(b=>b.id && String(b.status || "Active").toLowerCase()==="active" && String(b.accountType || "business").toLowerCase()==="business")
       });
-      status("Excel template downloaded. Fill the Bookings sheet, then upload it here.");
+      status("Business Excel template downloaded. Fill the Bookings sheet, then upload it here.");
     } catch (error) { status(error.message || "The template could not be downloaded."); }
   }
   async function uploadFile(file,input) {

@@ -4845,9 +4845,10 @@ async function loadBookingBusinesses(){
 }
 function drawBooking(c){
  const s=getStore();
+ const bulkAvailable=role==="admin"||role==="staff"||(role==="client"&&currentUser?.accountType==="business");
  c.innerHTML=`<div class="panel booking-form"><h3>Create Booking</h3>
- ${role==="admin"||role==="staff"||role==="client"?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles (Excel)</option></select></label>`:""}
- <p id="bulkSharedNotice" class="muted" hidden>Download the Excel template, enter one vehicle per row, upload and review, then save. Each vehicle receives its own booking reference and appears as a New Booked Vehicle.</p>
+ ${bulkAvailable?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles (Excel)</option></select></label>`:""}
+ ${bulkAvailable?`<p id="bulkSharedNotice" class="muted" hidden>Download the Business Excel template, enter one vehicle per row, upload and review, then save. Each vehicle receives its own booking reference and appears as a New Booked Vehicle.</p>`:""}
  <fieldset id="bookingSharedFields" class="form booking-fields">
   <legend class="booking-sr-only">Customer, vehicle and journey details</legend>
   ${role==="client"
