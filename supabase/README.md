@@ -79,6 +79,26 @@ Admin reviews reports through **Incident Reports**. Apply this SQL before
 releasing the updated frontend; missing setup produces an explicit error rather
 than a false save confirmation.
 
+### Permanent report references and PDF downloads
+
+Every saved incident report has a permanent reference beginning `UKOW-INC-`,
+followed by its complete database UUID without hyphens. Existing reports receive
+the same deterministic reference without a database migration; it does not change
+when a draft is edited, submitted or reopened.
+
+- **Admin → Incident Reports** and **Driver → Incidents → My reports** can search
+  by reference, original report ID, registration or Driver name.
+- Open a report and choose **Download PDF** to save the details and every stored
+  photo to the device. Saved drafts are clearly marked **DRAFT / NOT SUBMITTED**.
+  Unsaved edits/photos must be saved first; the PDF reads the persisted report.
+- PDFs include scene, licence and insurance evidence and are private. Downloads
+  use the existing authenticated owner/Admin access controls, renew photo links
+  and stop if any photo is unavailable rather than produce an incomplete file.
+- A PDF is a downloaded snapshot, not another public upload. Keep downloaded
+  copies secure. Download again to obtain a later saved version.
+- History and photo reads are paginated, not limited to the API's first page.
+  No additional SQL patch is required for references or PDF downloads.
+
 ## Important
 
 Do not remove `app_store` after running this migration. The current portal still uses it. Once the SQL succeeds, the frontend can be migrated module-by-module to the secure tables with `app_store` retained as a rollback source.

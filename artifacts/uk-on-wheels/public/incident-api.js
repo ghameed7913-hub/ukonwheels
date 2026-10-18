@@ -15,10 +15,25 @@ window.IncidentAPI = (() => {
     throw new Error(e.message || "The incident report could not be saved. Please retry.");
   }
   const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+  async function allRows(table, reportId, ascending) {
+    const rows = [];
+    for (let offset = 0; ; offset += 500) {
+      let query = sb.from(table).select("*");
+      if (reportId) query = query.eq("report_id", reportId);
+      const batch = check(await query.order("created_at", { ascending })
+        .order("id", { ascending }).range(offset, offset + 499)) || [];
+      rows.push(...batch);
+      if (batch.length < 500) return rows;
+    }
+  }
   return {
     async list() {
       session();
-      return check(await sb.from("incident_reports").select("*").order("created_at", { ascending: false })) || [];
+      return allRows("incident_reports", null, false);
+    },
+    async get(id) {
+      session();
+      return check(await sb.from("incident_reports").select("*").eq("id", id).single());
     },
     async saveDraft({ id, details, booking_id = null }) {
       session();
@@ -47,7 +62,7 @@ window.IncidentAPI = (() => {
     },
     async photos(reportId) {
       session();
-      const rows = check(await sb.from("incident_report_photos").select("*").eq("report_id", reportId).order("created_at")) || [];
+      const rows = await allRows("incident_report_photos", reportId, true);
       return Promise.all(rows.map(async row => {
         try {
           const signed = check(await sb.storage.from(bucket).createSignedUrl(row.storage_path, 3600));

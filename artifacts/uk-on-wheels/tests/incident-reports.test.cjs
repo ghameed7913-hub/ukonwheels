@@ -19,7 +19,9 @@ function apiSetup() {
   };
   const q = {
     select() { return this; }, eq() { return this; },
-    async order() { return { data: state.rows, error: state.photoError }; },
+    order() { return this; },
+    async single() { return { data: state.rows[0] || null, error: state.photoError }; },
+    async range(start, end) { return { data: state.rows.slice(start, end + 1), error: state.photoError }; },
   };
   const c = vm.createContext({
     window: {}, SUPABASE_CONFIGURED: true, currentSession: { user: { id: "driver" } },
@@ -87,6 +89,18 @@ test("Signed-out requests cannot save or read reports", async () => {
   const { api, c } = apiSetup(); c.currentSession = null;
   await assert.rejects(api.list(), /Sign in/);
   await assert.rejects(api.submit("r"), /Sign in/);
+  await assert.rejects(api.get("r"), /Sign in/);
+});
+test("PDF report reads use the authenticated database response", async () => {
+  const { api, state } = apiSetup();
+  state.rows = [{ id: "r", details: { description: "Persisted evidence" } }];
+  assert.equal((await api.get("r")).details.description, "Persisted evidence");
+});
+test("History search and exports are not silently capped at the first page", async () => {
+  const { api, state } = apiSetup();
+  state.rows = Array.from({ length: 1203 }, (_, id) => ({ id: String(id), storage_path: "good" }));
+  assert.equal((await api.list()).length, 1203);
+  assert.equal((await api.photos("r")).length, 1203);
 });
 test("Driver form includes every requested detail and does not use a phone number as Driver ID", () => {
   const c = vm.createContext({

@@ -52,6 +52,11 @@
 .incBar .btn{flex:1}
 .incBar .btn[disabled],.inc .btn[disabled]{opacity:.55;cursor:not-allowed}
 .incList{display:grid;gap:8px}
+.incSearch{margin:10px 0 14px;max-width:620px}
+.incSearch label{display:block;font-size:13px;font-weight:600;margin-bottom:5px}
+.incSearch input{width:100%;min-width:0;border:1px solid #cfd8e3;border-radius:8px;padding:11px;font-size:14px}
+.incSearch input:focus{outline:2px solid var(--navy,#071a31);outline-offset:2px}
+.incAdmin>div{min-width:0}
 .incItem{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:11px;padding:12px 13px;cursor:pointer;color:inherit}
 .incItem:hover{border-color:#b9c6d6}
 .incItem:focus-visible{outline:3px solid var(--brand-red,#e2131f);outline-offset:2px}
