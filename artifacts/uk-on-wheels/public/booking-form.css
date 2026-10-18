@@ -1,0 +1,75 @@
+.booking-form .booking-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.booking-form .booking-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+}
+.booking-form .booking-field[hidden],
+.booking-form [hidden] {
+  display: none !important;
+}
+.booking-form .booking-field > span {
+  color: #536176;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.booking-form .booking-field input,
+.booking-form .booking-field select,
+.booking-form .booking-field textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 11px;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text, #132238);
+}
+.booking-form .booking-field input,
+.booking-form .booking-field select {
+  min-height: 44px;
+}
+.booking-form .booking-field textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+.booking-form .booking-mode-field {
+  margin-bottom: 20px;
+}
+.booking-form #bookingBusinessField {
+  min-width: 0;
+}
+.booking-form #businessLoadStatus:not(:empty) {
+  margin-top: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.booking-form .booking-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .booking-form .booking-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+}

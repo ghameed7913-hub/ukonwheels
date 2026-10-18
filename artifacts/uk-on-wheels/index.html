@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="stylesheet" href="./driver-incidents.css">
 <link rel="stylesheet" href="./bulk-booking.css">
+<link rel="stylesheet" href="./booking-form.css">
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script src="./incident-api.js"></script>
 <script src="./driver-incidents.js"></script>
@@ -1838,6 +1839,7 @@ function enhancePortalUsability(){
  const addControlLabel=(el,text)=>{
   if(getComputedStyle(el).display==="none"){const wrap=el.closest(".autoFieldWrap");if(wrap){wrap.before(el);wrap.remove()}return}
   if(el.closest("label")||el.closest(".autoFieldWrap"))return;
+  if(el.labels?.length)return;
   const label=document.createElement("label");
   label.className="autoFieldLabel";label.htmlFor=el.id;label.textContent=text;
   if(el.parentElement?.classList.contains("form")){
@@ -4691,35 +4693,36 @@ async function loadBookingBusinesses(){
 }
 function drawBooking(c){
  const s=getStore();
- c.innerHTML=`<div class="panel"><h3>Create Booking</h3>
- ${role==="admin"||role==="staff"?`<label for="bookingMode"><b>Booking entry</b></label><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" style="margin:8px 0 16px" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles</option></select>`:""}
+ c.innerHTML=`<div class="panel booking-form"><h3>Create Booking</h3>
+ ${role==="admin"||role==="staff"?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles</option></select></label>`:""}
  <p id="bulkSharedNotice" class="muted" hidden>Customer and journey details below apply to every vehicle. Miles and customer charge are defaults <b>per vehicle, not batch totals</b>. You can override them on individual vehicle rows.</p>
- <fieldset id="bookingSharedFields" class="form" style="border:0;padding:0;margin:0;min-width:0">
+ <fieldset id="bookingSharedFields" class="form booking-fields">
+  <legend class="booking-sr-only">Customer, vehicle and journey details</legend>
   ${role==="client"
     ? `<input id="customerType" type="hidden" value="${currentUser?.accountType==="business"?"Business":"Private"}"><div class="panel" style="padding:10px"><b>Booking For:</b> ${escapeHtml(currentUser?.name||"Client")}</div>`
-    : `<select id="customerType" onchange="toggleCustomerTypeFields()"><option value="Business">Business Customer</option><option value="Private">Private Customer — Admin Only</option></select>`}
+    : `<label class="booking-field" for="customerType"><span>Customer type</span><select id="customerType" onchange="toggleCustomerTypeFields()"><option value="Business">Business Customer</option><option value="Private">Private Customer — Admin Only</option></select></label>`}
   ${role==="client"
       ? `<input id="biz" type="hidden" value="${escapeHtml(currentUser?.name||"")}"><div class="panel" style="padding:10px"><b>${currentUser?.accountType==="business"?"Business":"Private Client"}:</b> ${escapeHtml(currentUser?.name||"Client")}</div>`
-      : `<div id="bookingBusinessField"><select id="biz" aria-label="Saved business" onchange="showBusinessTariff()">${bookingBusinessOptions()}</select><div id="businessLoadStatus" role="status" class="muted"></div></div>`}
-  <input id="privateCustomerName" placeholder="Private Customer Name *" style="display:none">
-  <input id="privateCustomerMobile" placeholder="Private Customer Mobile Number" style="display:none">
-  <input id="privateCustomerEmail" type="email" placeholder="Private Customer Email" style="display:none">
+      : `<div id="bookingBusinessField"><label class="booking-field" for="biz"><span>Business</span><select id="biz" aria-label="Saved business" aria-describedby="businessLoadStatus" onchange="showBusinessTariff()">${bookingBusinessOptions()}</select></label><div id="businessLoadStatus" role="status" class="muted"></div></div>`}
+  <label id="privateCustomerNameField" class="booking-field full" for="privateCustomerName" hidden><span>Private customer name *</span><input id="privateCustomerName" placeholder="Full name" style="display:none"></label>
+  <label id="privateCustomerMobileField" class="booking-field" for="privateCustomerMobile" hidden><span>Private customer mobile number</span><input id="privateCustomerMobile" type="tel" placeholder="e.g. 07123 456789" style="display:none"></label>
+  <label id="privateCustomerEmailField" class="booking-field" for="privateCustomerEmail" hidden><span>Private Client portal email</span><input id="privateCustomerEmail" type="email" placeholder="e.g. client@example.com" style="display:none"></label>
 
-  <div id="singleVehicleFields" class="full"><div class="form">
-   <input id="veh" placeholder="Vehicle make & model">
-   <input id="reg" placeholder="Registration number">
+  <div id="singleVehicleFields" class="full"><div class="form booking-fields">
+   <label class="booking-field" for="veh"><span>Vehicle make and model</span><input id="veh" placeholder="e.g. Ford Transit"></label>
+   <label class="booking-field" for="reg"><span>Registration number</span><input id="reg" placeholder="e.g. AB12 CDE"></label>
   </div></div>
-  <input id="pickup" placeholder="Collection address">
-  <input id="dest" placeholder="Delivery address">
-  <select id="service"><option>Vehicle Delivery</option><option>Vehicle Collection & Delivery</option><option>Recovery / AA</option></select>
-  <input id="miles" type="number" placeholder="Miles travelled">
-  <input id="bdate" type="date">
-  <input id="ddate" type="date">
-  <input id="receiver" placeholder="Person receiving vehicle">
-  <input id="mobile" placeholder="Receiver mobile number">
-  <input id="dropoff" type="time" title="Drop-off time till">
-  <input id="amount" type="number" placeholder="Customer charge (£)">
-  <textarea id="notes" class="full" placeholder="Special instructions"></textarea>
+  <label class="booking-field" for="pickup"><span>Collection address</span><input id="pickup" placeholder="Street, town and postcode"></label>
+  <label class="booking-field" for="dest"><span>Delivery address</span><input id="dest" placeholder="Street, town and postcode"></label>
+  <label class="booking-field" for="service"><span>Service type</span><select id="service"><option>Vehicle Delivery</option><option>Vehicle Collection & Delivery</option><option>Recovery / AA</option></select></label>
+  <label class="booking-field" for="miles"><span>Estimated miles</span><input id="miles" type="number" placeholder="e.g. 120"></label>
+  <label class="booking-field" for="bdate"><span>Booking date</span><input id="bdate" type="date"></label>
+  <label class="booking-field" for="ddate"><span>Requested delivery date</span><input id="ddate" type="date"></label>
+  <label class="booking-field" for="receiver"><span>Person receiving vehicle</span><input id="receiver" placeholder="Full name"></label>
+  <label class="booking-field" for="mobile"><span>Receiver mobile number</span><input id="mobile" type="tel" placeholder="e.g. 07123 456789"></label>
+  <label class="booking-field" for="dropoff"><span>Latest drop-off time</span><input id="dropoff" type="time" title="Latest drop-off time"></label>
+  <label class="booking-field" for="amount"><span>Customer charge (£)</span><input id="amount" type="number" placeholder="e.g. 150.00"></label>
+  <label class="booking-field full" for="notes"><span>Special instructions</span><textarea id="notes" placeholder="Collection, delivery or vehicle instructions"></textarea></label>
  </fieldset>
  <div id="tariffInfo" class="full muted"></div>
  ${role==="admin"||role==="staff"?'<div id="bulkBookingPanel" hidden></div>':""}
@@ -4765,6 +4768,9 @@ function toggleCustomerTypeFields(){
  if(nameEl)nameEl.style.display=isPrivate?"block":"none";
  if(mobileEl)mobileEl.style.display=isPrivate?"block":"none";
  if(emailEl)emailEl.style.display=isPrivate?"block":"none";
+ for(const id of ["privateCustomerNameField","privateCustomerMobileField","privateCustomerEmailField"]){
+  const field=document.getElementById(id);if(field)field.hidden=!isPrivate;
+ }
  if(isPrivate && tariffEl)tariffEl.innerHTML="";
  setTimeout(enhancePortalUsability,0);
 }
