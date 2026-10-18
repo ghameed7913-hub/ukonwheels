@@ -9,6 +9,16 @@ const base={version:1,electricVehicle:"no",chargingCable:"",chargingCableReason:
 const req=ph([...LABELS,"Keys"]);
 const throws=(f,re)=>assert.throws(f,re);
 
+t("Yes/No radios override Driver mobile full-width and 48px input rules while keeping large label tap targets",()=>{
+ const selector='body .pcYesNo .pcChoice input[type="radio"]';
+ assert.ok(PC.css.includes(selector));
+ const rule=PC.css.slice(PC.css.indexOf(selector)).split("}")[0];
+ for(const property of ["width:22px","min-width:22px","max-width:22px","height:22px","min-height:22px","max-height:22px","padding:0","margin:0","flex:0 0 22px"])
+  assert.ok(rule.includes(property),property);
+ assert.match(PC.css,/\.pcYesNo \.pcChoice\{[^}]*min-height:44px/);
+ assert.match(PC.css,/\.pcYesNo \.pcChoice\{[^}]*white-space:nowrap/);
+});
+
 t("eleven slots exact, stable ids",()=>{
  assert.strictEqual(JSON.stringify(PC.vehicleSlots.map(s=>s.label)),JSON.stringify(LABELS));
  PC.vehicleSlots.forEach(s=>{assert.match(s.id,/^pc_/);assert.ok(!/^d?\d+$/.test(s.id))});
