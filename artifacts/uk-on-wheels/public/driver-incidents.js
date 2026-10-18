@@ -24,6 +24,31 @@ function bookings(){try{return ((typeof driverAssignedRows==="function"?driverAs
 function bookingId(b){return String((b&&(b._normalizedId||b.id||b.ref))||"");}
 function bookingFor(id){if(!id)return null;id=String(id);return bookings().find(function(b){return bookingId(b)===id||String(b.ref||"")===id;})||null;}
 function splitVehicle(b){var v=String(b.vehicle||"").trim().split(/\s+/);return {make:b.make||v[0]||"",model:b.model||v.slice(1).join(" ")||""};}
+// Use the complete persisted UUID, not a truncated prefix or a browser counter.
+// This is a permanent, one-to-one reference for old and new saved reports.
+function reference(r){return "UKOW-INC-"+String((r&&typeof r==="object"?r.id:r)||"").replace(/-/g,"").toUpperCase();}
+function matches(r,q){var needle=String(q||"").toLowerCase().replace(/[^a-z0-9]/g,"");if(!needle)return true;var d=r.details||{};
+ return [reference(r),r.id,r.booking_id,d.fullName,d.driverNumber,d.registration,d.type,d.location].some(function(v){return String(v||"").toLowerCase().replace(/[^a-z0-9]/g,"").includes(needle);});}
+function searchHtml(q,id){return '<div class="incSearch"><label for="'+id+'">Find a report</label><input type="search" id="'+id+'" value="'+esc(q||"")+'" placeholder="Reference, registration or driver name" autocomplete="off"></div>';}
+function pdfButton(r){return '<div class="actions"><button type="button" class="btn secondary" data-act="pdf" data-id="'+esc(r.id)+'">Download '+(r.status==="draft"?"saved draft ":"")+'PDF</button></div><p class="incHint">Save the PDF to your device. Includes saved details and all stored photos; unsaved edits are not included.</p>';}
+async function downloadPdf(id,button){var label=button.textContent;var owner=userKey();var error=document.createElement("div");error.className="incMsg info";error.setAttribute("role","status");button.parentElement.after(error);button.disabled=true;
+ try{
+  if(!owner)throw new Error("Sign in to download a report.");
+  if(typeof role!=="undefined"&&role!=="admin"&&role!=="driver")throw new Error("Only Admin and the reporting Driver can download this report.");
+  if(S&&S.draft&&S.draft.id===id&&hasUnsaved())throw new Error("Save your current changes and photos before downloading the PDF.");
+  if(!window.IncidentPDF)throw new Error("PDF tools are still loading. Please reload the portal and retry.");
+  error.textContent="Loading the saved report and renewing private photo links…";
+  var r=await api().get(id);var photos=await api().photos(id);
+  if(owner!==userKey())throw new Error("Your session changed. Sign in again before downloading.");
+  if(!r||r.id!==id)throw new Error("The saved report could not be verified.");
+  var doc=await window.IncidentPDF.create({report:r,photos:photos,reference:reference(r),fields:FIELD_KEYS,labels:LABELS,
+   assertSession:function(){if(owner!==userKey())throw new Error("Your session changed. PDF download cancelled.");},
+   progress:function(done,total){error.textContent="Preparing photo "+done+" of "+total+" for the PDF…";}});
+  if(owner!==userKey())throw new Error("Your session changed. PDF download cancelled.");
+  await doc.save(reference(r)+".pdf",{returnPromise:true});
+  error.className="incMsg ok";error.textContent="PDF prepared. Use your browser's download or share menu to save it to Files or your device. Keep it secure: it contains private information.";
+ }catch(e){error.className="incMsg error";error.setAttribute("role","alert");error.textContent="Could not download PDF: "+errText(e);}
+ finally{button.disabled=false;button.textContent=label;}}
 
 /* ---------- State (memory only, per authenticated user) ---------- */
 var S=null;
@@ -71,7 +96,7 @@ function formHtml(){var s=S,d=ensureDraft(s),dt=d.details,ro=d.status==="submitt
  if(d.booking_id&&!bookingFor(d.booking_id))bopts+='<option value="'+esc(d.booking_id)+'" selected>Booking '+esc(d.booking_id)+'</option>';
  var prog=s.progress?'<div class="incMsg info" role="status" aria-live="polite">'+esc(s.progress.label)+'<div class="incProg"><i style="transform:scaleX('+(s.progress.total?s.progress.done/s.progress.total:0)+')"></i></div></div>':"";
  return safety()+msg(s.formMsg)+
- (d.saved?'<div class="incMsg info">Editing '+(ro?"submitted":"draft")+' report <b>'+esc(String(d.id).slice(0,8))+'</b>. '+(ro?"Submitted reports cannot be changed.":"Saved drafts can be reopened and continued.")+'</div>':"")+
+  (d.saved?'<div class="incMsg info">Report reference: <b>'+esc(reference(d))+'</b>. '+(ro?"Submitted reports cannot be changed.":"Saved drafts can be reopened and continued.")+'</div>':"")+
  '<form id="incForm" novalidate><fieldset style="border:0;margin:0;padding:0;min-width:0"'+(ro?" disabled":"")+'>'+
  '<div class="incCard"><h4>Driver and vehicle</h4><div class="incGrid">'+
  '<div class="incField full"><label for="inc_booking">Related booking <em>(optional)</em></label><select id="inc_booking" data-booking>'+bopts+'</select><div class="incHint">Choosing a booking fills in vehicle details you have not already typed.</div></div>'+
@@ -94,7 +119,7 @@ function formHtml(){var s=S,d=ensureDraft(s),dt=d.details,ro=d.status==="submitt
  '<div class="incHint">JPEG, PNG or WebP, up to 10 MB each. iPhone HEIC photos: set Settings &gt; Camera &gt; Formats to "Most Compatible", or share the photo as JPEG first.</div>')+
  thumbsPending(ro)+
  (d.saved?'<h4 style="margin-top:14px">Stored with this report</h4>'+(s.persistedErr?msg({kind:"error",text:s.persistedErr}):"")+thumbsPersisted(s.persisted,"refreshPersisted"):"")+'</div>'+
- prog+
+  prog+(d.saved?pdfButton(d):"")+
  (ro?'<div class="actions"><button type="button" class="btn secondary" data-act="new">Start a new report</button></div>':
  '<div class="incBar"><button type="button" class="btn secondary" data-act="save"'+(b?" disabled":"")+'>'+(b==="save"?"Saving":"Save draft")+'</button><button type="button" class="btn primary" data-act="submit"'+(b?" disabled":"")+'>'+(b==="submit"?"Submitting":"Submit report")+'</button></div>'+
  (d.saved||s.files.length?'<div class="actions"><button type="button" class="btn secondary" data-act="new"'+(b?" disabled":"")+'>Start a new report</button></div>':""));}
@@ -103,13 +128,14 @@ function listHtml(){var s=S;
  if(s.listError)return msg({kind:"error",text:s.listError,html:true})+'<div class="actions"><button type="button" class="btn secondary" data-act="reload">Retry</button></div>';
  if(s.loading&&!s.loaded)return '<div class="incList"><div class="incSkel"></div><div class="incSkel"></div><div class="incSkel"></div></div>';
  if(!s.reports.length)return '<div class="incEmpty"><b>No reports yet.</b><br>Reports you save or submit appear here, including their photos.</div>';
- return '<div class="incList">'+s.reports.map(function(r){var d=r.details||{};return '<button type="button" class="incItem" data-act="openReport" data-id="'+esc(r.id)+'"><span class="incItemTop">'+statusBadge(r.status)+'<small>'+esc(fmtDate(r.created_at))+'</small></span><strong>'+esc((d.type||"Report")+" \u00b7 "+(d.registration||"No registration"))+'</strong><small>'+esc(d.location||"Location not entered")+'</small></button>';}).join("")+'</div>';}
+  var rows=s.reports.filter(function(r){return matches(r,s.query);});
+  return searchHtml(s.query,"incSearchDriver")+'<div class="incList">'+(rows.length?rows.map(function(r){var d=r.details||{};return '<button type="button" class="incItem" data-act="openReport" data-id="'+esc(r.id)+'"><span class="incItemTop">'+statusBadge(r.status)+'<small>'+esc(fmtDate(r.created_at))+'</small></span><strong>'+esc(reference(r))+'</strong><strong>'+esc((d.type||"Report")+" \u00b7 "+(d.registration||"No registration"))+'</strong><small>'+esc(d.location||"Location not entered")+'</small></button>';}).join(""):'<div class="incEmpty" role="status">No matching reports. Check the reference or clear the search.</div>')+'</div>';}
 
 function detailHtml(r,photos,perr,refreshAct){var d=r.details||{};var b=r.booking_id?bookingFor(r.booking_id):null;
  return '<div class="incCard"><div class="incItemTop">'+statusBadge(r.status)+'<small class="muted">'+esc(fmtDate(r.created_at))+'</small></div>'+
- '<dl class="incDl" style="margin-top:10px"><dt>Report ID</dt><dd>'+esc(r.id)+'</dd><dt>Booking</dt><dd>'+esc(b?(b.ref||r.booking_id):(r.booking_id||"None"))+'</dd>'+(r.driver_id?'<dt>Driver account</dt><dd>'+esc(r.driver_id)+'</dd>':"")+
+  '<dl class="incDl" style="margin-top:10px"><dt>Report reference</dt><dd>'+esc(reference(r))+'</dd><dt>Report ID</dt><dd>'+esc(r.id)+'</dd><dt>Booking</dt><dd>'+esc(b?(b.ref||r.booking_id):(r.booking_id||"None"))+'</dd>'+(r.driver_id?'<dt>Driver account</dt><dd>'+esc(r.driver_id)+'</dd>':"")+
  FIELD_KEYS.map(function(k){var v=d[k];if(k==="fault"){var f=FAULTS.find(function(x){return x[0]===v;});v=f?f[1]:v;}if(k==="occurredAt")v=fmtDate(v);return '<dt>'+esc(LABELS[k])+'</dt><dd>'+(v?esc(v):'<span class="muted">Not provided</span>')+'</dd>';}).join("")+'</dl></div>'+
- '<div class="incCard"><h4>Photos</h4>'+(perr?msg({kind:"error",text:perr}):"")+(photos==null&&!perr?'<div class="incSkel"></div>':thumbsPersisted(photos||[],refreshAct))+'</div>';}
+  '<div class="incCard"><h4>Photos</h4>'+(perr?msg({kind:"error",text:perr}):"")+(photos==null&&!perr?'<div class="incSkel"></div>':thumbsPersisted(photos||[],refreshAct))+'</div>'+pdfButton(r);}
 
 function renderDriver(){var s=st();ensureDraft(s);
  return '<div class="inc" id="incRoot">'+innerDriver()+'</div>';}
@@ -205,7 +231,9 @@ function applyOpen(o){var s=st();var b=bookingFor(o.ref);
 /* ---------- Events (delegated, bound per root element) ---------- */
 function bind(el){if(el.__incBound)return;el.__incBound=true;
   el.addEventListener("submit",function(e){e.preventDefault();});
- el.addEventListener("input",function(e){var t=e.target;if(!S||!S.draft||S.draft.status==="submitted")return;var k=t.getAttribute&&t.getAttribute("data-f");
+  el.addEventListener("input",function(e){var t=e.target;
+   if(t.id==="incSearchDriver"){var pos=t.selectionStart;S.query=t.value;rerender();var input=document.getElementById("incSearchDriver");if(input){input.focus({preventScroll:true});try{input.setSelectionRange(pos,pos);}catch(ignore){}}return;}
+   if(!S||!S.draft||S.draft.status==="submitted")return;var k=t.getAttribute&&t.getAttribute("data-f");
   if(k&&t.type!=="radio"){S.draft.details[k]=t.value;if(S.invalid[k]&&t.value.trim()){delete S.invalid[k];t.removeAttribute("aria-invalid");}}});
  el.addEventListener("change",function(e){var t=e.target;if(!S)return;
   if(t.name==="inc_fault"){S.draft.details.fault=t.value;delete S.invalid.fault;captureForm();rerender();return;}
@@ -222,6 +250,7 @@ function bind(el){if(el.__incBound)return;el.__incBound=true;
   else if(a==="openReport"){captureForm();S.tab="detail";S.detailId=b.getAttribute("data-id");loadDetail();}
   else if(a==="refreshDetail")loadDetail();
   else if(a==="refreshPersisted")loadPersisted();
+   else if(a==="pdf")downloadPdf(b.getAttribute("data-id"),b);
   else if(a==="continue")continueDraft(b.getAttribute("data-id"));});}
 function mountDriver(){var el=root();if(!el)return;st();bind(el);el.innerHTML=innerDriver();if(!S.loaded&&!S.loading)loadList();else if(S.draft&&S.draft.saved&&!S.persisted.length&&!S.persistedErr)loadPersisted();}
 
@@ -231,17 +260,18 @@ async function renderAdmin(container){if(!container)return;var gen=++A.gen;var u
   function alive(){return gen===A.gen&&container.isConnected&&userKey()===u&&(typeof page==="undefined"||page==="incidents")&&(typeof role==="undefined"||role==="admin");}
  function draw(){if(!alive())return;var r=A.reports.find(function(x){return String(x.id)===String(A.sel);});
   container.innerHTML='<div class="incHead"><div><h3>Incident reports</h3><p>All driver reports. Read-only. Photo links are private and expire.</p></div><button type="button" class="btn secondary" data-aact="reload">Reload</button></div>'+
-  (A.err?msg({kind:"error",text:A.err,html:true}):"")+
+   (A.err?msg({kind:"error",text:A.err,html:true}):"")+searchHtml(A.query,"incSearchAdmin")+
   '<div class="inc incAdmin"><div>'+(A.loading?'<div class="incList"><div class="incSkel"></div><div class="incSkel"></div></div>':!A.reports.length&&!A.err?'<div class="incEmpty">No incident reports have been filed.</div>':
-  '<div class="incList">'+A.reports.map(function(x){var d=x.details||{};return '<button type="button" class="incItem'+(String(x.id)===String(A.sel)?" sel":"")+'" data-aact="sel" data-id="'+esc(x.id)+'"><span class="incItemTop">'+statusBadge(x.status)+'<small>'+esc(fmtDate(x.created_at))+'</small></span><strong>'+esc((d.type||"Report")+" \u00b7 "+(d.registration||"No reg"))+'</strong><small>'+esc((d.fullName||"Unknown driver")+" \u00b7 "+(d.location||""))+'</small></button>';}).join("")+'</div>')+
-  '</div><div>'+(r?detailHtml(r,A.photos,A.perr,"x").replace('data-act="x"','data-aact="photos"'):'<div class="incEmpty">Select a report to view full details and photos.</div>')+'</div></div>';}
+   '<div class="incList">'+A.reports.filter(function(x){return matches(x,A.query);}).map(function(x){var d=x.details||{};return '<button type="button" class="incItem'+(String(x.id)===String(A.sel)?" sel":"")+'" data-aact="sel" data-id="'+esc(x.id)+'"><span class="incItemTop">'+statusBadge(x.status)+'<small>'+esc(fmtDate(x.created_at))+'</small></span><strong>'+esc(reference(x))+'</strong><strong>'+esc((d.type||"Report")+" \u00b7 "+(d.registration||"No reg"))+'</strong><small>'+esc((d.fullName||"Unknown driver")+" \u00b7 "+(d.location||""))+'</small></button>';}).join("")+(!A.reports.some(function(x){return matches(x,A.query);})?'<div class="incEmpty" role="status">No matching reports. Check the reference or clear the search.</div>':"")+'</div>')+
+   '</div><div>'+(r?detailHtml(r,A.photos,A.perr,"x").replace('data-act="x"','data-aact="photos"').replace('data-act="pdf"','data-aact="pdf"'):'<div class="incEmpty">Select a report to view full details and photos.</div>')+'</div></div>';}
  async function photos(){var id=A.sel;A.photos=null;A.perr="";draw();try{var p=await api().photos(id);if(!alive()||A.sel!==id)return;A.photos=p||[];}catch(e){if(!alive())return;A.perr="Could not load photos: "+errText(e);}draw();}
  async function load(){A.err="";if(apiMissing()){A.err=SETUP_MSG;A.reports=[];draw();return;}A.loading=true;draw();
   try{var rows=await api().list();if(!alive())return;A.reports=(rows||[]).slice().sort(function(a,b){return String(b.created_at).localeCompare(String(a.created_at));});}
   catch(e){if(!alive())return;A.err="Could not load incident reports: "+esc(errText(e));}A.loading=false;draw();if(A.sel&&A.reports.some(function(x){return String(x.id)===String(A.sel);}))photos();}
-  container.__incAdminActions={load:load,photos:photos};
+   container.__incAdminActions={load:load,photos:photos,search:function(t){var pos=t.selectionStart;A.query=t.value;draw();var input=container.querySelector("#incSearchAdmin");if(input){input.focus({preventScroll:true});try{input.setSelectionRange(pos,pos);}catch(ignore){}}}};
+   if(!container.__incSearch){container.__incSearch=true;container.addEventListener("input",function(e){if(e.target.id==="incSearchAdmin")container.__incAdminActions.search(e.target);});}
   if(!container.__incAdmin){container.__incAdmin=true;container.addEventListener("click",function(e){var b=e.target.closest("[data-aact]");if(!b||!container.contains(b))return;var a=b.getAttribute("data-aact"),actions=container.__incAdminActions;
-   if(a==="reload")actions.load();else if(a==="sel"){A.sel=b.getAttribute("data-id");actions.photos();}else if(a==="photos")actions.photos();});}
+    if(a==="reload")actions.load();else if(a==="sel"){A.sel=b.getAttribute("data-id");actions.photos();}else if(a==="photos")actions.photos();else if(a==="pdf")downloadPdf(b.getAttribute("data-id"),b);});}
  await load();}
 
 /* ---------- Public ---------- */
@@ -252,5 +282,5 @@ function reset(){if(S){revokeAll(S);S.files=[];S.persisted=[];S.draft=null;S.gen
 function isBusy(){return !!(S&&S.busy);}
 function hasUnsaved(){if(!S||!S.draft||S.user!==userKey())return false;captureForm();if(S.draft.status==="submitted")return false;return snap(S.draft)!==S.draft.snap||S.files.some(function(f){return f.status!=="done";});}
 
-window.IncidentUI={renderDriver:renderDriver,mountDriver:mountDriver,renderAdmin:renderAdmin,open:open,reset:reset,isBusy:isBusy,isSaving:isBusy,hasUnsaved:hasUnsaved,captureForm:captureForm,FIELD_KEYS:FIELD_KEYS.slice()};
+window.IncidentUI={renderDriver:renderDriver,mountDriver:mountDriver,renderAdmin:renderAdmin,open:open,reset:reset,isBusy:isBusy,isSaving:isBusy,hasUnsaved:hasUnsaved,captureForm:captureForm,reference:reference,matches:matches,FIELD_KEYS:FIELD_KEYS.slice()};
 })();
