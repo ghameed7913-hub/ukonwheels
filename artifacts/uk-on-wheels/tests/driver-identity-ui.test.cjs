@@ -66,3 +66,20 @@ test("The ID view cannot be covered by a sticky Driver header, and HR navigation
   assert.match(css,/\.driverCompanyIDView \.driverHeader\{position:static\}/);
   assert.match(css,/\.navGroup\.open\[data-nav-group="hr"\] > \.navChildren\{max-height:none;overflow:visible\}/);
 });
+test("A late HR directory response cannot overwrite another page",async()=>{
+  const s=setup(null);let resolve,writes=0;
+  s.c.page="driverCompanyIDs";
+  s.c.window.DriverIdentityAPI.list=()=>new Promise(r=>resolve=r);
+  const body={removeAttribute(){},set innerHTML(v){writes++;}};
+  const container={isConnected:true,innerHTML:"",dataset:{},addEventListener(){},querySelector:()=>body};
+  const pending=s.ui.drawAdmin(container);
+  s.c.page="hrRegister";container.innerHTML="Unsaved employee form";
+  resolve({canIssue:true,drivers:[]});await pending;
+  assert.equal(writes,0);assert.equal(container.innerHTML,"Unsaved employee form");
+});
+test("HR portrait controls are included only in the permission-controlled branch",()=>{
+  assert.match(script,/if\(A\.data\.canIssue\)\{[\s\S]*data-di-a="open-photo"/);
+  assert.match(script,/await a\.uploadHRPhoto\(uid,file\)/);
+  assert.match(script,/Your file is still selected; retry when ready/);
+  assert.match(script,/if\(!adminLive\(A\)\|\|S\.admin\.gen!==gen\)return/);
+});

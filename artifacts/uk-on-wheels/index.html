@@ -1717,7 +1717,7 @@ function nav(){
   ]},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",items:[
     {key:"hrRegister",label:"Employee Registration"},
-    {key:"driverCompanyIDs",label:"Driver Company IDs"},
+    {key:"driverCompanyIDs",label:"Driver photos & IDs"},
     {key:"hrHolidays",label:"Holidays"},
     {key:"hrPayslips",label:"Payslips"},
     {key:"hrNonResidents",label:"Non-Resident Records"},
@@ -1763,7 +1763,7 @@ function nav(){
   {key:"reports",label:"Reports & Invoices",icon:"chart",cat:"reports"},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",cat:"hr",items:[
     {key:"hrRegister",label:"Employee Registration"},
-    {key:"driverCompanyIDs",label:"Driver Company IDs"},
+    {key:"driverCompanyIDs",label:"Driver photos & IDs"},
     {key:"hrHolidays",label:"Holidays"},
     {key:"hrPayslips",label:"Payslips"},
     {key:"hrNonResidents",label:"Non-Resident Records"},
@@ -4016,7 +4016,7 @@ function drawHR(c){
  c.innerHTML=`<div class="panel"><h2>HR</h2><p class="muted">Employee records, holidays, payslips, right-to-work, share codes and DVLA compliance.</p></div>
  <div class="cards" style="margin-top:12px">
   <div class="card" style="cursor:pointer" onclick="page='hrRegister';render()"><b>Employee Registration</b><strong>+</strong><small>Private employee records, screening and vetting</small></div>
-  <button class="card" onclick="go('driverCompanyIDs')"><b>Driver Company IDs</b><strong>ID</strong><small>Review portraits, issue and revoke company IDs</small></button>
+  <button class="card" onclick="go('driverCompanyIDs')"><b>Driver photos &amp; company IDs</b><strong>ID</strong><small>Upload Driver profile photos, issue and revoke company IDs</small></button>
   <div class="card" style="cursor:pointer" onclick="page='hrHolidays';render()"><b>Holidays</b><strong>${pending}</strong><small>Pending requests</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrPayslips';render()"><b>Payslips</b><strong>${s.payslips.length}</strong><small>Generated</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrNonResidents';render()"><b>Non-Resident Records</b><strong>${nonResidents}</strong><small>Non-British staff</small></div>

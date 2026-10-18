@@ -89,3 +89,15 @@ test("HR list constrains grid min-content width and scrolls inside its panel on 
   assert.match(css,/\.hrr-wrap \.scroll\{[^}]*max-width:100%[^}]*overflow-x:auto/);
   assert.match(css,/\.hrr-wrap \.panel,\.hrr-wrap \[data-body\]\{min-width:0/);
 });
+test("HR provides visible photo navigation and an ID-document shortcut with explicit draft requirements",()=>{
+  const ui=readFileSync(resolve(__dirname,"../public/hr-registration.js"),"utf8");
+  assert.match(ui,/data-a="photos">Driver photos &amp; company IDs/);
+  assert.match(ui,/data-a="documents">ID documents/);
+  assert.match(ui,/data-document-panel tabindex="-1"/);
+  assert.match(ui,/Save draft to enable uploads/);
+  assert.match(ui,/Reopen this employee as Draft\?/);
+  assert.match(ui,/save\("Draft",true\)/);
+  assert.match(ui,/scrollIntoView\(\{block:"start"\}\)/);
+  assert.match(ui,/shortcut\.textContent=`ID documents \(\$\{s\.docs\.length\}\)`/);
+  assert.match(ui,/version\.textContent=String\(s\.version\)/);
+});
