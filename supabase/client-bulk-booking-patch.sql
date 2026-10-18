@@ -1,6 +1,7 @@
 -- Enables Excel bulk booking for signed-in Clients without granting Admin access.
 -- Run once in the same Supabase project as the portal. Safe to run again.
 begin;
+alter table public.bookings add column if not exists dropoff_deadline text;
 
 create or replace function public.client_create_bulk_booking(
   p_reference text,
@@ -97,6 +98,7 @@ begin
       client_id = auth.uid(),
       booking_date = coalesce(nullif(p_booking->>'bookingDate','')::date,current_date),
       miles = miles_value,
+      dropoff_deadline = nullif(p_booking->>'dropoffTill',''),
       status = 'New Booked Vehicle',
       payment_status = 'Pending',
       updated_at = now()
