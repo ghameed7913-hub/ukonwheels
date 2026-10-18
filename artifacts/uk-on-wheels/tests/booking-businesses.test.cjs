@@ -18,7 +18,7 @@ function setup(rows = []) {
   const notice = {}, tariff = {};
   const calls = [];
   const context = {
-    console, role: "admin", SUPABASE_CONFIGURED: true,
+    console, window: {}, role: "admin", SUPABASE_CONFIGURED: true,
     STORE_CACHE: store, getStore: () => context.STORE_CACHE,
     document: { getElementById: id => ({ biz: select, businessLoadStatus: notice, tariffInfo: tariff })[id] },
     sb: {
@@ -103,4 +103,16 @@ test("A failed business read produces an explicit retry message, not an unexplai
   assert.match(notice.innerHTML, /Access denied/);
   assert.match(notice.innerHTML, /Retry/);
   assert.equal(select.disabled, false);
+});
+
+test("Saved businesses are also refreshed in the per-vehicle bulk selectors", async () => {
+  const {context,select}=setup([{id:"business-new",legal_name:"New Saved Motors",status:"Active"}]);
+  let refreshed=0;
+  context.window.BulkBooking={refresh(){
+    refreshed++;
+    assert.equal(select.disabled,false);
+    assert.equal(context.getStore().businesses[0].id,"business-new");
+  }};
+  await context.loadBookingBusinesses();
+  assert.equal(refreshed,1);
 });

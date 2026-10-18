@@ -22,7 +22,7 @@ function setup(options = {}) {
   const context = vm.createContext({
     window:{},crypto,console,Date,role:"admin",currentUser:{name:"Admin"},
     currentSession:{user:{id:"admin-test"}},SUPABASE_CONFIGURED:true,
-    hasPermission:()=>true,selectedBookingBusiness:id=>id===business.id ? business : null,
+    hasPermission:()=>true,selectedBookingBusiness:id=>store.businesses.find(b=>b.id===id)||null,
     getStore:()=>store,saveStore:async()=>true,
     toggleCustomerTypeFields(){},crmConfirm:async()=>confirmation,
     loadNormalizedPortalData:async()=>{if(refreshFails)throw new Error("Refresh offline");},
@@ -237,3 +237,156 @@ test("Bulk UI escapes customer text and handlers, and exposes status and mobile 
   const css=fs.readFileSync(path.join(__dirname,"../public/bulk-booking.css"),"utf8");
   assert.match(css,/@media/);
 });
+
+test("Every single booking field is available on each bulk vehicle, with safe business options",()=>{
+  const s=setup();s.fill(0);
+  const id=s.state().rows[0].id;
+  s.api.setOwnDetails(id,true);
+  let content=s.fields.bulkVehicleRows.innerHTML;
+  for(const field of ["vehicle","reg","customerType","biz","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"]){
+    assert.equal((content.match(new RegExp('id="bulk-'+id+'-'+field+'"',"g"))||[]).length,1,field);
+  }
+  s.api.updateDetail(id,"customerType","Private");
+  content=s.fields.bulkVehicleRows.innerHTML;
+  for(const field of ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"])
+    assert.match(content,new RegExp('id="bulk-'+id+'-'+field+'"'));
+  s.business.status="Inactive";s.api.updateDetail(id,"customerType","Business");
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/<option value="business-1" selected disabled>Test Motors — inactive/);
+});
+
+test("Separate vehicle details reach the booking save without changing shared defaults or another vehicle",async()=>{
+  const s=setup();s.fill(0);s.fill(1);
+  s.store.businesses.push({id:"business-2",name:"Second Motors",status:"Active"});
+  const row=s.state().rows[1];s.api.setOwnDetails(row.id,true);
+  const details={biz:"business-2",pickup:"Second pickup",dest:"Second delivery",service:"Recovery / AA",
+    bdate:"2026-11-01",ddate:"2026-11-03",receiver:"Second Receiver",mobile:"07111111111",dropoff:"15:30",notes:"Second vehicle instructions"};
+  for(const [field,value] of Object.entries(details))s.api.updateDetail(row.id,field,value);
+  s.fill(1,{miles:"71",amount:"230.50"});
+  await s.api.submit();assert.equal(s.calls.length,2);
+  const [first,second]=s.calls.map(c=>c.booking);
+  assert.equal(first._businessId,"business-1");assert.equal(first.pickup,"Collection A");
+  assert.equal(first.receiver,"Test Receiver");assert.equal(first.amount,100);
+  for(const [from,to] of Object.entries({pickup:"pickup",dest:"destination",service:"service",bdate:"bookingDate",ddate:"deliveryDate",receiver:"receiver",mobile:"receiverMobile",dropoff:"dropoffTill"}))assert.equal(second[to],details[from],from);
+  assert.equal(second._businessId,"business-2");assert.equal(second.business,"Second Motors");
+  assert.equal(second.miles,71);assert.equal(second.amount,230.5);
+  assert.equal(second.notes,"Second vehicle instructions\nLatest drop-off time: 15:30");
+  assert.equal(s.fields.pickup.value,"Collection A");
+});
+
+test("A bulk batch can link Business and Private vehicles to different correct Client accounts",async()=>{
+  const s=setup();s.fill(0);s.fill(1);
+  const row=s.state().rows[1];s.api.setOwnDetails(row.id,true);
+  for(const [field,value] of Object.entries({customerType:"Private",privateCustomerName:"Private Two",privateCustomerMobile:"07222222222",privateCustomerEmail:"two@example.test"}))s.api.updateDetail(row.id,field,value);
+  await s.api.submit();
+  assert.equal(s.calls.length,2);
+  assert.equal(s.calls[0].booking._businessId,"business-1");
+  assert.equal(s.calls[0].booking.privateCustomerEmail,"");
+  assert.equal(s.calls[1].booking._businessId,null);
+  assert.equal(s.calls[1].booking.customerType,"Private");
+  assert.equal(s.calls[1].booking.privateCustomerName,"Private Two");
+  assert.equal(s.calls[1].booking.privateCustomerMobile,"07222222222");
+  assert.equal(s.calls[1].booking.privateCustomerEmail,"two@example.test");
+});
+
+test("Required per-vehicle details and invalid private email or charge block the entire batch before any write",async()=>{
+  for(const detail of [{pickup:""},{receiver:""},{biz:"missing"},{customerType:"Private",privateCustomerName:"Other Client",privateCustomerEmail:"invalid"},{service:"Unknown"}]){
+    const s=setup();s.fill(0);s.fill(1);const id=s.state().rows[1].id;
+    s.api.setOwnDetails(id,true);
+    for(const [f,v] of Object.entries(detail))s.api.updateDetail(id,f,v);
+    await s.api.submit();assert.equal(s.calls.length,0);
+    assert.match(s.fields.bulkBookingStatus.textContent,/Vehicle 2:/);
+  }
+});
+
+test("Blank optional separate details stay blank, and zero amounts do not inherit shared values",async()=>{
+  const s=setup();s.fill(0);s.fill(1);
+  const row=s.state().rows[1];s.api.setOwnDetails(row.id,true);
+  for(const field of ["notes","ddate","dropoff"])s.api.updateDetail(row.id,field,"");
+  s.fill(1,{miles:"",amount:""});
+  await s.api.submit();assert.equal(s.calls.length,2);
+  const b=s.calls[1].booking;
+  assert.equal(b.notes,"");assert.equal(b.deliveryDate,"");assert.equal(b.dropoffTill,"");
+  assert.equal(b.miles,0);assert.equal(b.amount,0);
+  assert.equal(s.calls[0].booking.amount,100);
+});
+
+test("Independent details and stable references survive draft recovery and partial-save retries",async()=>{
+  const s=setup();s.fill(0);s.fill(1);const row=s.state().rows[1];
+  s.api.setOwnDetails(row.id,true);s.api.updateDetail(row.id,"pickup","Independent pickup");
+  s.api.updateDetail(row.id,"notes","Keep on retry");
+  const recovered=setup({stored:s.stored,saved:s.saved});
+  assert.equal(recovered.state().rows[1].details.pickup,"Independent pickup");
+  recovered.failAt(2);await recovered.api.submit();
+  assert.deepEqual(recovered.state().rows.map(r=>r.status),["saved","failed"]);
+  const first=recovered.state().rows[0],second=recovered.state().rows[1];
+  recovered.api.setOwnDetails(first.id,true);
+  recovered.api.updateDetail(first.id,"pickup","Must not change");
+  recovered.api.updateDetail(second.id,"dest","Corrected delivery");
+  recovered.failAt(0);await recovered.api.submit();
+  assert.equal(recovered.calls.length,3);
+  assert.equal(recovered.calls[2].ref,row.reference);
+  assert.equal(recovered.calls[2].booking.pickup,"Independent pickup");
+  assert.equal(recovered.calls[2].booking.destination,"Corrected delivery");
+  assert.match(recovered.calls[2].booking.notes,/Keep on retry/);
+  assert.equal(recovered.state().rows[0].details,undefined);
+});
+
+test("Shared default refresh updates inherited vehicles without overwriting independent drafts",()=>{
+  const s=setup();const row=s.state().rows[1];s.api.setOwnDetails(row.id,true);
+  s.fields.pickup.value="Refreshed shared pickup";s.api.refresh();
+  assert.equal(s.state().common.pickup,"Refreshed shared pickup");
+  assert.equal(s.state().rows[1].details.pickup,"Collection A");
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/Refreshed shared pickup/);
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/Collection A/);
+});
+
+// Isolated browser fixture: real form/controller/RPC mapping, with synthetic data and a fake Supabase boundary.
+// No authentication client or network-writing code is loaded. Output stays in the ignored generated-artifacts directory.
+if(process.argv.includes("--visual-fixture")) {
+  function part(start,end) {
+    const a=html.indexOf(start),b=html.indexOf(end,a);
+    assert.ok(a>=0&&b>a,start);
+    return html.slice(a,b);
+  }
+  const styles=[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join("\n")+
+    ["booking-form.css","bulk-booking.css"].map(f=>fs.readFileSync(path.join(__dirname,"../public",f),"utf8")).join("\n");
+  const out=path.resolve(__dirname,"../../../generated-artifacts/bulk-details");
+  fs.mkdirSync(out,{recursive:true});
+  const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bulk details isolated test</title><style>${styles}
+    body{padding:16px}#content{max-width:1100px;margin:auto}.fixture-note{padding:12px;background:#fff4db;margin-bottom:16px}
+    </style></head><body><p class="fixture-note">Isolated browser test — synthetic data only; no real bookings or accounts.</p><main id="content"></main><script>
+    const role="admin",SUPABASE_CONFIGURED=true,currentSession={user:{id:"fixture-admin"}},currentUser={name:"Synthetic Admin"};
+    const fixtureStore={bookings:[],businesses:[{id:"business-1",name:"Synthetic Motors",status:"Active"},{id:"business-2",name:"Second Motors",status:"Active"}]};
+    const getStore=()=>fixtureStore,hasPermission=()=>true,loadNormalizedPortalData=async()=>{},crmConfirm=async()=>confirm("Discard unsaved rows?");
+    const escapeHtml=v=>String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+    window.testCalls=JSON.parse(sessionStorage.getItem("fixture-calls")||"[]");window.failRegistration=null;
+    const saved=JSON.parse(sessionStorage.getItem("fixture-records")||"{}");
+    const sb={
+      from:()=>({select:()=>({eq:(field,ref)=>({maybeSingle:async()=>({data:saved[ref]||null})})})}),
+      rpc:async(name,payload)=>{
+        window.testCalls.push({name,payload});sessionStorage.setItem("fixture-calls",JSON.stringify(window.testCalls));
+        if(payload.p_vehicle_registration===window.failRegistration)return {error:{message:"Synthetic failure"}};
+        const record={id:crypto.randomUUID(),reference:payload.p_reference,vehicle_registration:payload.p_vehicle_registration,created_by:"fixture-admin"};
+        saved[record.reference]=record;sessionStorage.setItem("fixture-records",JSON.stringify(saved));
+        return {data:record};
+      }
+    };
+    function loadBookingBusinesses(){}
+    function showBusinessTariff(){}
+    function createBooking(){return BulkBooking.submit();}
+    ${part("function selectedBookingBusiness(","async function loadBookingBusinesses(")}
+    ${part("function drawBooking(","async function createLinkedBooking(")}
+    ${part("async function createLinkedBooking(","function showBusinessTariff(")}
+    ${part("function enhancePortalUsability(","function openBookingFromRow(")}
+    ${ui}
+    ${source}
+    drawBooking(document.getElementById("content"));
+    if(!sessionStorage.getItem("fixture-started")){
+      for(const [id,value] of Object.entries({biz:"business-1",pickup:"Shared Collection",dest:"Shared Delivery",service:"Vehicle Delivery",miles:"40",amount:"100",bdate:"2026-11-01",ddate:"2026-11-02",receiver:"Shared Receiver",mobile:"07000000000",dropoff:"18:00",notes:"Shared instructions"}))document.getElementById(id).value=value;
+      BulkBooking.setMode("bulk");sessionStorage.setItem("fixture-started","1");
+    }
+    enhancePortalUsability();
+    </script></body></html>`;
+  fs.writeFileSync(path.join(out,"index.html"),fixture);
+  console.log("Browser fixture: "+path.join(out,"index.html"));
+}
