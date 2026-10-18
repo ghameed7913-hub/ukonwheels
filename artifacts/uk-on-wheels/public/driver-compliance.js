@@ -35,6 +35,8 @@ window.DriverCompliance = (() => {
     currentSession = null; currentUser = null; currentStaffUser = null;
     STORE_CACHE = null; storeReady = false;
     window.BulkBooking?.clearSession();
+    window.DriverIdentityUI?.reset();
+    window.DriverIdentityAPI?.reset();
     showAuthView("signin", text, "error");
     const app = document.getElementById("app");
     if (app) app.innerHTML = "";

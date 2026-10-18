@@ -12,6 +12,9 @@
 <link rel="stylesheet" href="./driver-incidents.css">
 <link rel="stylesheet" href="./bulk-booking.css">
 <link rel="stylesheet" href="./booking-form.css">
+<link rel="stylesheet" href="./driver-identity.css">
+<script src="./driver-identity-api.js"></script>
+<script src="./driver-identity-ui.js"></script>
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
@@ -1316,6 +1319,8 @@ function migrateClientData(){
 
 function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
+  window.DriverIdentityUI?.reset();
+  window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
   window.BulkBooking?.clearSession();
   driverSelectedJobRef=null;
@@ -1387,6 +1392,8 @@ async function logoutNow(){
   if(!saved&&!await crmConfirm("Your latest portal changes have not been saved. Signing out now will discard those unsaved changes.","Unsaved changes","Sign out anyway",true))return;
  }
  window.DriverCompliance?.stop();
+ window.DriverIdentityUI?.reset();
+ window.DriverIdentityAPI?.reset();
  if(sb){
   await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
  }
@@ -1710,6 +1717,7 @@ function nav(){
   ]},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",items:[
     {key:"hrRegister",label:"Employee Registration"},
+    {key:"driverCompanyIDs",label:"Driver Company IDs"},
     {key:"hrHolidays",label:"Holidays"},
     {key:"hrPayslips",label:"Payslips"},
     {key:"hrNonResidents",label:"Non-Resident Records"},
@@ -1755,6 +1763,7 @@ function nav(){
   {key:"reports",label:"Reports & Invoices",icon:"chart",cat:"reports"},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",cat:"hr",items:[
     {key:"hrRegister",label:"Employee Registration"},
+    {key:"driverCompanyIDs",label:"Driver Company IDs"},
     {key:"hrHolidays",label:"Holidays"},
     {key:"hrPayslips",label:"Payslips"},
     {key:"hrNonResidents",label:"Non-Resident Records"},
@@ -1786,7 +1795,7 @@ function renderNav(){
  return nav().map(entry=>{
   if(entry.items){
    const open=navGroupIsOpen(entry);
-   return `<div class="navGroup${open?" open":""}">
+   return `<div class="navGroup${open?" open":""}" data-nav-group="${entry.group}">
     <button class="navParent${page===entry.key?" active":""}" onclick="go('${entry.key}')">
      <span class="navIco">${ICONS[entry.icon]||""}</span>
      <span class="navLabel">${entry.label}</span>
@@ -1959,7 +1968,7 @@ function go(p){
    page=p;render();return;
  }
  const permissionMap={desktop:"desktop",booking:"booking",businesses:"businesses",assign:"assign",status:"status",statusPage:"status",singleUpdate:"status",approvals:"status",miles:"miles",amount:"amount",destination:"destination",accounts:"accounts",expenses:"accounts",invoices:"reports",payments:"accounts",pendingPayments:"accounts",accountReports:"reports",pnl:"accounts",reports:"reports",hr:"hr",hrRegister:"hr",hrHolidays:"hr",hrPayslips:"hr",hrNonResidents:"hr",hrShareCodes:"hr",hrDvla:"hr",messageCentre:"notifications",notifications:"notifications",settings:"settings",users:"users",createUsers:"users",assignRoles:"users",driver:"driver"};
- const required=permissionMap[p];
+ const required=p==="driverCompanyIDs"?"hr":permissionMap[p];
  if(required && !hasPermission(required)){alert("Access denied. This section is restricted for your user role.");return}
  page=p;render();
 }
@@ -2032,6 +2041,12 @@ function draw(){
  if(page==="accountReports")return drawAccountReports(c);
  if(page==="pnl")return drawProfitLoss(c);
  if(page==="hr")return drawHR(c);
+ if(page==="driverCompanyIDs"){
+   if(!["admin","staff"].includes(role)||!hasPermission("hr")){
+     c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;
+   }
+   return DriverIdentityUI.drawAdmin(c);
+ }
  if(page==="hrRegister")return drawEmployeeRegistration(c);
  if(page==="hrHolidays")return drawHRHolidays(c);
  if(page==="hrPayslips")return drawHRPayslips(c);
@@ -4001,6 +4016,7 @@ function drawHR(c){
  c.innerHTML=`<div class="panel"><h2>HR</h2><p class="muted">Employee records, holidays, payslips, right-to-work, share codes and DVLA compliance.</p></div>
  <div class="cards" style="margin-top:12px">
   <div class="card" style="cursor:pointer" onclick="page='hrRegister';render()"><b>Employee Registration</b><strong>+</strong><small>Private employee records, screening and vetting</small></div>
+  <button class="card" onclick="go('driverCompanyIDs')"><b>Driver Company IDs</b><strong>ID</strong><small>Review portraits, issue and revoke company IDs</small></button>
   <div class="card" style="cursor:pointer" onclick="page='hrHolidays';render()"><b>Holidays</b><strong>${pending}</strong><small>Pending requests</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrPayslips';render()"><b>Payslips</b><strong>${s.payslips.length}</strong><small>Generated</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrNonResidents';render()"><b>Non-Resident Records</b><strong>${nonResidents}</strong><small>Non-British staff</small></div>
@@ -5763,7 +5779,7 @@ function driverMobileNav(){
   <button class="${driverMobileTab==="incidents"?"active":""}" onclick="setDriverMobileTab('incidents')"><span>${ico("clipboard")}</span>Incidents</button>
   <button class="${driverMobileTab==="holidays"?"active":""}" onclick="setDriverMobileTab('holidays')"><span>${ico("calendar")}</span>Holidays</button>
   <button class="${driverMobileTab==="history"?"active":""}" onclick="setDriverMobileTab('history')"><span>${ico("receipt")}</span>History</button>
-  <button class="${driverMobileTab==="profile"?"active":""}" onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
+  <button class="${["profile","companyId"].includes(driverMobileTab)?"active":""}" onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
  </div>`;
 }
 function driverMobileJobCard(b){
@@ -5839,21 +5855,24 @@ function drawDriverProfileMobile(){
   <p><b>Email:</b> ${escapeHtml(u.email||"—")}</p>
   <p><b>Phone number:</b> ${escapeHtml(u.phone||"—")}</p>
   <div class="actions"><button class="btn secondary" onclick="logoutNow()">Logout</button></div>
- </div>`;
+ </div>${globalThis.DriverIdentityUI?.renderProfile()||""}`;
 }
 function drawDriver(c){
  IncidentUI.captureForm();
  document.body.classList.add("driver-mode");
  const rows=driverAssignedRows(),counts=driverStatusCounts(rows),name=currentUser?.name||currentStaffUser?.name||"Driver";
- const showingJob=driverMobileTab==="jobs"&&rows.some(b=>b.ref===driverSelectedJobRef&&b.status!=="Delivered");
+ const identityReady=globalThis.DriverIdentityUI?.ready()===true;
+ const activeTab=identityReady?driverMobileTab:"profile";
+ const showingJob=activeTab==="jobs"&&rows.some(b=>b.ref===driverSelectedJobRef&&b.status!=="Delivered");
  let body="";
- if(driverMobileTab==="jobs")body=drawDriverJobsMobile();
- else if(driverMobileTab==="incidents")body=IncidentUI.renderDriver();
- else if(driverMobileTab==="holidays")body=drawDriverHolidaysMobile();
- else if(driverMobileTab==="history")body=drawDriverHistoryMobile();
+ if(activeTab==="jobs")body=drawDriverJobsMobile();
+ else if(activeTab==="incidents")body=IncidentUI.renderDriver();
+ else if(activeTab==="holidays")body=drawDriverHolidaysMobile();
+ else if(activeTab==="history")body=drawDriverHistoryMobile();
+ else if(activeTab==="companyId")body=DriverIdentityUI.renderCard();
  else body=drawDriverProfileMobile();
 
- c.innerHTML=`<div class="driverApp">
+ c.innerHTML=`<div class="driverApp${activeTab==="companyId"?" driverCompanyIDView":""}">
    <div class="driverHeader ${showingJob?"driverHeaderCompact":""}">
     <button class="driverProfileShortcut" title="Open profile" onclick="setDriverMobileTab('profile')">${ICONS.user}</button>
    <small>UK ON WHEELS DRIVER</small>
@@ -5867,7 +5886,8 @@ function drawDriver(c){
   <div class="driverBody"><div id="driverDocumentAlerts">${window.DriverCompliance?.notices()||""}</div>${body}</div>
   ${driverMobileNav()}
  </div>`;
- if(driverMobileTab==="incidents")IncidentUI.mountDriver();
+ if(activeTab==="incidents")IncidentUI.mountDriver();
+ globalThis.DriverIdentityUI?.mountDriver();
 }
 function driverCard(b){
  return `<div class="panel"><div><span class="badge">${b.status}</span></div><h2>${b.ref} — ${b.vehicle}</h2><p><b>${b.pickup}</b> → <b>${b.destination}</b></p>
