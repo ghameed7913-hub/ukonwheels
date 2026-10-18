@@ -113,7 +113,6 @@ export async function buildTemplate(context={}) {
   workbook.creator="UK On Wheels";workbook.title="Bulk vehicle booking template";
   const sheet=workbook.addWorksheet("Bookings",{views:[{state:"frozen",ySplit:1}]});
   sheet.columns=columns.map(([key,header,width])=>({key,header,width,style:{numFmt:"@"}}));
-  sheet.autoFilter={from:"A1",to:"R1"};
   const header=sheet.getRow(1);header.height=36;
   header.eachCell(cell=>{
     cell.font={bold:true,color:{argb:"FFFFFFFF"}};
@@ -132,8 +131,6 @@ export async function buildTemplate(context={}) {
       cell.numFmt="@";cell.alignment={vertical:"top",wrapText:true};
       if (row%2===0) cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF4F7FB"}};
     }
-    sheet.getCell(row,1).dataValidation={type:"list",allowBlank:true,formulae:['"Business,Private"'],showErrorMessage:true,error:"Choose Business or Private."};
-    sheet.getCell(row,10).dataValidation={type:"list",allowBlank:true,formulae:['"Vehicle Delivery,Vehicle Collection & Delivery,Recovery / AA"'],showErrorMessage:true,error:"Choose a listed service."};
     for (const col of [11,17]) {
       sheet.getCell(row,col).numFmt="0.00";
       sheet.getCell(row,col).dataValidation={type:"decimal",operator:"greaterThanOrEqual",formulae:[0],allowBlank:true,showErrorMessage:true,error:"Enter zero or a positive number."};
@@ -141,10 +138,10 @@ export async function buildTemplate(context={}) {
   }
   const guide=workbook.addWorksheet("Instructions");
   guide.columns=[{header:"Field",key:"field",width:32},{header:"How to complete",key:"help",width:110}];
-  guide.addRow({field:"How to book",help:"Fill the Bookings sheet, one vehicle per row. Keep all column headings. Upload the .xlsx file in Create Booking → Bulk vehicles (Excel), review every row, then save."});
+  guide.addRow({field:"How to book",help:"Type directly into the Bookings sheet, one vehicle per row. There are no dropdowns or filter arrows. Keep all column headings. Upload the .xlsx file in Create Booking → Bulk vehicles (Excel), review every row, then save."});
   guide.addRow({field:"Limit",help:"Up to 100 vehicles and 5 MB per file. Blank rows are skipped. Do not use formulas; paste values."});
   guide.addRow({field:"Required for every vehicle",help:"Vehicle make and model, Registration number, Collection address, Delivery address, Person receiving vehicle, Receiver mobile number."});
-  guide.addRow({field:"Client account",help:context.client?"Bookings are linked to your signed-in account only: "+(context.name||"Client")+". Leave customer/account columns and Customer charge blank. You cannot book for another customer or set charges.":"For Business customers, choose an active saved business. For Private customers, give the name and active Client portal email."});
+  guide.addRow({field:"Client account",help:context.client?"Bookings are linked to your signed-in account only: "+(context.name||"Client")+". Leave customer/account columns and Customer charge blank. You cannot book for another customer or set charges.":"Type Business or Private in Customer type. For Business customers, copy an active saved business name or ID from the Businesses sheet. For Private customers, give the name and active Client portal email."});
   guide.addRow({field:"Review and save",help:"Uploading does not create bookings. Fix highlighted errors before saving. Each vehicle gets a separate reference and New Booked Vehicle status. If some fail, retry the remaining rows; saved references are kept."});
   for (const [,label,,help] of columns) guide.addRow({field:label,help});
   guide.eachRow((row,index)=>{row.alignment={vertical:"top",wrapText:true};row.height=index===1?25:42;});

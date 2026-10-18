@@ -40,6 +40,25 @@ test("A real .xlsx upload reads every field, Excel dates/time fractions, phones 
   assert.equal(records[1].values.notes,"");
   assert.deepEqual(records[1].errors,{});
 });
+test("Excel template has no dropdown selections or filter arrows and typed booking rows still upload",async()=>{
+  const {buildTemplate,readFile,columns}=await library;
+  for (const context of [{businesses:[{name:"Synthetic Motors",id:"business-1"}]},{client:true,name:"Own Client"}]) {
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await buildTemplate(context));
+    for (const sheet of book.worksheets) {
+      assert.ok(!sheet.autoFilter,"No filter dropdown arrows on "+sheet.name);
+      sheet.eachRow(row=>row.eachCell(cell=>assert.notEqual(cell.dataValidation?.type,"list","No list dropdown at "+cell.address)));
+    }
+    const sheet=book.getWorksheet("Bookings");
+    assert.match(book.getWorksheet("Instructions").getCell("B2").value,/no dropdowns or filter arrows/);
+    columns.forEach(([key],i)=>{sheet.getCell(2,i+1).value=sample[key]??"";});
+    const rows=await readFile(file(await book.xlsx.writeBuffer()));
+    assert.equal(rows.length,1);
+    assert.equal(rows[0].values.customerType,"Business");
+    assert.equal(rows[0].values.service,"Vehicle Delivery");
+    assert.equal(rows[0].values.mobile,"07123456789");
+    assert.deepEqual(rows[0].errors,{});
+  }
+});
 test("Blank rows are skipped and more than 100 vehicles are rejected without dropping any extra rows",async()=>{
   const {recordsFromSheet}=await library;
   const {sheet}=await workbook([sample,{},sample]);
