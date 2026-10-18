@@ -1,6 +1,6 @@
 /* Existing Supabase storage; portrait bytes never enter the shared JSON store. */
 window.DriverIdentityAPI = (() => {
-  const versions = new Map(), pending = new WeakMap();
+  const versions = new Map(), pending = new WeakMap(), idUploads = new WeakMap();
   let owner = null;
   function actor() {
     if (!SUPABASE_CONFIGURED || !currentSession?.user?.id) throw Error("Sign in to use company IDs.");
@@ -14,6 +14,8 @@ window.DriverIdentityAPI = (() => {
   function check(result) {
     if (!result.error) return result.data;
     const e = result.error;
+    if (e.code==="PGRST202" && /register_driver_company_id_file/i.test(e.message||""))
+      throw Error("Digital ID upload needs setup. Ask Admin to run supabase/driver-digital-id-upload.sql.");
     if (e.code==="PGRST202" && /register_hr_driver_portrait/i.test(e.message||""))
       throw Error("HR photo upload needs setup. Ask Admin to run supabase/hr-driver-photo-upload.sql.");
     if (["42P01","42883","PGRST202","PGRST205"].includes(e.code) || /bucket not found/i.test(e.message || ""))
@@ -31,8 +33,16 @@ window.DriverIdentityAPI = (() => {
     }
     value = {...value, card:value.card ? {...value.card} : null};
     value.photo_url = await url(value.photo_path);
-    if (value.card) value.card.photo_url = value.card.photo_path === value.photo_path ?
-      value.photo_url : await url(value.card.photo_path);
+    if (value.card) {
+      value.card.photo_url = value.card.photo_path === value.photo_path ? value.photo_url : await url(value.card.photo_path);
+      if(value.card.document) {
+        value.card.document={...value.card.document,url:null};
+        if(value.card.state==="active"||id!==String(value.user_id)) {
+          const data=digitalCheck(await sb.storage.from("driver-company-ids").createSignedUrl(value.card.document.path,120));
+          same(id);value.card.document.url=data.signedUrl;
+        }
+      }
+    }
     same(id);
     versions.set(value.user_id,value.version);
     return value;
@@ -86,6 +96,21 @@ window.DriverIdentityAPI = (() => {
     return hr?rpc("register_hr_driver_portrait",{p_user_id:target,p_path:upload.path,p_expected_version:expected})
       :rpc("register_driver_portrait",{p_path:upload.path});
   }
+  function digitalCheck(result) {
+    if(result.error && /bucket not found/i.test(result.error.message||""))
+      throw Error("Digital ID upload needs setup. Ask Admin to run supabase/driver-digital-id-upload.sql.");
+    return check(result);
+  }
+  async function digitalFile(file) {
+    const types={"image/jpeg":"jpg","image/png":"png","image/webp":"webp","application/pdf":"pdf"};
+    const ext=types[file?.type];
+    if(!ext||!file.size||file.size>10485760)throw Error("Choose a company ID JPEG, PNG, WebP or PDF up to 10 MB.");
+    const bytes=new Uint8Array(await file.slice(0,12).arrayBuffer()), text=String.fromCharCode(...bytes);
+    const valid=ext==="pdf"?text.startsWith("%PDF-"):ext==="jpg"?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:
+      ext==="png"?bytes[0]===137&&text.slice(1,4)==="PNG":text.startsWith("RIFF")&&text.slice(8,12)==="WEBP";
+    if(!valid)throw Error("The company ID file contents do not match its image/PDF type.");
+    return ext;
+  }
   return {
     own() { return rpc("own_driver_identity"); },
     async list() {
@@ -100,6 +125,21 @@ window.DriverIdentityAPI = (() => {
       return uploadPortrait(file,actor(),false);
     },
     uploadHRPhoto(userId,file) { return uploadPortrait(file,userId,true); },
+    async uploadDigitalID(userId,file,validUntil) {
+      const id=actor(), expected=version(userId), ext=await digitalFile(file);same(id);
+      let upload=idUploads.get(file);
+      if(!upload||upload.actor!==id||upload.target!==userId) {
+        upload={actor:id,target:userId,path:userId+"/"+crypto.randomUUID()+"."+ext,uploaded:false};
+        idUploads.set(file,upload);
+      }
+      if(!upload.uploaded) {
+        digitalCheck(await sb.storage.from("driver-company-ids").upload(upload.path,file,{contentType:file.type,upsert:false}));
+        upload.uploaded=true;
+      }
+      same(id);
+      return rpc("register_driver_company_id_file",{p_user_id:userId,p_path:upload.path,p_name:(file.name||"Company ID."+ext).slice(0,200),
+        p_mime:file.type,p_valid_until:validUntil||null,p_expected_version:expected});
+    },
     issue(userId,validUntil) {
       const id = actor(); same(id);
       return rpc("issue_driver_company_id",{p_user_id:userId,p_valid_until:validUntil||null,p_expected_version:version(userId)});
