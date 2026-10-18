@@ -29,6 +29,7 @@
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
 <script src="./invoice-vehicles.js"></script>
+<script src="./pickup-checklist.js"></script>
   <script src="./hr-screening-api.js"></script>
   <script src="./driver-compliance.js"></script>
   <script src="./hr-registration.js"></script>
@@ -1308,7 +1309,7 @@ async function loadNormalizedPortalData(){
   }
   if(!ir.error)(ir.data||[]).forEach(inspection=>{
    const booking=normalizedBookings.find(x=>x._normalizedId===inspection.booking_id);if(!booking)return;
-   booking.pickupInspection={condition:inspection.condition,mileage:Number(inspection.odometer_mileage),fuelLevel:inspection.fuel_level,notes:inspection.notes,completedAt:inspection.inspected_at,driver:pm[inspection.inspected_by]?.full_name||pm[inspection.inspected_by]?.name||"Driver"};
+   booking.pickupInspection={condition:inspection.condition,mileage:Number(inspection.odometer_mileage),fuelLevel:inspection.fuel_level,notes:inspection.notes,checklist:inspection.checklist||null,completedAt:inspection.inspected_at,driver:pm[inspection.inspected_by]?.full_name||pm[inspection.inspected_by]?.name||"Driver"};
   });
    const s=getStore(),previous=Object.fromEntries((s.bookings||[]).map(x=>[x.ref,x])),legacy=(s.bookings||[]).filter(x=>!x._normalizedId&&!normalizedBookings.some(n=>n.ref===x.ref));
   const mergePhotos=(oldPhotos,newPhotos)=>Object.keys(newPhotos||{}).length?
@@ -2153,6 +2154,12 @@ async function showEvidence(ref,stage="pickup"){
     const collection=e.evidence_type==="delivery"?"deliveryPhotos":"pickupPhotos";
     b[collection][e.id]={image:signed.data?.[i]?.signedUrl||"",storagePath:e.storage_path,label:e.label,timestamp:e.captured_at,latitude:e.latitude,longitude:e.longitude,accuracy:e.accuracy_metres};
    });
+   const inspection=await sb.from("booking_inspections").select("*").eq("booking_id",b._normalizedId).maybeSingle();
+   if(inspection.error)error="Photos loaded, but the inspection checklist could not be refreshed: "+inspection.error.message;
+   else if(inspection.data){
+    const r=inspection.data;
+    b.pickupInspection={condition:r.condition,mileage:Number(r.odometer_mileage),fuelLevel:r.fuel_level,notes:r.notes,checklist:r.checklist||null,completedAt:r.inspected_at,driver:b.driver};
+   }
    b._evidenceLoadError=null;
   }catch(e){error=e.message||"Evidence could not be loaded";b._evidenceLoadError=error;console.error("Booking evidence load failed:",e)}
  }
@@ -5020,12 +5027,13 @@ function evidenceSection(b){
     ${b._normalizedId?`<p class="muted">Uploaded photos are saved against this booking, including after delivery or sign-out. Viewing links are renewed when needed. Use Refresh pictures to check for new uploads.</p>`:""}
     <h4>Pickup Inspection Report</h4>
     <div class="form">
-     <div><b>Vehicle Condition</b><p>${inspection.condition||"Not completed"}</p></div>
-     <div><b>Odometer Mileage</b><p>${inspection.mileage??"—"}</p></div>
-     <div><b>Fuel / Charge Level</b><p>${inspection.fuelLevel||"—"}</p></div>
-     <div><b>Inspected By</b><p>${inspection.driver||b.driver||"—"}</p></div>
-     <div class="full"><b>Inspection Notes</b><p>${inspection.notes||"No inspection report available yet."}</p></div>
+     <div><b>Vehicle Condition</b><p>${escapeHtml(inspection.condition||"Not completed")}</p></div>
+     <div><b>Odometer Mileage</b><p>${escapeHtml(inspection.mileage??"—")}</p></div>
+     <div><b>Fuel / Charge Level</b><p>${escapeHtml(inspection.fuelLevel||"—")}</p></div>
+     <div><b>Inspected By</b><p>${escapeHtml(inspection.driver||b.driver||"—")}</p></div>
+     <div class="full"><b>Inspection Notes</b><p>${escapeHtml(inspection.notes||"No inspection report available yet.")}</p></div>
     </div>
+    ${window.PickupChecklist?.renderSummary(inspection.checklist)||""}
     <h4 data-evidence-section="pickup">Pickup Pictures (${pickup.length})</h4>
     <div class="evidenceGrid">${pickup.length?pickup.map(p=>img(p,"Pickup Photo")).join(""):`<p class='muted'>${b._evidenceLoadError?"Pickup records could not be checked. Refresh pictures to retry.":b._normalizedId?"No saved pickup photo records were returned for this booking.":"No pickup pictures are available in this older booking record."}</p>`}</div>
     <h4 style="margin-top:18px" data-evidence-section="delivery">Delivery Pictures (${delivery.length})</h4>
@@ -5900,9 +5908,10 @@ function drawReports(c){
 let driverMobileTab="jobs";
 let driverSelectedJobRef=null;
 const driverFormDrafts={};
+const pickupChecklistSaves=new Set();
 function driverPhotoIsSaving(){
- if(document.querySelector("#driverActiveJob .camActions .primary:disabled")){
-  alert("Please wait for the photo to finish saving before changing jobs.");
+ if(pickupChecklistSaves.size||document.querySelector("#driverActiveJob .camActions .primary:disabled")){
+  alert("Please wait for the pickup evidence to finish saving before changing jobs.");
   return true;
  }
  return false;
@@ -5913,7 +5922,7 @@ function saveDriverFormDraft(){
  if(!card)return;
  const draft={};
  card.querySelectorAll("input[id],select[id],textarea[id]").forEach(el=>{
-  draft[el.id]=el.type==="checkbox"?el.checked:el.value;
+  draft[el.id]=["checkbox","radio"].includes(el.type)?el.checked:el.value;
  });
  driverFormDrafts[driverSelectedJobRef]=draft;
 }
@@ -5921,8 +5930,9 @@ function restoreDriverFormDraft(){
  const draft=driverFormDrafts[driverSelectedJobRef]||{};
  for(const [id,value] of Object.entries(draft)){
   const el=document.getElementById(id);
-  if(el){if(el.type==="checkbox")el.checked=value;else el.value=value}
+  if(el){if(["checkbox","radio"].includes(el.type))el.checked=value;else el.value=value}
  }
+ if(driverSelectedJobRef)window.PickupChecklist?.updateConditional(driverSelectedJobRef);
 }
 function closeDriverCameras(){
  if(driverPhotoIsSaving())return false;
@@ -6089,6 +6099,7 @@ function drawDriver(c){
  </div>`;
  if(activeTab==="incidents")IncidentUI.mountDriver();
  if(activeTab==="payments")DriverPayments.mount();
+ if(activeTab==="jobs"&&showingJob)restoreDriverFormDraft();
  globalThis.DriverIdentityUI?.mountDriver();
 }
 function driverCard(b){
@@ -6097,31 +6108,15 @@ function driverCard(b){
  <h3>Journey Timeline</h3>${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")}</div>`;
 }
 function pickupSteps(b){
- const names=["Front","Rear","Left Side","Right Side","Interior Front","Interior Rear","Dashboard / Mileage","Existing Damage (optional)"];
- const stored=Object.values(b.pickupPhotos||{}).filter(x=>x.storagePath||(!b._normalizedId&&x.image));
- const required=names.slice(0,7).filter(label=>stored.some(x=>x.label===label)).length;
- const keysStored=stored.some(x=>x.label==="Keys");
  return `<div class="step"><h4>1. Ready to Pickup</h4><label><input type="checkbox" id="ready_${b.ref}"> Ready to Pickup</label></div>
- <div class="step"><h4>2. Live Vehicle Camera</h4>
- <p class="muted"><b>Camera only:</b> gallery/saved photo upload is disabled. Each photo is captured live and stamped with date, time and GPS location.</p>
- <details class="driverPhotoGroup" data-kind="vehicle" open ontoggle="if(!this.open&&!closeDriverCameras())this.open=true"><summary>Vehicle photos — <span class="photoCount">${required}/7 required stored</span></summary>
- <div class="vehiclePhotoGrid">${names.map((x,i)=>cameraSlot(b,i,x,i<2)).join("")}</div></details></div>
- <div class="step"><h4>3. Documents & Items — Live Camera</h4>
- <p class="muted">A live photo of the keys is required. Add the other items when provided.</p>
- <details class="driverPhotoGroup" data-kind="keys" ontoggle="if(!this.open&&!closeDriverCameras())this.open=true"><summary>Documents & keys — <span class="photoCount">${keysStored?"keys stored":"keys photo needed"}</span></summary>
- <div class="vehiclePhotoGrid">${["Logbook / V5C","Keys","Service History Book","Mats","Other Documents / Items"].map((x,i)=>cameraSlot(b,"d"+i,x,i===4)).join("")}</div></details></div>
-  <div class="step"><h4>4. Vehicle Inspection Report</h4><div class="form">
-   <select id="condition_${b.ref}"><option value="">Overall vehicle condition *</option><option>Good</option><option>Fair</option><option>Damage Present</option><option>Not Roadworthy</option></select>
-   <input id="mileage_${b.ref}" type="number" min="0" placeholder="Odometer mileage *">
-   <select id="fuel_${b.ref}"><option value="">Fuel / charge level *</option><option>Empty</option><option>Quarter</option><option>Half</option><option>Three Quarters</option><option>Full</option></select>
-   <textarea id="inspection_${b.ref}" class="full" placeholder="Existing damage, warning lights, missing items and inspection notes"></textarea>
-  </div></div>
+ ${window.PickupChecklist.render(b,cameraSlot)}
   <div class="step"><h4>5. Driver Declaration</h4><label><input type="checkbox" id="dec_${b.ref}"> I declare that I have received the vehicle with the listed documents/items and that the inspection and live photographs accurately record its condition. I accept responsibility for changes or damage after pickup.</label></div>
- <button class="btn primary" onclick="completePickup('${b.ref}')">Picked Up</button>`;
+ <p class="muted" id="pickupSaveStatus_${b.ref}" role="status">${b.pickupInspection?.checklist?"Pickup checklist saved. Review the evidence, confirm the declaration, then click Picked Up.":"Save pickup evidence first, then click Picked Up."}</p>
+ <div class="actions"><button type="button" class="btn secondary" onclick="savePickupEvidence('${b.ref}')">Save pickup evidence</button><button type="button" class="btn primary" onclick="completePickup('${b.ref}')">Picked Up</button></div>`;
 }
-function cameraSlot(b,id,label,wide=false){
+function cameraSlot(b,id,label,wide=false,required=false){
  const ref=b.ref,photo=Object.values(b.pickupPhotos||{}).filter(p=>p.label===label||p.label===String(id)).sort((a,z)=>new Date(z.timestamp||0)-new Date(a.timestamp||0))[0],image=photo?.image||"";
- return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}" ${id!=="7"&&id!==7&&(id==="d1"||!String(id).startsWith("d"))?'data-required="1"':""}>
+ return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}" ${required?'data-required="1"':""}>
    <button type="button" class="cameraAreaTab" onclick="${photo?"toggleStoredPhoto(this)":"startCamera('"+ref+"','"+id+"')"}"><span>${label}</span><span class="areaState">${photo?"✓ Stored · View":"Tap to photograph"}</span></button>
    <div class="cameraPreview">
    ${image?`<img class="storedPhoto" src="${image}" alt="${label} captured evidence">`:""}
@@ -6165,7 +6160,8 @@ function cameraSlot(b,id,label,wide=false){
   if(!group)return;
   const count=Array.from(group.querySelectorAll('.cameraBox[data-required="1"]')).filter(box=>box.querySelector(".captureMeta")?.dataset.captured==="1").length;
   const counter=group.querySelector(".photoCount");
-  if(counter)counter.textContent=group.dataset.kind==="keys"?(count?"keys stored":"keys photo needed"):`${count}/${group.dataset.kind==="vehicle"?7:6} ${group.dataset.kind==="vehicle"?"required stored":"stored"}`;
+  const total=group.querySelectorAll('.cameraBox[data-required="1"]').length;
+  if(counter)counter.textContent=group.dataset.kind==="keys"?(count?"keys stored":"keys photo needed"):`${count}/${total} ${group.dataset.kind==="vehicle"?"required stored":"stored"}`;
  }
  function toggleStoredPhoto(button){
   const box=button.closest(".cameraBox");
@@ -6186,6 +6182,7 @@ async function uploadBookingEvidence(b,canvas,evidenceType,label,latitude,longit
  return path;
 }
 async function startCamera(ref,id){
+ if(pickupChecklistSaves.size)return;
  try{
    const video=document.getElementById(`v_${ref}_${id}`);
    for(const key of Object.keys(cameraStreams)){
@@ -6210,6 +6207,7 @@ async function startCamera(ref,id){
  }
 }
 async function captureCamera(ref,id){
+ if(pickupChecklistSaves.size)return;
  const video=document.getElementById(`v_${ref}_${id}`);
  const canvas=document.getElementById(`c_${ref}_${id}`);
  if(!video.srcObject){alert("Open the live camera first.");return}
@@ -6287,44 +6285,57 @@ async function captureCamera(ref,id){
   button.disabled=false;
 }
 async function completePickup(ref){
+ return persistPickupChecklist(ref,true);
+}
+function pickupChecklistFingerprint(value){
+ return JSON.stringify(Object.keys(value||{}).sort().map(key=>[key,value[key]]));
+}
+async function savePickupEvidence(ref){return persistPickupChecklist(ref,false);}
+async function persistPickupChecklist(ref,complete){
  if(driverPhotoIsSaving())return;
- let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
- if(!document.getElementById("ready_"+ref).checked)return alert("Confirm Ready to Pickup.");
- for(let i=0;i<7;i++){
-   if(document.getElementById(`s_${ref}_${i}`).dataset.captured!=="1")
-     return alert("Please take all required vehicle photographs live with the camera.");
+ const b=getStore().bookings.find(x=>x.ref===ref),actor=currentSession?.user?.id;
+ const status=document.getElementById("pickupSaveStatus_"+ref);
+ const tell=message=>{if(status)status.textContent=message;alert(message)};
+ if(role!=="driver"||!actor||!SUPABASE_CONFIGURED||!b?._normalizedId)return tell("A linked booking and active Driver sign-in are required to save pickup evidence.");
+ if(b.status!=="Driver Assigned")return tell("Pickup can only be completed for a Driver Assigned booking. Refresh your jobs.");
+ let checklist;
+ try{
+  if(!document.getElementById("ready_"+ref)?.checked)throw new Error("Confirm Ready to Pickup.");
+  if(!document.getElementById("dec_"+ref)?.checked)throw new Error("Accept the driver declaration.");
+  checklist={...window.PickupChecklist.read(document,b),ready:true,declaration:true};
+  window.PickupChecklist.validate(checklist,Object.values(b.pickupPhotos||{}));
+  if(complete&&pickupChecklistFingerprint(b.pickupInspection?.checklist)!==pickupChecklistFingerprint(checklist))
+   throw new Error("Save pickup evidence before clicking Picked Up. If you changed the checklist, save it again.");
+ }catch(e){return tell(e.message)}
+ saveDriverFormDraft();
+ closeDriverCameras();
+ pickupChecklistSaves.add(ref);
+ const controls=Array.from(document.getElementById("driverActiveJob")?.querySelectorAll("input,select,textarea,button")||[]).map(el=>({el,disabled:el.disabled}));
+ controls.forEach(({el})=>el.disabled=true);
+ if(status)status.textContent=complete?"Confirming pickup…":"Saving pickup evidence…";
+ try{
+  const {data,error}=await sb.rpc("save_pickup_checklist",{p_booking_id:b._normalizedId,p_checklist:checklist,p_complete:complete});
+  if(error)throw error;
+  if(currentSession?.user?.id!==actor||role!=="driver")throw new Error("The sign-in changed. Refresh your jobs to check the saved pickup.");
+  if(data?.booking_id!==b._normalizedId||pickupChecklistFingerprint(data.checklist)!==pickupChecklistFingerprint(checklist))
+   throw new Error("The server did not confirm the saved pickup checklist. Refresh and check before retrying.");
+  b.pickupInspection={condition:data.condition,mileage:Number(data.odometer_mileage),fuelLevel:data.fuel_level,notes:data.notes||"",checklist:data.checklist,completedAt:data.inspected_at,driver:b.driver};
+  if(complete){
+   b.status="Picked Up";b.pickupCaptureMode="Live Camera + Timestamp + GPS";b.pickupCapturedAt=data.inspected_at;
+   b.timeline=b.timeline||[];b.timeline.unshift({title:"Picked Up",text:"Pickup checklist, live photos and declaration saved."});
+   delete driverFormDrafts[ref];
+  }
+  if(status)status.textContent=complete?"Pickup saved and marked Picked Up.":"Pickup evidence saved securely. You can now click Picked Up.";
+  if(complete)draw();
+ }catch(e){
+  const setup=["PGRST202","42883","42703"].includes(e.code)?" Ask Admin to run supabase/pickup-checklist.sql.":"";
+  tell("Pickup was not confirmed: "+(e.message||e)+setup+" Your form and already-uploaded pictures have been kept.");
+ }finally{
+  pickupChecklistSaves.delete(ref);
+  controls.forEach(({el,disabled})=>{if(el.isConnected)el.disabled=disabled});
  }
- if(document.getElementById(`s_${ref}_d1`).dataset.captured!=="1")
-   return alert("Please take a live photo of the vehicle keys.");
- if(!document.getElementById("dec_"+ref).checked)return alert("Accept the driver declaration.");
- const condition=document.getElementById("condition_"+ref)?.value;
- const mileage=document.getElementById("mileage_"+ref)?.value;
- const fuel=document.getElementById("fuel_"+ref)?.value;
- const inspectionNotes=document.getElementById("inspection_"+ref)?.value.trim();
- if(!condition||mileage===""||!fuel)return alert("Complete the vehicle condition, odometer mileage and fuel / charge level.");
- if(b._normalizedId&&SUPABASE_CONFIGURED){
-  const inspectionResult=await sb.rpc("save_pickup_inspection",{p_booking_id:b._normalizedId,p_condition:condition,p_odometer_mileage:Number(mileage),p_fuel_level:fuel,p_notes:inspectionNotes||null});
-  if(inspectionResult.error)return alert("The inspection report could not be saved: "+inspectionResult.error.message);
-  if(!await persistNormalizedStatus(b,"Picked Up","Pickup evidence and inspection completed"))return;
- }
-
- b.status="Picked Up";
- b.pickupCaptureMode="Live Camera + Timestamp + GPS";
- b.pickupCapturedAt=new Date().toISOString();
- b.pickupEvidence={
-   requiredPhotos:7,
-   keysCaptured:true,
-   declaration:true,
-   driver:b.driver,
-   bookingRef:b.ref
- };
-  b.pickupInspection={condition,mileage:Number(mileage),fuelLevel:fuel,notes:inspectionNotes||"No additional inspection notes",completedAt:new Date().toISOString(),driver:b.driver};
- b.timeline.unshift({title:"Picked Up",text:"Live camera pickup evidence, timestamp, GPS and declaration completed at "+new Date().toLocaleString()});
- s.notifications.unshift({title:"Picked Up",text:b.ref+" has been picked up by "+b.driver+" with live camera and GPS evidence."});
- delete driverFormDrafts[ref];
-  saveStore(s);
- draw();
- }function driverMapLink(b){return `<a class="btn secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.pickup||"")}&destination=${encodeURIComponent(b.destination||"")}">${ico("route")} Open Route Map</a>`}
+}
+function driverMapLink(b){return `<a class="btn secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.pickup||"")}&destination=${encodeURIComponent(b.destination||"")}">${ico("route")} Open Route Map</a>`}
  function onRouteSteps(b){return `<div class="step"><h4>Pickup Complete</h4><p class="muted">Open the route, start the journey, or report a status change.</p><div class="actions">${driverMapLink(b)}<button class="btn primary" onclick="startJourney('${b.ref}')">Start Journey — On Route</button><button class="btn warn" onclick="incident('${b.ref}','Delayed')">Report Delay</button><button class="btn danger" onclick="incident('${b.ref}','Accident')">Report Accident</button></div></div>`}
  async function startJourney(ref){let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,"On Route","Journey started"))return;b.status="On Route";b.timeline.unshift({title:"On Route",text:"Journey started at "+new Date().toLocaleString()});saveStore(s);queueCustomerStatusMessage(b,"onRoute");draw()}
 function journeySteps(b){
