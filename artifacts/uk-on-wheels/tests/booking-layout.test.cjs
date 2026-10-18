@@ -84,9 +84,11 @@ test("Private customer labels and inputs hide and show together without changing
   }
   assert.equal(fields.privateCustomerName.value,"Unchanged Client");
 });
-test("Client booking keeps account ownership and has no Admin-only mode selector",()=>{
+test("Client booking keeps account ownership and offers Excel bulk booking",()=>{
   const page=render("client");
-  assert.doesNotMatch(page,/id="bookingMode"/);
+  assert.match(page,/id="bookingMode"/);
+  assert.match(page,/Bulk vehicles \(Excel\)/);
+  assert.match(page,/id="bulkBookingPanel"/);
   assert.match(page,/id="biz" type="hidden"/);
   assert.match(page,/Synthetic Motors/);
 });

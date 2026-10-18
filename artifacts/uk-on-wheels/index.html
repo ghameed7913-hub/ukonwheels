@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="./bulk-booking.css">
 <link rel="stylesheet" href="./booking-form.css">
 <script type="module" src="./src/incident-pdf-entry.js"></script>
+<script type="module" src="./src/booking-excel-entry.js"></script>
 <script src="./incident-api.js"></script>
 <script src="./driver-incidents.js"></script>
 <script src="./bulk-booking-ui.js"></script>
@@ -4694,8 +4695,8 @@ async function loadBookingBusinesses(){
 function drawBooking(c){
  const s=getStore();
  c.innerHTML=`<div class="panel booking-form"><h3>Create Booking</h3>
- ${role==="admin"||role==="staff"?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles</option></select></label>`:""}
- <p id="bulkSharedNotice" class="muted" hidden>Details below are shared defaults. Each vehicle has the same fields as a single booking: tick <b>Set separate details for this vehicle</b> to edit its customer and journey independently. Miles and customer charge are <b>per vehicle, not batch totals</b>.</p>
+ ${role==="admin"||role==="staff"||role==="client"?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles (Excel)</option></select></label>`:""}
+ <p id="bulkSharedNotice" class="muted" hidden>Download the Excel template, enter one vehicle per row, upload and review, then save. Each vehicle receives its own booking reference and appears as a New Booked Vehicle.</p>
  <fieldset id="bookingSharedFields" class="form booking-fields">
   <legend class="booking-sr-only">Customer, vehicle and journey details</legend>
   ${role==="client"
@@ -4725,7 +4726,7 @@ function drawBooking(c){
   <label class="booking-field full" for="notes"><span>Special instructions</span><textarea id="notes" placeholder="Collection, delivery or vehicle instructions"></textarea></label>
  </fieldset>
  <div id="tariffInfo" class="full muted"></div>
- ${role==="admin"||role==="staff"?'<div id="bulkBookingPanel" hidden></div>':""}
+ ${role==="admin"||role==="staff"||role==="client"?'<div id="bulkBookingPanel" hidden></div>':""}
  <div class="actions"><button class="btn primary" onclick="createBooking()">Create Booking</button></div></div>`;
  toggleCustomerTypeFields();
  window.BulkBooking?.mount();
