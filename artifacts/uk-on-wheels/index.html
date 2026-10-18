@@ -9,6 +9,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" href="./uk-on-wheels-logo.jpg">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="./driver-incidents.css">
+<script src="./incident-api.js"></script>
+<script src="./driver-incidents.js"></script>
 <style>
 :root{--navy:#071a31;--navy2:#0d2547;--blue:#2f6fe0;--brand-red:#e2131f;--brand-red-dark:#b30f19;--bg:#f4f7fb;--line:#e2e8f0;--text:#132238;--muted:#718096;--green:#159a62;--amber:#d99516;--red:#d9363e;--purple:#7457d6}
 *{box-sizing:border-box}body{margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
@@ -95,7 +98,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .invoiceTotals{margin-left:auto;width:min(420px,100%);margin-top:18px}.invoiceTotals table td{padding:7px}.invoiceTerms{margin-top:22px;padding:15px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;line-height:1.5}
 .invoiceBank{margin-top:18px;padding:15px;background:#f3f7fc;border-radius:10px;border:1px solid var(--line)}
 @media print{
- body{background:#fff}.sidebar,.top,.noPrint{display:none!important}.main{margin:0!important;width:100%!important}.content{padding:0!important}.invoiceSheet{border:0;box-shadow:none;max-width:none}
+ body{background:#fff}.sidebar,.top,.topbar,.noPrint,#sharedSaveNotice{display:none!important}.main{margin:0!important;width:100%!important}.content{padding:0!important}.invoiceSheet{border:0;box-shadow:none;max-width:none}
 }
 
 /* Client and Driver phone experience */
@@ -1054,6 +1057,7 @@ document.addEventListener("DOMContentLoaded",()=>{
        sample("PREVIEW-103","On Route","Volkswagen Golf","LM56 NOP","Birmingham","Bristol")
       ];
       driverSelectedJobRef=previewParams.get("ui-job")||null;
+      driverMobileTab=previewParams.get("ui-tab")==="incidents"?"incidents":"jobs";
      }
     page=role==="driver"?"driver":(previewParams.get("ui-page")||"desktop");
    showAuthenticatedPortal();
@@ -1078,7 +1082,15 @@ const KEY="ukow_connected_v1";
 let role="admin", currentUser=null, currentStaffUser=null, page="desktop";
 let STORE_CACHE=null, storeReady=false, currentSession=null;
 let normalizedVisibleIds=new Set();
-let normalizedBookings=[],portalProfiles=[],portalClientProfiles=[],normalizedChannel=null;
+let normalizedBookings=[],portalProfiles=[],portalClientProfiles=[],normalizedChannel=null,sharedStoreChannel=null;
+let sharedSavePending=null,sharedSaveInFlight=null,sharedSaveError="",sharedReadError="";
+function refreshPortalSafely(){
+ const appEl=document.getElementById("app"),content=document.getElementById("content");
+ if(!appEl||appEl.classList.contains("hidden")||!content)return;
+ // Keep inputs, dialogs and active Driver cameras mounted during background updates.
+ if(content.querySelector("input,select,textarea,video")||document.querySelector(".crmModalBackdrop,#evidenceOverlay"))return;
+ draw();
+}
 
 // One shared row (id='main') in the app_store table holds all booking/business/driver
 // data as JSON. getStore()/saveStore() below read/write this in-memory cache, which is
@@ -1097,19 +1109,24 @@ async function initStoreFromSupabase(){
      STORE_CACHE=data.data;
    }
    storeReady=true;
-   sb.channel("app_store_changes")
-     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_store",filter:"id=eq.main"},payload=>{
+   if(sharedStoreChannel)await sb.removeChannel(sharedStoreChannel);
+   sharedStoreChannel=sb.channel("app_store_changes")
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_store",filter:"id=eq.main"},async payload=>{
+       if(sharedSavePending||sharedSaveInFlight)return;
        const incoming=payload.new.data;
        const current=Object.fromEntries((STORE_CACHE?.bookings||[]).filter(b=>b._normalizedId).map(b=>[b.ref,b]));
+        const assignmentChanged=(incoming.bookings||[]).some(b=>current[b.ref]&&b._driverId!==current[b.ref]._driverId);
        incoming.bookings=(incoming.bookings||[]).map(b=>current[b.ref]?{...b,...current[b.ref]}:b);
        for(const [ref,b] of Object.entries(current))if(!incoming.bookings.some(x=>x.ref===ref))incoming.bookings.push(b);
        STORE_CACHE=incoming;
-       if(document.getElementById("app") && !document.getElementById("app").classList.contains("hidden"))draw();
+        // A reassigned-away Driver may not receive the bookings event because RLS has revoked access.
+        if(assignmentChanged)await loadNormalizedPortalData();
+       refreshPortalSafely();
      }).subscribe();
  }catch(e){
-   console.error("Supabase store load failed, falling back to local-only mode:",e);
-   STORE_CACHE=JSON.parse(localStorage.getItem(KEY)||"null")||defaults();
-   storeReady=true;
+   storeReady=false;
+   console.error("Saved portal data could not be loaded:",e);
+   throw new Error("Saved portal data could not be loaded. No local-only replacement was used. "+(e.message||"Please try again."));
  }
 }
 function defaults(){
@@ -1127,21 +1144,75 @@ function getStore(){return STORE_CACHE||defaults()}
 function saveStore(s){
  STORE_CACHE=s;
  window.dispatchEvent(new Event("ukowupdate"));
- if(!SUPABASE_CONFIGURED){localStorage.setItem(KEY,JSON.stringify(s));return}
+ if(!SUPABASE_CONFIGURED){localStorage.setItem(KEY,JSON.stringify(s));return Promise.resolve(true)}
+ if(!storeReady||!currentSession){
+  sharedSaveError="Changes have not been saved. Sign in again to reload the saved portal data.";
+  renderSharedSaveNotice();return Promise.resolve(false);
+ }
  // Stored photos already live in private Storage; retain any older unsynced photos to avoid deleting existing evidence.
- const persisted={...s,bookings:(s.bookings||[]).map(b=>{
+ const withoutPassword=record=>{const {password,...safe}=record;return safe};
+ const {apiKey,apiSecret,...messagingPreferences}=s.messagingSettings||{};
+ const persisted={...s,...(s.messagingSettings?{messagingSettings:messagingPreferences}:{}),clientUsers:(s.clientUsers||[]).map(withoutPassword),staffUsers:(s.staffUsers||[]).map(withoutPassword),businesses:(s.businesses||[]).map(withoutPassword),bookings:(s.bookings||[]).map(b=>{
   if(!b._normalizedId)return b;
   const localOnly=photos=>Object.fromEntries(Object.entries(photos||{}).filter(([,photo])=>!photo.storagePath));
   return {...b,pickupPhotos:localOnly(b.pickupPhotos),deliveryPhotos:localOnly(b.deliveryPhotos)};
  })};
- sb.from("app_store").update({data:persisted,updated_at:new Date().toISOString()}).eq("id","main")
-   .then(({error})=>{if(error)console.error("Supabase save failed (change is still visible locally):",error)});
+ sharedSavePending={data:JSON.parse(JSON.stringify(persisted)),userId:currentSession.user.id};
+ return flushSharedStore();
+}
+function renderSharedSaveNotice(){
+ let notice=document.getElementById("sharedSaveNotice");
+ if(!sharedSavePending&&!sharedSaveError&&!sharedReadError){notice?.remove();return}
+ if(!notice){
+  notice=document.createElement("div");notice.id="sharedSaveNotice";notice.setAttribute("role","status");
+  notice.style.cssText="position:fixed;left:16px;right:16px;bottom:76px;z-index:10005;background:#fff6d9;color:#493700;border:1px solid #d5aa36;padding:14px;border-radius:10px;box-shadow:0 4px 18px #0002";
+  document.body.appendChild(notice);
+ }
+ notice.replaceChildren();
+ const text=document.createElement("span");
+ text.textContent=sharedSaveError?sharedSaveError+" Your changes are still on this screen.":sharedSavePending?"Saving portal changes…":sharedReadError;
+ notice.appendChild(text);
+ if(sharedSaveError&&sharedSavePending){
+  const retry=document.createElement("button");retry.className="btn secondary";retry.textContent="Retry save";retry.onclick=()=>flushSharedStore();notice.appendChild(retry);
+ }
+ if(sharedReadError){
+  const retry=document.createElement("button");retry.className="btn secondary";retry.textContent="Retry loading";
+  retry.onclick=async()=>{await loadNormalizedPortalData();refreshPortalSafely()};notice.appendChild(retry);
+ }
+}
+function flushSharedStore(){
+ if(sharedSaveInFlight)return sharedSaveInFlight;
+ if(!sharedSavePending)return Promise.resolve(!sharedSaveError);
+ sharedSaveError="";
+ renderSharedSaveNotice();
+ sharedSaveInFlight=(async()=>{
+  await Promise.resolve();
+  try{
+   while(sharedSavePending){
+    const pending=sharedSavePending;
+    if(currentSession?.user?.id!==pending.userId)throw new Error("The signed-in account changed before saving.");
+    const result=await sb.from("app_store").update({data:pending.data,updated_at:new Date().toISOString()}).eq("id","main").select("id").single();
+    if(result.error)throw result.error;
+    if(!result.data)throw new Error("The shared portal record could not be updated.");
+    if(sharedSavePending===pending)sharedSavePending=null;
+   }
+   return true;
+  }catch(e){
+   sharedSaveError="Portal changes were not saved: "+(e.message||"Connection unavailable.");
+   console.error("Portal save failed:",e);
+   return false;
+  }finally{
+   sharedSaveInFlight=null;
+   renderSharedSaveNotice();
+  }
+ })();
+ return sharedSaveInFlight;
 }
 function currency(v){return "£"+Number(v||0).toFixed(2)}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
- return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+ return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
 }
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
@@ -1173,30 +1244,24 @@ async function loadNormalizedPortalData(){
    const booking=normalizedBookings.find(x=>x._normalizedId===inspection.booking_id);if(!booking)return;
    booking.pickupInspection={condition:inspection.condition,mileage:Number(inspection.odometer_mileage),fuelLevel:inspection.fuel_level,notes:inspection.notes,completedAt:inspection.inspected_at,driver:pm[inspection.inspected_by]?.full_name||pm[inspection.inspected_by]?.name||"Driver"};
   });
-  const s=getStore(),previous=Object.fromEntries((s.bookings||[]).map(x=>[x.ref,x])),legacy=(s.bookings||[]).filter(x=>!normalizedBookings.some(n=>n.ref===x.ref));
+   const s=getStore(),previous=Object.fromEntries((s.bookings||[]).map(x=>[x.ref,x])),legacy=(s.bookings||[]).filter(x=>!x._normalizedId&&!normalizedBookings.some(n=>n.ref===x.ref));
   const mergePhotos=(oldPhotos,newPhotos)=>Object.keys(newPhotos||{}).length?
    {...Object.fromEntries(Object.entries(oldPhotos||{}).filter(([,photo])=>!photo.storagePath)),...newPhotos}:
    oldPhotos;
-  s.bookings=[...normalizedBookings.map(n=>({...previous[n.ref],...n,pickupInspection:n.pickupInspection||previous[n.ref]?.pickupInspection,pickupPhotos:mergePhotos(previous[n.ref]?.pickupPhotos,n.pickupPhotos),deliveryPhotos:mergePhotos(previous[n.ref]?.deliveryPhotos,n.deliveryPhotos)})),...legacy];STORE_CACHE=s;
+   s.bookings=[...normalizedBookings.map(n=>Object.assign(previous[n.ref]||{},n,{timeline:previous[n.ref]?.timeline?.length?previous[n.ref].timeline:n.timeline,pickupInspection:n.pickupInspection||previous[n.ref]?.pickupInspection,pickupPhotos:mergePhotos(previous[n.ref]?.pickupPhotos,n.pickupPhotos),deliveryPhotos:mergePhotos(previous[n.ref]?.deliveryPhotos,n.deliveryPhotos)})),...legacy];STORE_CACHE=s;
   if(!normalizedChannel){
-   normalizedChannel=sb.channel("ukow-live-bookings").on("postgres_changes",{event:"*",schema:"public",table:"bookings"},async()=>{await loadNormalizedPortalData();if(!document.getElementById("app")?.classList.contains("hidden"))render()}).subscribe();
+   normalizedChannel=sb.channel("ukow-live-bookings").on("postgres_changes",{event:"*",schema:"public",table:"bookings"},async()=>{await loadNormalizedPortalData();refreshPortalSafely()}).subscribe();
   }
- }catch(e){console.warn("Normalized portal data unavailable:",e.message||e)}
+  sharedReadError="";renderSharedSaveNotice();
+ }catch(e){
+  console.warn("Normalized portal data unavailable:",e.message||e);
+  sharedReadError="Saved bookings could not be refreshed. The displayed list may be out of date. "+(e.message||"Check your connection.");
+  renderSharedSaveNotice();
+ }
 }
 async function removeSeededDemoData(){
- if(role!=="admin")return;
- const s=getStore();if(s.demoDataRemoved)return;
- const demoRefs=["BK00129","BK00130"],demoBusinesses=["Prestige Motors Ltd","London Auto Group"];
- s.bookings=(s.bookings||[]).filter(b=>!demoRefs.includes(b.ref));
- s.businesses=(s.businesses||[]).filter(b=>!demoBusinesses.includes(b.name));
- s.notifications=(s.notifications||[]).filter(n=>!String(n.text||"").match(/BK00129|BK00130|Prestige Motors|London Auto Group|demo/i));
- if(SUPABASE_CONFIGURED){
-  const bookingResult=await sb.from("bookings").delete().in("reference",demoRefs);
-  if(bookingResult.error)console.warn("Demo booking cleanup:",bookingResult.error.message);
-  const businessResult=await sb.from("businesses").delete().in("legal_name",demoBusinesses);
-  if(businessResult.error)console.warn("Demo business cleanup:",businessResult.error.message);
- }
- s.demoDataRemoved=true;saveStore(s);
+ // Never delete saved bookings, evidence or businesses automatically on sign-in.
+ return;
 }
 
 function migrateClientData(){
@@ -1214,6 +1279,7 @@ function migrateClientData(){
 
 function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
+  IncidentUI.reset();
   driverSelectedJobRef=null;
   Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
  }
@@ -1256,19 +1322,32 @@ async function restoreSupabaseSession(){
    }
     await initStoreFromSupabase();
     await removeSeededDemoData();
+    await loadProfilePortalPermissions(profile);
     applyAuthenticatedProfile(profile,data.session);
     await loadNormalizedPortalData();
    showAuthenticatedPortal();
  }catch(e){
    console.error("Could not restore Supabase session:",e);
+   setAuthNotice(e.message||"Saved portal data could not be loaded. Please sign in again.","error");
  }finally{
    document.body.classList.remove("auth-checking");
  }
 }
 
 async function logoutNow(){
+ if(IncidentUI.isSaving?.()){crmToast("Please wait for the incident report to finish saving before signing out.","Report saving");return;}
+ if(IncidentUI.hasUnsaved?.()&&!await crmConfirm("Your incident form has unsaved changes. Save a draft before signing out to keep them.","Unsaved incident report","Sign out without saving",true))return;
  if(role==="driver"&&driverPhotoIsSaving())return;
  closeDriverCameras();
+ if(sharedSavePending){
+  const saved=await flushSharedStore();
+  if(!saved&&!await crmConfirm("Your latest portal changes have not been saved. Signing out now will discard those unsaved changes.","Unsaved changes","Sign out anyway",true))return;
+ }
+ if(sb){
+  await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
+ }
+ sharedStoreChannel=null;normalizedChannel=null;
+ sharedSavePending=null;sharedSaveError="";sharedReadError="";renderSharedSaveNotice();
  document.getElementById("evidenceOverlay")?.remove();
  try{
    if(sb)await sb.auth.signOut();
@@ -1276,6 +1355,7 @@ async function logoutNow(){
    console.error("Supabase sign out failed:",e);
  }
  currentSession=null;
+ IncidentUI.reset();
  normalizedVisibleIds=new Set();
  driverSelectedJobRef=null;
  Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
@@ -1428,10 +1508,11 @@ async function loginNow(){
      }
        await initStoreFromSupabase();
        await removeSeededDemoData();
+       await loadProfilePortalPermissions(profile);
        applyAuthenticatedProfile(profile,authData.session);
        await loadNormalizedPortalData();
    }catch(e){
-     alert("Could not reach Supabase. Check your internet connection and SUPABASE_URL/ANON_KEY.");
+     alert(e.message||"Could not load the saved portal. Check your connection and try again.");
      return;
    }finally{
      if(signInBtn){signInBtn.disabled=false;signInBtn.textContent="Sign In";}
@@ -1499,14 +1580,26 @@ async function loginNow(){
 async function supabaseCreateLogin(email,password,profileFields){
  if(!SUPABASE_CONFIGURED)return true; // local-only demo mode: nothing to do
  try{
-   const {data,error}=await sbAuthOnly.auth.signUp({email,password,options:{data:{name:profileFields.name||profileFields.full_name,full_name:profileFields.full_name||profileFields.name,account_type:profileFields.account_type||"private",business_name:profileFields.business_name||null}}});
-   if(error){alert("Account saved here, but the login could not be created: "+error.message);return false}
+   const {data,error}=await sbAuthOnly.auth.signUp({email,password,options:{data:{name:profileFields.name||profileFields.full_name,full_name:profileFields.full_name||profileFields.name,first_name:profileFields.firstName||null,middle_name:profileFields.middleName||null,last_name:profileFields.lastName||null,phone:profileFields.phone||null,account_type:profileFields.account_type||"private",business_name:profileFields.business_name||null}}});
+   if(error){alert("The login could not be created: "+error.message);return false}
    const uid=data.user?.id;
+   if(data.user?.identities?.length===0){alert("An account with this email already exists. Open Assign User Roles to manage it, or use password reset.");return false}
    if(!uid){alert("Supabase did not return the new user. The account was not added to the portal directory.");return false}
    const {error:pErr}=await sb.rpc("admin_finalize_created_profile",{p_user_id:uid,p_name:profileFields.full_name||profileFields.name||email,p_role:profileFields.role||"client",p_staff_role:profileFields.staff_role||null,p_permissions:profileFields.permissions||[],p_status:profileFields.status||"Active",p_account_type:profileFields.account_type||null,p_business_name:profileFields.business_name||null,p_business_id:profileFields.business_id||null});
-   if(pErr){alert("The Auth login was created, but its portal profile could not be finalized: "+pErr.message+". Apply supabase/portal_workflow_patch.sql and retry with a different email.");return false}
-   return true;
+   if(pErr){alert("The login was created, but account setup could not be completed: "+pErr.message+". Check the existing account before creating another login.");return false}
+   return {id:uid};
  }catch(e){alert("Network error creating the login for "+email+".");return false}
+}
+
+async function requestAccountPasswordReset(email){
+ if(!email)return alert("No email address is saved for this account.");
+ if(!await crmConfirm("Send a secure password-reset email to "+email+"? The password changes only after the account holder opens the email and chooses a new password.","Send password reset","Send reset email"))return false;
+ try{
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  if(error)throw error;
+  alert("Password-reset email requested. The account holder must open the secure link to choose a new password. Their password has not been changed on this screen.");
+  return true;
+ }catch(e){alert("The password-reset email could not be requested: "+(e.message||"Connection unavailable."));return false}
 }
 
 /* ---------- Inline icon set (replaces emoji glyphs everywhere) ---------- */
@@ -1552,6 +1645,7 @@ function nav(){
   ]},
   {key:"businesses",label:"Businesses",icon:"building"},
   {key:"assign",label:"Assign Driver",icon:"truck"},
+  {key:"incidents",label:"Incident Reports",icon:"clipboard"},
   {group:"status",key:"status",label:"Status Update",icon:"edit",items:[
     {key:"singleUpdate",label:"Single Booking Update"},
     {key:"approvals",label:"Update Approvals"}
@@ -1838,6 +1932,10 @@ function statusTabs(){
 }
 function draw(){
  const c=document.getElementById("content");
+ if(page==="incidents"){
+  if(role!=="admin"){c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;}
+  return IncidentUI.renderAdmin(c);
+ }
  if(role!=="client"){
    const permissionMap={desktop:"desktop",booking:"booking",businesses:"businesses",assign:"assign",status:"status",statusPage:"status",singleUpdate:"status",approvals:"status",miles:"miles",amount:"amount",destination:"destination",accounts:"accounts",expenses:"accounts",invoices:"reports",payments:"accounts",pendingPayments:"accounts",accountReports:"reports",pnl:"accounts",reports:"reports",hr:"hr",hrRegister:"hr",hrHolidays:"hr",hrPayslips:"hr",hrNonResidents:"hr",hrShareCodes:"hr",hrDvla:"hr",messageCentre:"notifications",notifications:"notifications",settings:"settings",users:"users",createUsers:"users",assignRoles:"users",driver:"driver"};
    if(permissionMap[page] && !hasPermission(permissionMap[page])){
@@ -2082,7 +2180,7 @@ function drawClientInvoices(c){
  const invoices=(s.invoices||[]).filter(i=>i.business===businessName);
  c.innerHTML=`<div class="panel"><h2>Invoices</h2><p class="muted">Invoices generated by UK On Wheels for your business appear here.</p>
  <div class="scroll"><table style="min-width:1200px"><tr><th>Invoice</th><th>Date</th><th>Due Date</th><th>Vehicles</th><th>Subtotal</th><th>VAT</th><th>Extras</th><th>Total</th><th>Status</th><th>Payment Date</th><th>Action</th></tr>
- ${invoices.map(i=>`<tr><td><b>${i.invoiceNo}</b></td><td>${i.date||"—"}</td><td>${i.dueDate||"—"}</td><td>${i.vehicleCount||0}</td><td>${currency(i.subtotal)}</td><td>${currency(i.vatAmount)}</td><td>${currency(i.extraTotal)}</td><td><b>${currency(i.total)}</b></td><td><span class="badge ${i.status==="Paid"?"green":"amber"}">${i.status}</span></td><td>${i.paymentDate||"—"}</td><td><button class="btn secondary" onclick="viewInvoice('${i.invoiceNo}')">View Invoice</button></td></tr>`).join("")}
+ ${invoices.map(i=>`<tr><td><b>${i.invoiceNo}</b></td><td>${i.date||"—"}</td><td>${i.dueDate||"—"}</td><td>${i.vehicleCount||0}</td><td>${currency(i.subtotal)}</td><td>${i.vatEnabled===false?"Not applied":currency(i.vatAmount)}</td><td>${currency(i.extraTotal)}</td><td><b>${currency(i.total)}</b></td><td><span class="badge ${i.status==="Paid"?"green":"amber"}">${i.status}</span></td><td>${i.paymentDate||"—"}</td><td><button class="btn secondary" onclick="viewInvoice('${i.invoiceNo}')">View Invoice</button></td></tr>`).join("")}
  </table></div>${invoices.length?"":"<p class='muted'>No invoices generated yet.</p>"}</div>`;
 }
 
@@ -2170,7 +2268,7 @@ function drawClientPayments(c){
       <td>${i.paymentDate||"—"}</td>
       <td>${i.vehicleCount||0}</td>
       <td>${currency(i.subtotal)}</td>
-      <td>${currency(i.vatAmount)}</td>
+      <td>${i.vatEnabled===false?"Not applied":currency(i.vatAmount)}</td>
       <td>${currency(i.extraTotal)}</td>
       <td><b>${currency(i.paidAmount||i.total)}</b></td>
       <td>${i.paymentMethod||"—"}</td>
@@ -2213,6 +2311,11 @@ function ensureClientUsersData(){
  return getStore();
 }
 function drawClientUsers(c){
+ if(SUPABASE_CONFIGURED){
+  const users=(portalProfiles||[]).filter(u=>String(u.role).toLowerCase()==="client"&&(u.id===currentUser?.id||(currentUser?.businessId&&u.business_id===currentUser.businessId)));
+  c.innerHTML=`<div class="panel"><h3>Business Users</h3><p>UK On Wheels Admin manages additional business-user accounts and account access. Contact Admin to add, activate or disable a user.</p><p class="muted">To change a password, use <b>Forgot password?</b> on the portal sign-in page. Passwords are changed securely through email, not stored in this directory.</p></div><div class="panel"><h3>Users visible to your account</h3>${users.length?`<table><tr><th>Name</th><th>Email</th><th>Status</th></tr>${users.map(u=>`<tr><td>${escapeHtml(u.full_name||u.name||"Client")}</td><td>${escapeHtml(u.email||"")}</td><td>${escapeHtml(u.status||"Active")}</td></tr>`).join("")}</table>`:`<p class="muted">No additional user records are visible to this account.</p>`}</div>`;
+  return;
+ }
  const s=ensureClientUsersData(),businessName=currentUser?.name||"Prestige Motors Ltd";
  const users=(s.clientUsers||[]).filter(u=>u.business===businessName); users.forEach(u=>{if(!u.status||u.status==="Inactive")u.status="Active"});
  c.innerHTML=`<div class="panel"><h2>Users / Access</h2><p class="muted">Create additional users for your business account.</p>
@@ -2238,6 +2341,7 @@ function drawClientUsers(c){
  </tr>`).join("")}</table></div>`;
 }
 async function toggleClientUserStatus(id){
+ if(SUPABASE_CONFIGURED)return alert("User access is managed by UK On Wheels Admin. No login access has been changed.");
  let s=ensureClientUsersData();
  const u=(s.clientUsers||[]).find(x=>x.id===id);
  if(!u)return alert("Client user not found.");
@@ -2264,6 +2368,7 @@ async function toggleClientUserStatus(id){
 async function changeClientUserPassword(id){
  let s=ensureClientUsersData(),u=(s.clientUsers||[]).find(x=>x.id===id);
  if(!u)return;
+ if(SUPABASE_CONFIGURED)return requestAccountPasswordReset(u.email);
  const p=await crmPrompt("Enter a new password for "+u.name+":","","Change password");
  if(p===null)return;
  if(p.length<8)return alert("Password must be at least 8 characters.");
@@ -2273,6 +2378,7 @@ async function changeClientUserPassword(id){
  alert("Password changed successfully.");
 }
 async function createClientUser(){
+ if(SUPABASE_CONFIGURED)return alert("Additional business-user logins must be created and linked by UK On Wheels Admin. No account has been created.");
  let s=ensureClientUsersData(),business=currentUser?.name||"Prestige Motors Ltd";
  const name=document.getElementById("cluName").value.trim();
  const email=document.getElementById("cluEmail").value.trim().toLowerCase();
@@ -2586,7 +2692,7 @@ function ensureStaffUsers(){
    saveStore(s);
  } else {
    let changed=false;
-   s.staffUsers.forEach(u=>{if(u.role!=="Driver"&&u.role!=="Staff"){u.role="Staff";changed=true}if(!u.permissions){u.permissions=defaultPermissionsForRole(u.role);changed=true;}});
+   s.staffUsers.forEach(u=>{if(!["Driver","Staff","Unassigned"].includes(u.role)){u.role="Staff";changed=true}if(!u.permissions){u.permissions=u.role==="Unassigned"?[]:defaultPermissionsForRole(u.role);changed=true;}});
    if(changed)saveStore(s);
  }
  return getStore();
@@ -2724,111 +2830,37 @@ function viewRoleEmployee(index){
 }
 
 function drawCreateUsers(c){
- const s=ensureStaffUsers(),roles=userRoleList();
+ const s=ensureStaffUsers();
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-   <div><h2 style="margin:0">Create Users</h2><p class="muted" style="margin:6px 0 0">Add a complete employee or driver profile, assign designation and set account status.</p></div>
-   <button class="btn secondary" onclick="page='users';render()">Back to Users</button>
+   <div><h2 style="margin:0">Create User</h2><p class="muted" style="margin:6px 0 0">Save the user's details, then choose their role in Assign User Roles.</p></div>
+   <button class="btn secondary" onclick="go('assignRoles')">Assign User Roles</button>
   </div>
- </div>
-
- <div class="panel">
-  <h3>Personal Details</h3>
-  <div class="form">
-   <input id="cuFirstName" placeholder="First Name *">
-   <input id="cuMiddleName" placeholder="Middle Name">
-   <input id="cuLastName" placeholder="Last Name *">
-   <input id="cuEmail" type="email" placeholder="Email Address *">
-   <input id="cuMobile" placeholder="Mobile Number *">
-   <input id="cuAddress" placeholder="Current Address *">
-   <input id="cuPostcode" placeholder="Current Post Code *">
-   <input id="cuPresentYears" type="number" min="0" step="0.1" placeholder="Years at Present Address">
-   <input id="cuPreviousAddress" class="full" placeholder="Previous Address (required if at current address for less than 5 years)">
-   <input id="cuPreviousPostcode" placeholder="Previous Address Post Code">
-  </div>
- </div>
-
- <div class="panel">
-  <h3>Emergency Contact</h3>
-  <div class="form">
-   <input id="cuEmergencyName" placeholder="Emergency Contact Name *">
-   <input id="cuEmergencyNumber" placeholder="Emergency Contact Number *">
-   <input id="cuEmergencyAddress" placeholder="Emergency Contact Address">
-   <input id="cuEmergencyPostcode" placeholder="Emergency Contact Post Code">
-  </div>
- </div>
-
- <div class="panel">
-  <h3>Driving Licence & DVLA</h3>
-  <div class="form">
-   <input id="cuDrivingLicenceNo" placeholder="Driving Licence Number *">
-   <input id="cuDrivingShareCode" placeholder="Driving Licence Share Code">
-   <select id="cuLicenceType" onchange="toggleInternationalCountry()">
-    <option value="">Driving Licence Type *</option>
-    <option>UK</option>
-    <option>International</option>
-   </select>
-   <input id="cuLicenceCountry" placeholder="If International, which Country?" style="display:none">
-   <label>DVLA Picture Upload<input id="cuDvlaPicture" type="file" accept="image/*,.pdf"></label>
-  </div>
- </div>
-
- <div class="panel">
-  <h3>Passport / Visa / Right to Work</h3>
-  <div class="form">
-   <input id="cuPassportNo" placeholder="Passport Number">
-   <label>Passport Picture Upload<input id="cuPassportPicture" type="file" accept="image/*,.pdf"></label>
-   <select id="cuVisaType" onchange="toggleVisaFields()">
-    <option value="">Visa / Nationality Status *</option>
-    <option>UK Passport Holder</option>
-    <option>Non-British</option>
-   </select>
-   <label id="visaCardWrap" style="display:none">Visa Card Upload<input id="cuVisaCard" type="file" accept="image/*,.pdf"></label>
-   <input id="cuRightToWorkShareCode" placeholder="Right to Work Share Code" style="display:none">
-   <input id="cuHomeOfficeRef" placeholder="Home Office Reference / Visa Details" style="display:none">
-  </div>
- </div>
-
- <div class="panel">
-  <h3>UK On Wheels Driver Safety</h3>
-  <div class="form">
-   <input id="cuSafetyCertificate" placeholder="Driver Safety Certificate Number">
-   <input id="cuDrivingLicenceExpiry" type="date" title="Driving Licence Expiry Date">
-   <input id="cuDvlaExpiry" type="date" title="DVLA Check / Record Expiry Date">
-   <input id="cuPassportExpiry" type="date" title="Passport Expiry Date">
-   <input id="cuVisaExpiry" type="date" title="Visa Expiry Date">
-   <input id="cuRightToWorkExpiry" type="date" title="Right to Work / Share Code Expiry Date">
-   <input id="cuSafetyExpiry" type="date" title="Driver Safety Certificate Expiry Date">
-   <select id="cuDesignation">
-    <option value="">Select Designation *</option>
-    ${roles.map(r=>`<option>${r}</option>`).join("")}
-   </select>
-   <select id="cuStatus">
-    <option>Active</option>
-    <option>Inactive</option>
-   </select>
-   <input id="cuTempPassword" type="password" placeholder="Temporary Password *">
-  </div>
- </div>
-
- <div class="panel">
-  <h3>Account Status</h3>
-  <p class="muted">Use <b>Active</b> for current staff/drivers. If an employee or driver leaves UK On Wheels, change the account to <b>Inactive</b> so they can no longer use the portal.</p>
-  <div class="actions"><button class="btn primary" onclick="createStaffUser()">Create User</button></div>
+  <form onsubmit="event.preventDefault();createStaffUser()" style="margin-top:20px">
+   <div class="form">
+    <label class="autoFieldWrap">First name *<input id="cuFirstName" autocomplete="given-name" required></label>
+    <label class="autoFieldWrap">Middle name (optional)<input id="cuMiddleName" autocomplete="additional-name"></label>
+    <label class="autoFieldWrap">Last name *<input id="cuLastName" autocomplete="family-name" required></label>
+    <label class="autoFieldWrap">Email *<input id="cuEmail" type="email" autocomplete="email" required></label>
+    <label class="autoFieldWrap">Phone number *<input id="cuMobile" type="tel" autocomplete="tel" required></label>
+    <label class="autoFieldWrap">Password *<input id="cuTempPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+   </div>
+   <p class="muted">Use at least 8 characters for the password. New users remain inactive until a role is assigned.</p>
+   <div class="actions"><button id="createUserSaveBtn" class="btn primary" type="submit">Save</button></div>
+  </form>
  </div>
 
  <div class="panel">
   <h3>Created Users</h3>
-  <div class="scroll"><table style="min-width:1350px">
-   <tr><th>Name</th><th>Email</th><th>Mobile</th><th>Designation</th><th>Licence</th><th>Visa Status</th><th>Status</th><th>Action</th></tr>
+  <div class="scroll"><table style="min-width:1000px">
+   <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Status</th><th>Action</th></tr>
    ${s.staffUsers.map((u,i)=>`<tr>
-    <td>${u.name}</td><td>${u.email}</td><td>${u.phone||"—"}</td><td>${u.role}</td>
-    <td>${u.drivingLicenceNo||"—"}</td><td>${u.visaType||"—"}</td>
+    <td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.phone||"—")}</td><td>${escapeHtml(u.role)}</td>
     <td><span class="badge ${u.status==="Active"?"green":"amber"}">${u.status}</span></td>
     <td>
       <button class="btn secondary" onclick="viewUserInformation(${i})">View Information</button>
       <button class="btn secondary" onclick="viewStaffUserActivity(${i})">Activity</button>
-      <button class="btn ${u.status==="Active"?"warn":"primary"}" onclick="toggleUserStatus(${i})">${u.status==="Active"?"Deactivate":"Activate"}</button>
+      <button class="btn ${u.status==="Active"?"warn":"primary"}" ${u.role==="Unassigned"?"disabled":""} onclick="toggleUserStatus(${i})">${u.status==="Active"?"Deactivate":"Activate"}</button>
       <button class="btn danger" onclick="deleteStaffUser(${i})">Delete</button>
     </td>
    </tr>`).join("")}
@@ -3037,89 +3069,85 @@ function toggleInternationalCountry(){
  document.getElementById("cuLicenceCountry").style.display=intl?"block":"none";
 }
 
+let creatingStaffUser=false;
 async function createStaffUser(){
+ if(creatingStaffUser)return;
+ if(SUPABASE_CONFIGURED&&(role!=="admin"||!currentSession))return alert("Sign in as Admin to save a portal user.");
  let s=ensureStaffUsers();
  const first=document.getElementById("cuFirstName").value.trim();
  const middle=document.getElementById("cuMiddleName").value.trim();
  const last=document.getElementById("cuLastName").value.trim();
- const email=document.getElementById("cuEmail").value.trim();
+ const email=document.getElementById("cuEmail").value.trim().toLowerCase();
  const mobile=document.getElementById("cuMobile").value.trim();
- const address=document.getElementById("cuAddress").value.trim();
- const postcode=document.getElementById("cuPostcode").value.trim();
- const years=Number(document.getElementById("cuPresentYears").value||0);
- const previousAddress=document.getElementById("cuPreviousAddress").value.trim();
- const previousPostcode=document.getElementById("cuPreviousPostcode").value.trim();
- const emergencyName=document.getElementById("cuEmergencyName").value.trim();
- const emergencyNumber=document.getElementById("cuEmergencyNumber").value.trim();
- const emergencyAddress=document.getElementById("cuEmergencyAddress").value.trim();
- const emergencyPostcode=document.getElementById("cuEmergencyPostcode").value.trim();
- const drivingLicenceNo=document.getElementById("cuDrivingLicenceNo").value.trim();
- const drivingShareCode=document.getElementById("cuDrivingShareCode").value.trim();
- const licenceType=document.getElementById("cuLicenceType").value;
- const licenceCountry=document.getElementById("cuLicenceCountry").value.trim();
- const passportNo=document.getElementById("cuPassportNo").value.trim();
- const visaType=document.getElementById("cuVisaType").value;
- const rightToWorkShareCode=document.getElementById("cuRightToWorkShareCode").value.trim();
- const homeOfficeRef=document.getElementById("cuHomeOfficeRef").value.trim();
- const safetyCertificate=document.getElementById("cuSafetyCertificate").value.trim();
- const drivingLicenceExpiry=document.getElementById("cuDrivingLicenceExpiry")?.value||"";
- const dvlaExpiry=document.getElementById("cuDvlaExpiry")?.value||"";
- const passportExpiry=document.getElementById("cuPassportExpiry")?.value||"";
- const visaExpiry=document.getElementById("cuVisaExpiry")?.value||"";
- const rightToWorkExpiry=document.getElementById("cuRightToWorkExpiry")?.value||"";
- const safetyExpiry=document.getElementById("cuSafetyExpiry")?.value||"";
- const role=document.getElementById("cuDesignation").value;
- const status=document.getElementById("cuStatus").value;
  const tempPassword=document.getElementById("cuTempPassword").value;
-
- if(!first||!last||!email||!mobile||!address||!postcode||!emergencyName||!emergencyNumber||!drivingLicenceNo||!licenceType||!visaType||!role||!tempPassword){
-   return alert("Please complete all required fields marked with *.");
- }
- if(years<5 && !previousAddress){
-   return alert("Previous address is required because the user has lived at the current address for less than 5 years.");
- }
- if(licenceType==="International" && !licenceCountry){
-   return alert("Please enter the country for the international driving licence.");
- }
- if(visaType==="Non-British" && !rightToWorkShareCode){
-   return alert("Please enter the Right to Work Share Code for a non-British user.");
- }
+ if(!first||!last||!email||!mobile||!tempPassword)return alert("Enter first name, last name, email, phone number and password. Middle name is optional.");
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return alert("Enter a valid email address.");
+ if(tempPassword.length<8)return alert("Password must be at least 8 characters.");
  if(s.staffUsers.some(u=>(u.email||"").toLowerCase()===email.toLowerCase())){
    return alert("A user with this email already exists.");
  }
 
  const fullName=[first,middle,last].filter(Boolean).join(" ");
- const passportPicture=document.getElementById("cuPassportPicture").files.length ? document.getElementById("cuPassportPicture").files[0].name : "";
- const dvlaPicture=document.getElementById("cuDvlaPicture").files.length ? document.getElementById("cuDvlaPicture").files[0].name : "";
- const visaCard=document.getElementById("cuVisaCard")?.files?.length ? document.getElementById("cuVisaCard").files[0].name : "";
-
- const loginCreated=await supabaseCreateLogin(email,tempPassword,{name:fullName,full_name:fullName,role:role==="Driver"?"driver":"staff",status,staff_role:role,permissions:supabasePermissionsForRole(role)});
- if(!loginCreated)return;
- s.staffUsers.push({
-  name:fullName,
-  firstName:first,middleName:middle,lastName:last,
-  email,phone:mobile,
-  currentAddress:address,currentPostcode:postcode,yearsAtCurrentAddress:years,
-  previousAddress,previousPostcode,
-  emergencyName,emergencyNumber,emergencyAddress,emergencyPostcode,
-  drivingLicenceNo,drivingShareCode,licenceType,licenceCountry,
-  passportNo,passportPicture,dvlaPicture,
-  visaType,visaCard,rightToWorkShareCode,homeOfficeRef,
-  safetyCertificate,
-  drivingLicenceExpiry,dvlaExpiry,passportExpiry,visaExpiry,rightToWorkExpiry,safetyExpiry,
-  role,status,
-  permissions:defaultPermissionsForRole(role),
-   createdAt:new Date().toLocaleString(),
-   activityLog:[{at:new Date().toISOString(),action:"Account created",by:currentUser?.name||"Admin",details:role+" account created with "+status+" status."}]
- });
-
- s.notifications.unshift({title:"User Created",text:fullName+" created as "+role+" with status "+status+"."});
- saveStore(s);
- alert("User created successfully.");
- drawCreateUsers(document.getElementById("content"));
+ const button=document.getElementById("createUserSaveBtn");
+ creatingStaffUser=true;if(button){button.disabled=true;button.textContent="Saving…"}
+ try{
+  const login=await supabaseCreateLogin(email,tempPassword,{name:fullName,full_name:fullName,firstName:first,middleName:middle,lastName:last,phone:mobile,role:"staff",staff_role:"Unassigned",permissions:[],status:"Inactive"});
+  if(!login)return;
+  s=ensureStaffUsers();
+  s.staffUsers.push({id:login.id||"LOCAL-"+Date.now(),name:fullName,firstName:first,middleName:middle,lastName:last,email,phone:mobile,role:"Unassigned",status:"Inactive",permissions:[],createdAt:new Date().toLocaleString(),activityLog:[{at:new Date().toISOString(),action:"Account created",by:currentUser?.name||"Admin",details:"Awaiting role assignment."}]});
+  s.notifications=s.notifications||[];
+  s.notifications.unshift({title:"User Created",text:fullName+" saved; awaiting role assignment."});
+  const passwordInput=document.getElementById("cuTempPassword");
+  if(passwordInput)passwordInput.value="";
+  const synced=await saveStore(s);
+  alert(synced?"User saved. Choose their role and save access to activate the account.":"Login saved, but the shared directory sync is pending. Use Retry save. The account can still be loaded in Assign User Roles.");
+  if(page==="createUsers"){page="assignRoles";render()}
+ }catch(e){alert("User could not be saved: "+(e.message||"Connection unavailable."))}
+ finally{creatingStaffUser=false;if(button?.isConnected){button.disabled=false;button.textContent="Save"}}
 }
 
-function drawAssignUserRoles(c){
+function portalPermissionKeys(keys=[]){
+ const options=allPermissionOptions().map(([key])=>key);
+ if(keys.includes("portal:configured"))return options.filter(key=>keys.includes("portal:"+key));
+ const mapping={desktop:["bookings:view"],booking:["booking:create"],businesses:["businesses:manage"],assign:["drivers:assign"],status:["bookings:status"],miles:["bookings:manage"],amount:["bookings:manage"],destination:["bookings:manage"],accounts:["accounts:manage"],reports:["accounts:view"],hr:["hr:manage"],notifications:["messaging:manage"],users:["users:manage"],settings:["portal:settings"]};
+ return options.filter(key=>keys.includes(key)||(mapping[key]||[]).some(value=>keys.includes(value)));
+}
+function serverPermissionKeys(keys=[]){
+ const map={desktop:["bookings:view"],booking:["booking:create","bookings:view"],businesses:["businesses:view","businesses:manage"],assign:["drivers:view","drivers:assign","bookings:view"],status:["bookings:view","bookings:status"],miles:["bookings:view","bookings:manage"],amount:["bookings:view","bookings:manage"],destination:["bookings:view","bookings:manage"],accounts:["accounts:view","accounts:manage"],reports:["accounts:view"],hr:["hr:view","hr:manage"],notifications:["messaging:manage"],users:["users:view","users:manage"]};
+ return [...new Set(["portal:configured",...keys.map(key=>"portal:"+key),...keys.flatMap(key=>map[key]||[])])];
+}
+async function loadProfilePortalPermissions(profile){
+ if(profile.role!=="staff")return;
+ const {data,error}=await sb.from("user_permissions").select("permission_key").eq("profile_id",profile.id);
+ if(error)throw new Error("Saved user permissions could not be loaded: "+error.message);
+ const keys=(data||[]).map(row=>row.permission_key);
+ profile.permissions=portalPermissionKeys(keys.length?keys:profile.permissions||[]);
+}
+let assignRolesLoadSequence=0;
+async function drawAssignUserRoles(c){
+ const sequence=++assignRolesLoadSequence;
+ if(SUPABASE_CONFIGURED){
+  if(role!=="admin"||!currentSession){c.innerHTML=`<div class="panel"><h2>Assign User Roles</h2><p>Sign in as Admin to manage saved account roles.</p></div>`;return}
+  c.innerHTML=`<div class="panel"><h2>Assign User Roles</h2><p role="status">Loading saved users and permissions…</p></div>`;
+  try{
+   const [profiles,access]=await Promise.all([sb.from("profiles").select("*").in("role",["staff","driver"]).neq("status","Deleted").order("created_at",{ascending:false}),sb.from("user_permissions").select("profile_id,permission_key")]);
+   if(profiles.error)throw profiles.error;if(access.error)throw access.error;
+   if(!c.isConnected||sequence!==assignRolesLoadSequence)return;
+   const s=ensureStaffUsers(),previous=s.staffUsers;
+   const users=(profiles.data||[]).map(p=>{
+    const old=previous.find(u=>u.id===p.id||String(u.email||"").toLowerCase()===String(p.email||"").toLowerCase())||{};
+    const keys=(access.data||[]).filter(row=>row.profile_id===p.id).map(row=>row.permission_key);
+    return {...old,id:p.id,name:p.full_name||p.name||p.email,email:p.email,phone:p.phone||old.phone||"",role:p.role==="driver"?"Driver":p.staff_role==="Unassigned"?"Unassigned":"Staff",status:p.status||"Inactive",permissions:portalPermissionKeys(keys.length?keys:p.permissions||[]),_profileBusinessId:p.business_id,_profileBusinessName:p.business_name,_accountType:p.account_type};
+   });
+   s.staffUsers=[...users,...previous.filter(u=>!u.id&&!users.some(p=>String(p.email||"").toLowerCase()===String(u.email||"").toLowerCase()))];
+  }catch(e){
+   if(c.isConnected&&sequence===assignRolesLoadSequence)c.innerHTML=`<div class="panel"><h2>Assign User Roles</h2><p role="alert">Saved users could not be loaded: ${escapeHtml(e.message)}</p><button class="btn secondary" onclick="drawAssignUserRoles(document.getElementById('content'))">Retry</button></div>`;
+   return;
+  }
+ }
+ renderAssignUserRoles(c);
+}
+function renderAssignUserRoles(c){
  const s=ensureStaffUsers();
  const perms=allPermissionOptions();
  c.innerHTML=`<div class="panel">
@@ -3131,32 +3159,34 @@ function drawAssignUserRoles(c){
 
  ${s.staffUsers.map((u,i)=>`<div class="panel" style="margin-top:12px">
    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-    <div><h3 style="margin:0">${u.name}</h3><div class="muted">${u.email}</div></div>
+    <div><h3 style="margin:0">${escapeHtml(u.name)}</h3><div class="muted">${escapeHtml(u.email)}</div></div>
     <span class="badge">${u.role}</span>
    </div>
 
    <div class="form" style="margin-top:14px">
     <select id="role_${i}" onchange="applyRoleDefaults(${i})">
+      <option value="" ${u.role==="Unassigned"?"selected":""} disabled>Select role *</option>
       ${userRoleList().map(r=>`<option ${r===u.role?"selected":""}>${r}</option>`).join("")}
     </select>
     <select id="status_${i}">
-      <option ${u.status==="Active"?"selected":""}>Active</option>
-      <option ${u.status==="Inactive"?"selected":""}>Inactive</option>
+      <option ${u.status==="Active"||u.role==="Unassigned"?"selected":""}>Active</option>
+      <option ${u.status==="Inactive"&&u.role!=="Unassigned"?"selected":""}>Inactive</option>
     </select>
    </div>
 
-    <div id="permissions_${i}" style="${u.role==="Driver"?"display:none":""}">
+    <div id="permissions_${i}" style="${u.role!=="Staff"?"display:none":""}">
      <h4>Staff Permissions</h4>
      <p class="muted">Permissions apply only to Staff accounts. Admin has full access and Drivers use the Driver portal.</p>
      <div class="grid2">${perms.filter(([key])=>key!=="driver").map(([key,label])=>`<label class="step" style="margin:0"><input type="checkbox" id="perm_${i}_${key}" ${(u.permissions||[]).includes(key)?"checked":""}> ${label}</label>`).join("")}</div>
     </div>
 
    <div style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:9px;background:#fff8e6">
-    <b>Restricted access:</b> unticked sections should be hidden from this user in the production portal. They should not be able to open those pages directly either.
+    <b>Restricted access:</b> select a role and save access to activate a new account. Unticked Staff sections remain unavailable.
    </div>
 
    <div class="actions">
-    <button class="btn primary" onclick="saveUserPermissions(${i})">Save Restricted Access</button>
+    <button id="saveRole_${i}" class="btn primary" ${SUPABASE_CONFIGURED&&!u.id?"disabled":""} onclick="saveUserPermissions(${i})">Save Role & Access</button>
+    ${SUPABASE_CONFIGURED&&!u.id?`<span class="muted">This legacy entry needs a linked login account.</span>`:""}
    </div>
  </div>`).join("")}`;
 }
@@ -3171,16 +3201,33 @@ function applyRoleDefaults(index){
  const box=document.getElementById("permissions_"+index);if(box)box.style.display=role==="Staff"?"block":"none";
 }
 
-function saveUserPermissions(index){
- let s=ensureStaffUsers(),u=s.staffUsers[index];
- const role=document.getElementById("role_"+index).value;
+const userRoleSaves=new Set();
+async function saveUserPermissions(index){
+ if(SUPABASE_CONFIGURED&&(role!=="admin"||!currentSession))return alert("Sign in as Admin to assign roles.");
+ let s=ensureStaffUsers(),u=s.staffUsers[index];if(!u)return;
+ const selectedRole=document.getElementById("role_"+index).value;
  const status=document.getElementById("status_"+index).value;
- const permissions=role==="Driver"?["driver"]:allPermissionOptions().filter(([key])=>document.getElementById(`perm_${index}_${key}`)?.checked).map(([key])=>key);
- u.role=role;u.status=status;u.permissions=permissions;
- s.notifications.unshift({title:"User Access Updated",text:u.name+" access updated for "+role+"."});
- saveStore(s);
- alert("Restricted access saved for "+u.name+".");
- drawAssignUserRoles(document.getElementById("content"));
+ if(!userRoleList().includes(selectedRole)||!["Active","Inactive"].includes(status))return alert("Select a role and account status.");
+ if(SUPABASE_CONFIGURED&&!u.id)return alert("This user needs a linked login before assigning a role.");
+ const permissions=selectedRole==="Driver"?["driver"]:allPermissionOptions().filter(([key])=>key!=="driver"&&document.getElementById(`perm_${index}_${key}`)?.checked).map(([key])=>key);
+ const key=u.id||u.email,button=document.getElementById("saveRole_"+index);
+ if(userRoleSaves.has(key))return;
+ userRoleSaves.add(key);if(button)button.disabled=true;
+ try{
+  if(SUPABASE_CONFIGURED){
+   // The existing finalization RPC applies role, normalized permissions and status in one transaction.
+   const {error}=await sb.rpc("admin_finalize_created_profile",{p_user_id:u.id,p_name:u.name,p_role:selectedRole.toLowerCase(),p_staff_role:selectedRole==="Staff"?"Staff":null,p_permissions:selectedRole==="Staff"?serverPermissionKeys(permissions):[],p_status:status,p_account_type:u._accountType||null,p_business_name:u._profileBusinessName||null,p_business_id:u._profileBusinessId||null});
+   if(error)throw error;
+  }
+  s=ensureStaffUsers();u=s.staffUsers.find(user=>(user.id||user.email)===key)||u;
+  Object.assign(u,{role:selectedRole,status,permissions});
+  s.notifications=s.notifications||[];
+  s.notifications.unshift({title:"User Access Updated",text:u.name+" access updated for "+selectedRole+"."});
+  const synced=await saveStore(s);
+  alert(synced?"Role and access saved for "+u.name+".":"Account role saved, but directory sync is pending. Use Retry save.");
+  if(page==="assignRoles")drawAssignUserRoles(document.getElementById("content"));
+ }catch(e){alert("User role and access were not saved: "+(e.message||"Connection unavailable."))}
+ finally{userRoleSaves.delete(key);if(button?.isConnected)button.disabled=false}
 }
 
 function viewStaffUserActivity(index){
@@ -3393,14 +3440,17 @@ function drawInvoices(c){
 
  <div class="panel" style="margin-top:12px"><h2>Generate Invoice</h2><div class="form">
  <select id="invBiz"><option value="">Select Client *</option>${s.businesses.map(b=>`<option value="${b.name}">${b.name}</option>`).join("")}</select>
- <input id="invDate" type="date"><input id="invDue" type="date"><input id="invVat" type="number" step="0.01" value="20" placeholder="VAT %">
+ <input id="invDate" type="date"><input id="invDue" type="date">
+ <label class="step" style="margin:0;display:flex;align-items:center;gap:8px"><input id="invVatEnabled" type="checkbox" checked style="width:auto" onchange="toggleInvoiceVat()"> Apply VAT to this invoice</label>
+ <label class="autoFieldWrap" for="invVat">VAT rate (%)<input id="invVat" type="number" min="0" step="0.01" value="20"></label>
  <input id="invExtra" type="number" step="0.01" placeholder="Extra Phrasal (£)"><input id="invOther" type="number" step="0.01" placeholder="Other Charges (£)">
  <textarea id="invOtherDesc" class="full" placeholder="Other Charges Description"></textarea></div>
+ <p class="muted">VAT is optional for each invoice. Untick “Apply VAT” to generate an invoice without VAT.</p>
  <div class="actions"><button class="btn primary" id="loadInvoiceBtn">Load Delivered Vehicles</button></div><div id="invVehicleArea"></div></div>
  <div class="panel" style="margin-top:12px"><h3>Generated Invoices</h3><div class="scroll"><table style="min-width:1250px"><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Vehicles</th><th>Subtotal</th><th>VAT</th><th>Extras</th><th>Total</th><th>Status</th><th>Payment Date</th><th>Action</th></tr>
  ${s.invoices.slice().reverse().map(i=>`<tr>
  <td><b>${i.invoiceNo}</b></td><td>${i.business}</td><td>${i.date}</td><td>${i.vehicleCount}</td>
- <td>${money(i.subtotal)}</td><td>${money(i.vatAmount)}</td><td>${money(i.extraTotal)}</td><td>${money(i.total)}</td>
+ <td>${money(i.subtotal)}</td><td>${i.vatEnabled===false?"Not applied":money(i.vatAmount)}</td><td>${money(i.extraTotal)}</td><td>${money(i.total)}</td>
  <td><span class="badge ${i.status==="Paid"?"green":"amber"}">${i.status}</span></td>
  <td>${i.paymentDate||"—"}</td>
  <td>
@@ -3458,7 +3508,7 @@ function openMarkInvoicePaid(invoiceNo){
  box.scrollIntoView({behavior:"smooth"});
 }
 
-function markInvoicePaid(invoiceNo){
+ async function markInvoicePaid(invoiceNo){
  let s=ensureAccountsData(),i=s.invoices.find(x=>x.invoiceNo===invoiceNo);
  if(!i)return alert("Invoice not found.");
  const dateEl=document.getElementById("invoicePaidDate");
@@ -3472,6 +3522,10 @@ function markInvoicePaid(invoiceNo){
  if(!paymentDate)return alert("Please select the payment date.");
  if(!Number.isFinite(paidAmount)||paidAmount<=0)return alert("Please enter a valid amount paid.");
  if(paymentMethod==="Bank Transfer"&&!paymentRef)return alert("Please enter the bank/payment reference number.");
+  for(const item of i.items||[]){
+   const booking=s.bookings.find(b=>b.ref===item.ref);
+   if(booking&&!await persistBookingPayment(booking,"Paid"))return;
+  }
 
  i.status="Paid";
  i.paymentDate=paymentDate;
@@ -3547,7 +3601,19 @@ function loadInvoiceVehicles(){
  if(gen)gen.addEventListener("click",()=>makeInvoice(rows.map(b=>b.ref)));
 }
 
-function makeInvoice(refs){
+function toggleInvoiceVat(){
+ const enabled=document.getElementById("invVatEnabled")?.checked!==false;
+ const rate=document.getElementById("invVat");
+ if(rate)rate.disabled=!enabled;
+}
+function calculateInvoiceTotals(subtotal,vatEnabled,vatRate,extra=0,other=0){
+ const round=value=>Math.round((value+Number.EPSILON)*100)/100;
+ const vatPct=vatEnabled?Number(vatRate):0;
+ if(![subtotal,vatPct,extra,other].every(Number.isFinite)||vatPct<0)throw new Error("Enter valid invoice amounts and a VAT rate of zero or more.");
+ const vatAmount=vatEnabled?round(subtotal*vatPct/100):0;
+ return {subtotal:round(subtotal),vatEnabled,vatPct,vatAmount,extraTotal:round(extra+other),total:round(subtotal+vatAmount+extra+other)};
+}
+async function makeInvoice(refs){
  let s=ensureAccountsData(),items=[],subtotal=0;
  refs.forEach((ref,i)=>{
    const include=document.getElementById("ii_"+i);
@@ -3559,11 +3625,15 @@ function makeInvoice(refs){
  });
  if(!items.length)return alert("Select at least one delivered vehicle.");
  const bizEl=document.getElementById("invBiz"),dateEl=document.getElementById("invDate"),dueEl=document.getElementById("invDue"),vatEl=document.getElementById("invVat"),extraEl=document.getElementById("invExtra"),otherEl=document.getElementById("invOther"),descEl=document.getElementById("invOtherDesc");
- const vatPct=Number(vatEl?.value||0),vatAmount=subtotal*vatPct/100,extra=Number(extraEl?.value||0),other=Number(otherEl?.value||0),total=subtotal+vatAmount+extra+other;
+ const vatEnabled=document.getElementById("invVatEnabled")?.checked!==false;
+ const extra=Number(extraEl?.value||0),other=Number(otherEl?.value||0);
+ let totals;
+ try{totals=calculateInvoiceTotals(subtotal,vatEnabled,vatEl?.value||0,extra,other)}
+ catch(e){return alert(e.message)}
  const invoiceNo="INV-"+String(Date.now()).slice(-7);
- s.invoices.push({invoiceNo,business:bizEl?.value||"",date:dateEl?.value||new Date().toISOString().slice(0,10),dueDate:dueEl?.value||"",vehicleCount:items.length,items,subtotal,vatPct,vatAmount,extraPhrasal:extra,otherCharges:other,otherDescription:descEl?.value.trim()||"",extraTotal:extra+other,total,status:"Unpaid"});
+ s.invoices.push({invoiceNo,business:bizEl?.value||"",date:dateEl?.value||new Date().toISOString().slice(0,10),dueDate:dueEl?.value||"",vehicleCount:items.length,items,...totals,extraPhrasal:extra,otherCharges:other,otherDescription:descEl?.value.trim()||"",status:"Unpaid"});
  items.forEach(it=>{const b=s.bookings.find(x=>x.ref===it.ref);if(b){b.paymentMethod="Invoice";b.paymentStatus="Pending";b.invoiceNo=invoiceNo;}});
- saveStore(s);
+ if(!await saveStore(s))return;
  alert(`Invoice ${invoiceNo} generated successfully for ${items.length} vehicle(s).`);
  drawInvoices(document.getElementById("content"));
 }
@@ -3623,7 +3693,7 @@ function viewInvoice(invoiceNo){
   <div class="invoiceTotals">
    <table>
     <tr><td>Subtotal</td><td style="text-align:right">${money(i.subtotal)}</td></tr>
-    <tr><td>VAT (${Number(i.vatPct||0).toFixed(2)}%)</td><td style="text-align:right">${money(i.vatAmount)}</td></tr>
+    ${i.vatEnabled===false?"":`<tr><td>VAT (${Number(i.vatPct||0).toFixed(2)}%)</td><td style="text-align:right">${money(i.vatAmount)}</td></tr>`}
     <tr><td>Extra Phrasal</td><td style="text-align:right">${money(i.extraPhrasal||0)}</td></tr>
     <tr><td>${i.otherDescription||"Other Charges"}</td><td style="text-align:right">${money(i.otherCharges||0)}</td></tr>
     <tr><td><b>Total Due</b></td><td style="text-align:right"><b>${money(i.total)}</b></td></tr>
@@ -3667,12 +3737,22 @@ function findPaymentBooking(){
  <div class="actions"><button class="btn primary" onclick="savePayment('${b.ref}')">Save Payment Method</button></div></div>`;
 }
 
-function savePayment(ref){
+async function persistBookingPayment(booking,status){
+ if(!booking._normalizedId||!SUPABASE_CONFIGURED)return true;
+ const result=await sb.rpc("admin_update_booking_details",{p_booking_id:booking._normalizedId,p_payment_status:status});
+ if(result.error){alert("Payment status was not saved: "+result.error.message);return false}
+ return true;
+}
+ async function savePayment(ref){
  let s=ensureAccountsData(),b=s.bookings.find(x=>x.ref===ref),method=pMethod.value,amount=Number(pAmount.value||0);
+  if(!b)return alert("Booking not found.");
+  if(!Number.isFinite(amount)||amount<0)return alert("Enter a valid payment amount.");
  if(method==="Bank Transfer"&&!pBankRef.value.trim())return alert("Bank reference number is required.");
+  const bankReference=pBankRef.value.trim(),paymentDate=pDate.value||new Date().toISOString().slice(0,10);
+  if(!await persistBookingPayment(b,method==="Invoice"?"Pending":"Paid"))return;
  if(method==="Invoice"){b.paymentMethod="Invoice";b.paymentStatus="Pending";}
- else{b.paymentMethod=method;b.paymentStatus="Paid";b.paidAmount=amount;b.paidDate=pDate.value||new Date().toISOString().slice(0,10);s.transactions.push({date:b.paidDate,bookingRef:b.ref,business:b.business,method,amount,bankReference:method==="Bank Transfer"?pBankRef.value.trim():"",status:"Cleared"});}
- saveStore(s);drawPayments(document.getElementById("content"));
+  else{b.paymentMethod=method;b.paymentStatus="Paid";b.paidAmount=amount;b.paidDate=paymentDate;s.transactions.push({date:b.paidDate,bookingRef:b.ref,business:b.business,method,amount,bankReference:method==="Bank Transfer"?bankReference:"",status:"Cleared"});}
+  await saveStore(s);drawPayments(document.getElementById("content"));
 }
 
 function drawPendingPayments(c){
@@ -3946,36 +4026,90 @@ function deliveredCountForEmployee(name,month){
  return getStore().bookings.filter(b=>b.status==="Delivered"&&b.driver===name&&String(b.deliveryDate||"").slice(0,7)===month).length;
 }
 
+let selectedPayslipId=null,payslipSaving=false;
 function drawHRPayslips(c){
  const s=ensureHRData(),users=s.staffUsers||[];
- c.innerHTML=`<div class="panel"><h2>Payslips</h2><p class="muted">Shows delivered vehicles, pay due, tax and net pay.</p>
+ c.innerHTML=`<div class="noPrint"><div class="panel"><h2>Payslips</h2><p class="muted">Tax applies only to wages and overtime. Fuel, food and travel payments are added without tax. Advances are deducted afterwards.</p>
  <div class="form">
-  <select id="psUser" onchange="refreshPayslipEstimate()"><option value="">Select Employee / Driver *</option>${users.map(u=>`<option value="${u.email}">${u.name} — ${u.role}</option>`).join("")}</select>
-  <input id="psMonth" type="month" value="${new Date().toISOString().slice(0,7)}" onchange="refreshPayslipEstimate()">
-  <input id="psRate" type="number" step="0.01" placeholder="Pay Per Delivered Vehicle (£)" oninput="refreshPayslipEstimate()">
-  <input id="psBasic" type="number" step="0.01" placeholder="Basic / Other Gross Pay (£)" oninput="refreshPayslipEstimate()">
-  <input id="psTax" type="number" step="0.01" value="20" placeholder="Tax %" oninput="refreshPayslipEstimate()">
+  <label class="autoFieldWrap">Employee / Driver<select id="psUser" onchange="refreshPayslipEstimate()"><option value="">Select Employee / Driver *</option>${users.map(u=>`<option value="${escapeHtml(u.email)}">${escapeHtml(u.name)} — ${escapeHtml(u.role)}</option>`).join("")}</select></label>
+  <label class="autoFieldWrap">Pay month<input id="psMonth" type="month" value="${new Date().toISOString().slice(0,7)}" onchange="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Pay per delivered vehicle (£)<input id="psRate" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Basic / other wages (£)<input id="psBasic" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Overtime payment (£)<input id="psOvertime" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Fuel payment (£)<input id="psFuel" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Food payment (£)<input id="psFood" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Travel cost payment (£)<input id="psTravel" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="step" style="margin:0;display:flex;align-items:center;gap:8px"><input id="psTaxEnabled" type="checkbox" checked style="width:auto" onchange="refreshPayslipEstimate()"> Apply tax to wages and overtime</label>
+  <label class="autoFieldWrap">Tax rate (%) — optional<input id="psTax" type="number" min="0" max="100" step="0.01" value="20" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Advance already paid — deduction (£)<input id="psAdvance" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
  </div><div id="payslipEstimate" class="panel" style="margin-top:12px"></div>
- <div class="actions"><button class="btn primary" onclick="generatePayslip()">Generate Payslip</button></div></div>
- <div class="panel" style="margin-top:12px"><h3>Generated Payslips</h3><div class="scroll"><table style="min-width:1150px"><tr><th>Employee</th><th>Month</th><th>Vehicles Delivered</th><th>Rate</th><th>Gross</th><th>Tax</th><th>Net Pay</th></tr>
- ${s.payslips.slice().reverse().map(p=>`<tr><td>${p.name}</td><td>${p.month}</td><td>${p.deliveredCount}</td><td>£${Number(p.rate||0).toFixed(2)}</td><td>£${Number(p.gross||0).toFixed(2)}</td><td>£${Number(p.taxAmount||0).toFixed(2)}</td><td><b>£${Number(p.net||0).toFixed(2)}</b></td></tr>`).join("")}
- </table></div></div>`;
+ <p class="muted">Enter the total advances already paid for this payslip. This is a manual tax calculation, not an automated PAYE or National Insurance calculation.</p>
+ <div class="actions"><button id="generatePayslipBtn" class="btn primary" onclick="generatePayslip()">Generate Payslip</button></div></div>
+ <div class="panel" style="margin-top:12px"><h3>Generated Payslips</h3><div class="scroll"><table style="min-width:1450px"><tr><th>Employee</th><th>Month</th><th>Vehicles Delivered</th><th>Pay + Expenses</th><th>Overtime</th><th>Fuel</th><th>Food</th><th>Travel</th><th>Tax</th><th>Advance Deducted</th><th>Net Pay / Balance</th><th>Action</th></tr>
+ ${s.payslips.slice().reverse().map(p=>`<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.month)}</td><td>${p.deliveredCount}</td><td>${currency(p.gross)}</td><td>${currency(p.overtime)}</td><td>${currency(p.fuel)}</td><td>${currency(p.food)}</td><td>${currency(p.travel)}</td><td>${p.taxEnabled===false?"Not applied":currency(p.taxAmount)}</td><td>${currency(p.advance)}</td><td><b>${currency(p.net)}</b></td><td><button class="btn secondary" onclick="viewPayslip('${escapeHtml(p.id)}')">View / Print</button></td></tr>`).join("")}
+ </table></div></div></div><div id="payslipDetail">${s.payslips.some(p=>p.id===selectedPayslipId)?payslipDocument(s.payslips.find(p=>p.id===selectedPayslipId)):""}</div>`;
  refreshPayslipEstimate();
 }
 
+function calculatePayslip({deliveredCount=0,rate=0,basic=0,overtime=0,fuel=0,food=0,travel=0,advance=0,taxEnabled=true,taxPct=20}={}){
+ const values={deliveredCount,rate,basic,overtime,fuel,food,travel,advance};
+ for(const [key,value] of Object.entries(values)){
+  if(!Number.isFinite(value)||value<0)throw new Error("Enter a valid amount of zero or more for "+key+".");
+ }
+ if(!Number.isInteger(deliveredCount))throw new Error("Delivered vehicle count must be a whole number.");
+ const appliedRate=taxEnabled?Number(taxPct):0;
+ if(!Number.isFinite(appliedRate)||appliedRate<0||appliedRate>100)throw new Error("Tax rate must be between 0 and 100.");
+ const pennies=value=>Math.round((value+Number.EPSILON)*100);
+ const vehiclePay=pennies(rate)*deliveredCount,taxablePay=pennies(basic)+vehiclePay+pennies(overtime);
+ const expensePayments=pennies(fuel)+pennies(food)+pennies(travel),gross=taxablePay+expensePayments,taxAmount=Math.round(taxablePay*appliedRate/100);
+ if(![vehiclePay,taxablePay,expensePayments,gross,taxAmount,pennies(advance)].every(Number.isSafeInteger))throw new Error("Payslip amounts are too large. Enter smaller valid amounts.");
+ return {deliveredCount,rate:pennies(rate)/100,basic:pennies(basic)/100,overtime:pennies(overtime)/100,fuel:pennies(fuel)/100,food:pennies(food)/100,travel:pennies(travel)/100,advance:pennies(advance)/100,vehiclePay:vehiclePay/100,taxablePay:taxablePay/100,expensePayments:expensePayments/100,gross:gross/100,taxEnabled,taxPct:appliedRate,taxAmount:taxAmount/100,net:(gross-taxAmount-pennies(advance))/100};
+}
+function readPayslipAmounts(deliveredCount){
+ const amount=id=>Number(document.getElementById(id)?.value||0);
+ return calculatePayslip({deliveredCount,rate:amount("psRate"),basic:amount("psBasic"),overtime:amount("psOvertime"),fuel:amount("psFuel"),food:amount("psFood"),travel:amount("psTravel"),advance:amount("psAdvance"),taxEnabled:document.getElementById("psTaxEnabled")?.checked!==false,taxPct:amount("psTax")});
+}
+function payslipBreakdown(p){
+ const vehiclePay=p.vehiclePay??Number(p.deliveredCount||0)*Number(p.rate||0);
+ const rows=[["Basic / other wages",p.basic],["Delivered vehicle pay ("+Number(p.deliveredCount||0)+" × "+currency(p.rate)+")",vehiclePay],["Overtime payment",p.overtime],["Wages + overtime (tax base)",p.taxablePay??p.gross],["Fuel payment — no tax",p.fuel],["Food payment — no tax",p.food],["Travel cost payment — no tax",p.travel],["Total pay + expenses",p.gross],["Tax "+(p.taxEnabled===false?"not applied":"("+Number(p.taxPct||0)+"% on wages + overtime)"),-Number(p.taxAmount||0)],["Advance deducted",-Number(p.advance||0)]];
+ return `<table style="width:100%;min-width:0">${rows.map(([label,value])=>`<tr><td>${escapeHtml(label)}</td><td style="text-align:right;white-space:nowrap">${currency(value)}</td></tr>`).join("")}<tr><td><b>Net pay / balance</b></td><td style="text-align:right;white-space:nowrap"><b>${currency(p.net)}</b></td></tr></table>${Number(p.net)<0?`<p role="status">The advance exceeds this payslip's pay by <b>${currency(-p.net)}</b>. This is a balance owed, not a payment due.</p>`:""}`;
+}
+function payslipDocument(p){
+ return `<div class="noPrint actions" style="margin:16px 0"><button class="btn primary" onclick="window.print()">Print / Save PDF</button></div><div class="invoiceSheet"><h2>UK On Wheels — Payslip</h2><p><b>Employee:</b> ${escapeHtml(p.name)}<br><b>Role:</b> ${escapeHtml(p.role)}<br><b>Pay month:</b> ${escapeHtml(p.month)}<br><b>Reference:</b> ${escapeHtml(p.id)}</p>${payslipBreakdown(p)}<p class="muted">Fuel, food and travel payments are not included in the tax base. Advance payments are deducted after tax.</p></div>`;
+}
+function viewPayslip(id){
+ if(!hasPermission("hr"))return alert("HR permission is required to view payslips.");
+ const p=ensureHRData().payslips.find(p=>p.id===id),box=document.getElementById("payslipDetail");
+ if(!p||!box)return alert("Payslip not found.");
+ selectedPayslipId=id;box.innerHTML=payslipDocument(p);box.scrollIntoView({behavior:"smooth"});
+}
 function refreshPayslipEstimate(){
  const s=ensureHRData(),email=document.getElementById("psUser")?.value,u=(s.staffUsers||[]).find(x=>x.email===email);
- const month=document.getElementById("psMonth")?.value||"",rate=Number(document.getElementById("psRate")?.value||0),basic=Number(document.getElementById("psBasic")?.value||0),taxPct=Number(document.getElementById("psTax")?.value||0);
- const delivered=u?deliveredCountForEmployee(u.name,month):0,gross=basic+delivered*rate,taxAmount=gross*taxPct/100,net=gross-taxAmount;
- const box=document.getElementById("payslipEstimate");if(box)box.innerHTML=`<b>Vehicles Delivered:</b> ${delivered} &nbsp; | &nbsp; <b>Gross:</b> £${gross.toFixed(2)} &nbsp; | &nbsp; <b>Tax:</b> £${taxAmount.toFixed(2)} &nbsp; | &nbsp; <b>Net Pay:</b> £${net.toFixed(2)}`;
+ const month=document.getElementById("psMonth")?.value||"",box=document.getElementById("payslipEstimate"),tax=document.getElementById("psTax");
+ if(tax)tax.disabled=document.getElementById("psTaxEnabled")?.checked===false;
+ if(!box)return;
+ try{box.innerHTML=payslipBreakdown(readPayslipAmounts(u?deliveredCountForEmployee(u.name,month):0))}
+ catch(e){box.innerHTML=`<p role="alert">${escapeHtml(e.message)}</p>`}
 }
 
-function generatePayslip(){
- let s=ensureHRData(),email=document.getElementById("psUser").value,u=(s.staffUsers||[]).find(x=>x.email===email),month=document.getElementById("psMonth").value;
- if(!u||!month)return alert("Select employee and month.");
- const rate=Number(document.getElementById("psRate").value||0),basic=Number(document.getElementById("psBasic").value||0),taxPct=Number(document.getElementById("psTax").value||0),delivered=deliveredCountForEmployee(u.name,month),gross=basic+delivered*rate,taxAmount=gross*taxPct/100,net=gross-taxAmount;
- s.payslips.push({id:"PAY-"+Date.now(),email:u.email,name:u.name,role:u.role,month,deliveredCount:delivered,rate,basic,gross,taxPct,taxAmount,net,createdAt:new Date().toLocaleString()});
- saveStore(s);drawHRPayslips(document.getElementById("content"));
+async function generatePayslip(){
+ if(!hasPermission("hr"))return alert("HR permission is required to generate payslips.");
+ if(payslipSaving)return;
+ const s=ensureHRData(),email=document.getElementById("psUser")?.value,u=(s.staffUsers||[]).find(x=>x.email===email),month=document.getElementById("psMonth")?.value;
+ if(!u||!/^\d{4}-(0[1-9]|1[0-2])$/.test(month||""))return alert("Select employee and a valid pay month.");
+ let amounts;
+ try{amounts=readPayslipAmounts(deliveredCountForEmployee(u.name,month))}
+ catch(e){return alert(e.message)}
+ const record={id:"PAY-"+Date.now()+"-"+Math.random().toString(36).slice(2,7),email:u.email,name:u.name,role:u.role,month,...amounts,createdAt:new Date().toLocaleString()};
+ const button=document.getElementById("generatePayslipBtn");
+ payslipSaving=true;if(button)button.disabled=true;
+ s.payslips.push(record);
+ try{
+  if(!await saveStore(s))return;
+  selectedPayslipId=record.id;
+  drawHRPayslips(document.getElementById("content"));
+ }catch(e){alert("Payslip could not be saved: "+(e.message||"Connection unavailable."))}
+ finally{payslipSaving=false;if(button?.isConnected)button.disabled=false}
 }
 
 function drawNonResidentRecords(c){
@@ -4072,15 +4206,16 @@ function ensureMessagingSettings(){
  return getStore();
 }
 
-function drawSettings(c){
+function drawMessageCentre(c){drawSettings(c,true)}
+function drawSettings(c,messagingOnly=false){
  const s=ensureMessagingSettings(),m=s.messagingSettings;
  c.innerHTML=`<div class="panel">
-  <h2>Settings</h2>
-  <p class="muted">Configure WhatsApp and text-message templates plus the API credentials your production system will use to send customer updates.</p>
+  <h2>${messagingOnly?"WhatsApp / Text Messages":"Settings"}</h2>
+  <p class="muted">Manage customer-message templates and drafts. Live WhatsApp and SMS delivery is not connected.</p>
  </div>
 
  <div class="panel" style="margin-top:12px">
-  <h3>Messaging API Settings</h3>
+   <h3>Messaging Preferences — Drafts Only</h3>
   <div class="form">
    <select id="msgProvider">
     <option ${m.provider==="Custom API / Twilio / WhatsApp Business"?"selected":""}>Custom API / Twilio / WhatsApp Business</option>
@@ -4089,15 +4224,13 @@ function drawSettings(c){
     <option ${m.provider==="Other"?"selected":""}>Other</option>
    </select>
    <input id="msgApiBaseUrl" value="${m.apiBaseUrl||""}" placeholder="API Base URL">
-   <input id="msgApiKey" value="${m.apiKey||""}" placeholder="API Key / Account SID">
-   <input id="msgApiSecret" type="password" value="${m.apiSecret||""}" placeholder="API Secret / Auth Token">
    <input id="msgWhatsAppSender" value="${m.whatsappSender||""}" placeholder="WhatsApp Sender Number / ID">
    <input id="msgSmsSender" value="${m.smsSender||""}" placeholder="SMS Sender Number / Sender ID">
-   <label class="step" style="margin:0"><input id="msgWhatsAppEnabled" type="checkbox" ${m.whatsappEnabled?"checked":""}> Enable WhatsApp customer updates</label>
-   <label class="step" style="margin:0"><input id="msgSmsEnabled" type="checkbox" ${m.smsEnabled?"checked":""}> Enable SMS customer updates</label>
+    <label class="step" style="margin:0"><input id="msgWhatsAppEnabled" type="checkbox" ${m.whatsappEnabled?"checked":""}> Prepare WhatsApp message drafts</label>
+    <label class="step" style="margin:0"><input id="msgSmsEnabled" type="checkbox" ${m.smsEnabled?"checked":""}> Prepare SMS message drafts</label>
   </div>
-  <div class="actions"><button class="btn primary" onclick="saveMessagingSettings()">Save Messaging API Settings</button></div>
-  <p class="muted">This browser prototype stores settings locally and simulates sending. Live messages require a secure backend connected to your chosen provider.</p>
+   <div class="actions"><button class="btn primary" onclick="saveMessagingSettings()">Save Messaging Preferences</button></div>
+   <p class="muted">Messages in this log have not been sent. Delivery requires a provider connected through a secure backend. Never enter API credentials into this shared portal.</p>
  </div>
 
  <div class="panel" style="margin-top:12px">
@@ -4126,7 +4259,7 @@ function drawSettings(c){
   </table></div>
   </div>
   <div id="portalUserDirectory"></div>`;
-  loadAdminUserDirectory();
+   if(!messagingOnly)loadAdminUserDirectory();
 }
 
 async function loadAdminUserDirectory(){
@@ -4185,30 +4318,29 @@ async function deletePortalUser(index){
  loadAdminUserDirectory();
 }
 
-function saveMessagingSettings(){
+async function saveMessagingSettings(){
  let s=ensureMessagingSettings(),m=s.messagingSettings;
  m.provider=document.getElementById("msgProvider").value;
  m.apiBaseUrl=document.getElementById("msgApiBaseUrl").value.trim();
- m.apiKey=document.getElementById("msgApiKey").value.trim();
- m.apiSecret=document.getElementById("msgApiSecret").value;
+ delete m.apiKey;delete m.apiSecret;
  m.whatsappSender=document.getElementById("msgWhatsAppSender").value.trim();
  m.smsSender=document.getElementById("msgSmsSender").value.trim();
  m.whatsappEnabled=document.getElementById("msgWhatsAppEnabled").checked;
  m.smsEnabled=document.getElementById("msgSmsEnabled").checked;
- saveStore(s);
- alert("Messaging API settings saved.");
- drawSettings(document.getElementById("content"));
+ if(!await saveStore(s))return;
+ alert("Messaging preferences saved. Message delivery is not connected.");
+ draw();
 }
 
-function saveMessageTemplates(){
+async function saveMessageTemplates(){
  let s=ensureMessagingSettings(),m=s.messagingSettings;
  ["booked","pickedUp","onRoute","delivered"].forEach(key=>{
    m.templates[key].whatsapp=document.getElementById("wa_"+key).value;
    m.templates[key].sms=document.getElementById("sms_"+key).value;
  });
- saveStore(s);
+ if(!await saveStore(s))return;
  alert("WhatsApp and SMS message formats saved.");
- drawSettings(document.getElementById("content"));
+ draw();
 }
 
 function fillMessageTemplate(template,b){
@@ -4245,7 +4377,7 @@ function queueCustomerStatusMessage(b,eventKey){
     mobile,
     event:map[eventKey]||eventKey,
     channel,
-    status:"Queued / Simulated",
+    status:"Draft — not sent",
     message:fillMessageTemplate(tpl,b),
     createdAt:new Date().toLocaleString()
    });
@@ -4554,10 +4686,10 @@ function drawBooking(c){
  c.innerHTML=`<div class="panel"><h3>Create Booking</h3>
  <div class="form">
   ${role==="client"
-    ? `<input id="customerType" type="hidden" value="Business"><div class="panel" style="padding:10px"><b>Booking For:</b> ${currentUser?.name||"Business Customer"}</div>`
+    ? `<input id="customerType" type="hidden" value="${currentUser?.accountType==="business"?"Business":"Private"}"><div class="panel" style="padding:10px"><b>Booking For:</b> ${escapeHtml(currentUser?.name||"Client")}</div>`
     : `<select id="customerType" onchange="toggleCustomerTypeFields()"><option value="Business">Business Customer</option><option value="Private">Private Customer — Admin Only</option></select>`}
   ${role==="client"
-      ? `<input id="biz" type="hidden" value="${currentUser?.name||"Prestige Motors Ltd"}"><div class="panel" style="padding:10px"><b>Business:</b> ${currentUser?.name||"Prestige Motors Ltd"}</div>`
+      ? `<input id="biz" type="hidden" value="${escapeHtml(currentUser?.name||"")}"><div class="panel" style="padding:10px"><b>${currentUser?.accountType==="business"?"Business":"Private Client"}:</b> ${escapeHtml(currentUser?.name||"Client")}</div>`
       : `<div id="bookingBusinessField"><select id="biz" aria-label="Saved business" onchange="showBusinessTariff()">${bookingBusinessOptions()}</select><div id="businessLoadStatus" role="status" class="muted"></div></div>`}
   <input id="privateCustomerName" placeholder="Private Customer Name *" style="display:none">
   <input id="privateCustomerMobile" placeholder="Private Customer Mobile Number" style="display:none">
@@ -4612,7 +4744,7 @@ function toggleCustomerTypeFields(){
  const mobileEl=document.getElementById("privateCustomerMobile");
  const emailEl=document.getElementById("privateCustomerEmail");
  const tariffEl=document.getElementById("tariffInfo");
- const isPrivate=type==="Private";
+ const isPrivate=type==="Private"&&role!=="client";
  const businessField=document.getElementById("bookingBusinessField");
  if(businessField)businessField.style.display=isPrivate?"none":"block";
  if(bizEl)bizEl.style.display=isPrivate?"none":"block";
@@ -4630,9 +4762,19 @@ function showBusinessTariff(){
  if(!b){if(tariffEl)tariffEl.innerHTML="";return}
  tariffEl.innerHTML=`<div class="panel" style="padding:10px"><b>Assigned Tariff:</b> ${b.tariffType||"Not set"} ${b.perMile?`· £${Number(b.perMile).toFixed(2)} per mile`:""} ${b.minimumCharge?`· Minimum £${Number(b.minimumCharge).toFixed(2)}`:""} · Invoice: ${b.invoiceCycle||"Not set"}</div>`;
 }
+let bookingCreationPending=false;
 async function createBooking(){
+ if(bookingCreationPending)return;
+ bookingCreationPending=true;
+ const button=document.querySelector('button[onclick="createBooking()"]');
+ if(button)button.disabled=true;
+ try{return await submitBooking()}
+ catch(e){alert("Booking was not created: "+(e.message||e))}
+ finally{bookingCreationPending=false;if(button?.isConnected)button.disabled=false}
+}
+async function submitBooking(){
  let s=getStore();
- const type=role==="client"?"Business":(document.getElementById("customerType")?.value||"Business");
+ const type=role==="client"?(currentUser?.accountType==="business"?"Business":"Private"):(document.getElementById("customerType")?.value||"Business");
 
  let business="";
  let selectedBusinessId=null;
@@ -4641,7 +4783,7 @@ async function createBooking(){
  let privateCustomerEmailValue="";
 
  if(role==="client"){
-   business=currentUser?.name||"Prestige Motors Ltd";
+   business=currentUser?.name||"Client";
  }else if(type==="Business"){
    const businessSelect=document.getElementById("biz");
    if(businessSelect?.disabled)return alert("Please wait for saved businesses to finish loading.");
@@ -4960,6 +5102,7 @@ async function deleteBusiness(index){
 async function changeBusinessPassword(index){
  const s=getStore(),b=s.businesses[index];
  if(!b)return;
+ if(SUPABASE_CONFIGURED)return requestAccountPasswordReset(b.email);
  const p1=await crmPrompt("Enter new password for "+b.name,"","Change Client password");
  if(!p1)return;
  const p2=await crmPrompt("Confirm new password","","Confirm password");
@@ -4972,15 +5115,18 @@ async function changeBusinessPassword(index){
  drawBusinesses(document.getElementById("content"));
 }
 function addBusiness(){ alert('Use the full Create Business form above.'); }
+function isDeliveredBooking(b){
+ return String(b.status||"").trim().toLowerCase()==="delivered"||Boolean(b._deliveredAt||b.deliveredAt);
+}
 function drawAssign(c){
  const s=getStore();
- const rows=s.bookings.filter(b=>b.status==="New Booked Vehicle");
+ const rows=s.bookings.filter(b=>!isDeliveredBooking(b)&&(b.status==="New Booked Vehicle"||b._driverId||b.driver));
  const drivers=SUPABASE_CONFIGURED?portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active").map(x=>({id:x.id,name:x.full_name||x.name||x.email,phone:""})):
   s.drivers.map(x=>({id:x.name,name:x.name,phone:x.phone}));
  c.innerHTML=`<div class="panel">
    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-     <div><h2 style="margin:0">Assign Driver</h2><p class="muted" style="margin:6px 0 0">Review the full vehicle and client details before assigning the correct driver.</p></div>
-     <span class="badge">${rows.length} bookings waiting</span>
+      <div><h2 style="margin:0">Assign Driver</h2><p class="muted" style="margin:6px 0 0">Assign or change the driver before delivery, including after pickup. Existing progress and pictures are kept. Delivered jobs are locked.</p></div>
+      <span class="badge">${rows.length} undelivered bookings</span>
    </div>
  </div>
  ${rows.length?rows.map(b=>`<div class="panel" style="margin-top:12px">
@@ -5030,71 +5176,78 @@ function drawAssign(c){
    </div>
 
    <div style="margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f9fbfe">
-     <h4 style="margin-top:0">Designated Driver Assignment Area</h4>
+      <h4 style="margin-top:0">${b._driverId||b.driver?"Reassign Driver":"Designated Driver Assignment Area"}</h4>
+      <p><b>Current driver:</b> ${escapeHtml(b.driver||(b._driverId?"Assigned driver":"Not assigned"))}</p>
      <div class="form">
        <select id="driver_${b.ref}">
-         <option value="">Select Driver *</option>
-         ${drivers.map(d=>`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}${d.phone?" — "+escapeHtml(d.phone):""}</option>`).join("")}
+          <option value="">${b._driverId||b.driver?"Select another driver *":"Select Driver *"}</option>
+          ${drivers.filter(d=>b._driverId?d.id!==b._driverId:d.name!==b.driver).map(d=>`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}${d.phone?" — "+escapeHtml(d.phone):""}</option>`).join("")}
        </select>
-       <input id="assignDate_${b.ref}" type="date" title="Assignment date">
-       <input id="assignTime_${b.ref}" type="time" title="Assignment time">
-       <input id="collectionTime_${b.ref}" type="time" title="Collection time">
-       <textarea id="driverNotes_${b.ref}" class="full" placeholder="Driver instructions / collection notes / special requirements"></textarea>
+        <input id="assignDate_${b.ref}" type="date" title="Assignment date" value="${escapeHtml(b.assignmentDate||"")}">
+        <input id="assignTime_${b.ref}" type="time" title="Assignment time" value="${escapeHtml(b.assignmentTime||"")}">
+        <input id="collectionTime_${b.ref}" type="time" title="Collection time" value="${escapeHtml(b.collectionTime||"")}">
+        <textarea id="driverNotes_${b.ref}" class="full" placeholder="Driver instructions / collection notes / special requirements">${escapeHtml(b.driverNotes||"")}</textarea>
      </div>
      <div class="actions">
-       <button class="btn primary" onclick="assignSpecificDriver('${b.ref}')">Assign Driver to This Booking</button>
+        <button id="assignDriverBtn_${b.ref}" class="btn primary" ${drivers.some(d=>b._driverId?d.id!==b._driverId:d.name!==b.driver)?"":"disabled"} onclick="assignSpecificDriver('${b.ref}')">${b._driverId||b.driver?"Reassign to Selected Driver":"Assign Driver to This Booking"}</button>
+        ${drivers.some(d=>b._driverId?d.id!==b._driverId:d.name!==b.driver)?"":`<span class="muted">No other active Driver account is available.</span>`}
      </div>
    </div>
- </div>`).join(""):`<div class="panel"><p class="muted">No new booked vehicles are waiting for driver assignment.</p></div>`}`;
+  </div>`).join(""):`<div class="panel"><p class="muted">No undelivered bookings are available for driver assignment.</p></div>`}`;
 }
+const driverAssignmentSaves=new Set();
 async function assignSpecificDriver(ref){
- let s=getStore();
- const b=s.bookings.find(x=>x.ref===ref);
- const driverId=document.getElementById("driver_"+ref).value;
+ if(!hasPermission("assign"))return alert("Driver assignment permission is required.");
+ if(driverAssignmentSaves.has(ref))return;
+ const b=getStore().bookings.find(x=>x.ref===ref);
+ if(!b)return alert("Booking not found.");
+ if(isDeliveredBooking(b))return alert("Delivered jobs are locked and cannot be reassigned.");
+ const driverId=document.getElementById("driver_"+ref)?.value;
  if(!b||!driverId)return alert("Please select a driver for this booking.");
-  const dp=portalProfiles.find(x=>x.id===driverId&&String(x.role).toLowerCase()==="driver");
-  if(SUPABASE_CONFIGURED&&!dp)return alert("This driver does not yet have a Driver account in Supabase. Change their role to Driver in Settings first.");
-  const driverName=dp?.full_name||dp?.name||driverId;
-  let assignedDuringLink=false;
-  if(SUPABASE_CONFIGURED&&currentSession&&!b._normalizedId){
-   try{
-    const linked=await createLinkedBooking(b,b.ref,dp.id);
-    b._normalizedId=linked.id;
-    b._businessId=linked.business_id;
-    b._clientId=linked.client_id;
-    b._createdById=linked.created_by;
-    assignedDuringLink=true;
-   }catch(e){return alert("Driver was not assigned because this booking cannot store shared photographs: "+e.message)}
+ const dp=SUPABASE_CONFIGURED?portalProfiles.find(x=>x.id===driverId&&String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active"):getStore().drivers.find(x=>x.name===driverId);
+ if(!dp)return alert("Choose an active Driver account.");
+ if(SUPABASE_CONFIGURED&&!currentSession)return alert("Sign in again before assigning a driver.");
+ if(driverId===b._driverId||(!b._driverId&&driverId===b.driver))return alert("Choose a different driver.");
+ const previousDriver=b.driver,expectedDriver=b._driverId||null;
+ const driverName=dp.full_name||dp.name;
+ const reassignment=Boolean(b._driverId||b.driver);
+ const values={assignmentDate:document.getElementById("assignDate_"+ref)?.value||b.assignmentDate||"",assignmentTime:document.getElementById("assignTime_"+ref)?.value||b.assignmentTime||"",collectionTime:document.getElementById("collectionTime_"+ref)?.value||b.collectionTime||"",driverNotes:document.getElementById("driverNotes_"+ref)?.value.trim()||""};
+ driverAssignmentSaves.add(ref);
+ const button=document.getElementById("assignDriverBtn_"+ref);if(button)button.disabled=true;
+ try{
+  if(reassignment&&!await crmConfirm(`Change ${ref} from ${previousDriver||"the current driver"} to ${driverName}? Pickup progress and pictures will be kept.`,"Reassign Driver","Reassign"))return;
+  if(isDeliveredBooking(b))throw new Error("Delivered jobs are locked and cannot be reassigned.");
+  let saved=null;
+  if(SUPABASE_CONFIGURED){
+   if(!b._normalizedId){
+    // Do not invoke the older import/assignment path until its Delivered guard is installed.
+    const ready=await sb.rpc("driver_reassignment_ready");
+    if(ready.error)throw ready.error;
+    if(ready.data!==true)throw new Error("Supabase reassignment setup is not ready.");
+    saved=await createLinkedBooking(b,b.ref,dp.id);
+    Object.assign(b,{_normalizedId:saved.id,_businessId:saved.business_id,_clientId:saved.client_id,_createdById:saved.created_by});
+   }else{
+    const result=await sb.rpc("reassign_booking_driver",{p_booking_id:b._normalizedId,p_driver_id:dp.id,p_notes:values.driverNotes||null,p_expected_driver_id:expectedDriver});
+    if(result.error)throw result.error;
+    saved=result.data;
+   }
+   if(!saved?.id||saved.driver_id!==dp.id)throw new Error("Supabase did not confirm the selected Driver. Reload the saved booking before retrying.");
   }
-  if(b._normalizedId&&!assignedDuringLink){
-  const notes=document.getElementById("driverNotes_"+ref).value.trim();
-  const {error}=await sb.rpc("assign_booking_driver",{p_booking_id:b._normalizedId,p_driver_id:dp.id,p_notes:notes||null});
-  if(error)return alert("Driver assignment failed: "+error.message);
- }
-  if(b._normalizedId)b._driverId=dp.id;
-
- b.driver=driverName;
- b.status="Driver Assigned";
- b.assignmentDate=document.getElementById("assignDate_"+ref).value;
- b.assignmentTime=document.getElementById("assignTime_"+ref).value;
- b.collectionTime=document.getElementById("collectionTime_"+ref).value;
- b.driverNotes=document.getElementById("driverNotes_"+ref).value.trim();
-
- b.timeline=b.timeline||[];
- b.timeline.unshift({
-   title:"Driver Assigned",
-   text:driverName+" assigned to "+ref+" at "+new Date().toLocaleString()
- });
-
- s.notifications.unshift({
-   title:"Driver Assigned",
-   text:ref+" assigned to "+driverName+"."
- });
-
- saveStore(s);
- await loadNormalizedPortalData();
- alert(driverName+" assigned successfully to "+ref+".");
- drawAssign(document.getElementById("content"));
+  const s=getStore(),booking=s.bookings.find(x=>x.ref===ref)||b;
+  const title=reassignment?"Driver Reassigned":"Driver Assigned";
+  Object.assign(booking,values,{driver:driverName,status:saved?.status||(b.status==="New Booked Vehicle"?"Driver Assigned":b.status)});
+  if(saved)Object.assign(booking,{_normalizedId:saved.id,_driverId:saved.driver_id,_deliveredAt:saved.delivered_at||null});
+  booking.timeline=booking.timeline||[];
+  booking.timeline.unshift({title,text:reassignment?`${ref} changed from ${previousDriver||"previous driver"} to ${driverName}. Pickup progress and evidence retained.`:`${driverName} assigned to ${ref}.`});
+  s.notifications=s.notifications||[];s.notifications.unshift({title,text:ref+" assigned to "+driverName+"."});
+  const synced=await saveStore(s);
+  if(SUPABASE_CONFIGURED)await loadNormalizedPortalData();
+  alert(synced?`${driverName} ${reassignment?"reassigned":"assigned"} successfully to ${ref}.`:"Driver saved in Supabase, but the shared directory sync is pending. Use Retry save.");
+  if(page==="assign")drawAssign(document.getElementById("content"));
+ }catch(e){
+  const missing=e.code==="PGRST202"||/could not find.*function|does not exist/i.test(e.message||"");
+  alert(missing?"Driver assignment needs the Supabase SQL patch: supabase/driver_reassignment_patch.sql. No reassignment was saved.":"Driver assignment failed: "+(e.message||"Connection unavailable."));
+ }finally{driverAssignmentSaves.delete(ref);if(button?.isConnected)button.disabled=false}
 }
 async function linkExistingDriverBooking(ref){
  const s=getStore(),b=s.bookings.find(x=>x.ref===ref);
@@ -5239,10 +5392,15 @@ function drawUpdateApprovals(c){
   </div>`;
  }).join(""):`<div class="panel" style="margin-top:12px"><p class="muted">No pending update approvals.</p></div>`}`;
 }
-function approveUpdateRequest(id){
+async function approveUpdateRequest(id){
  if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can approve updates.");
  let s=ensureApprovalData(),r=s.updateRequests.find(x=>x.id===id),b=s.bookings.find(x=>x.ref===r?.bookingRef);
  if(!r||!b)return;
+  if(b._normalizedId&&SUPABASE_CONFIGURED){
+   const result=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_miles:Number(r.changes.miles||0),p_amount:Number(r.changes.amount||0),p_destination_address:r.changes.destination});
+   if(result.error)return alert("Booking details could not be approved: "+result.error.message);
+   if(!await persistNormalizedStatus(b,r.changes.status,"Approved update: "+(r.reason||"Admin approval")))return;
+  }
  const approvedBy=currentUser?.name||currentStaffUser?.name||"Approver";
  const approvedAt=new Date().toLocaleString();
  b.status=r.changes.status;
@@ -5258,8 +5416,8 @@ function approveUpdateRequest(id){
  if(hist){hist.approvedBy=approvedBy;hist.approvedAt=approvedAt;hist.action="Update Approved";}
  r.status="Approved";r.approvedBy=approvedBy;r.approvedAt=approvedAt;
  s.notifications.unshift({title:"Booking Update Approved",text:`${b.ref} update approved by ${approvedBy}.`});
- saveStore(s);
- alert("Update approved and applied.");
+  if(!await saveStore(s))return;
+  alert("Update approved and applied.");
  drawUpdateApprovals(document.getElementById("content"));
 }
 function rejectUpdateRequest(id){
@@ -5279,7 +5437,13 @@ function rejectUpdateRequest(id){
 function drawStatus(c){
  const s=getStore();c.innerHTML=`<div class="panel"><h3>Status Update</h3><div class="form"><select id="sb">${s.bookings.map(b=>`<option value="${b.ref}">${b.ref} — ${b.status}</option>`).join("")}</select><select id="ss">${statusTabs().map(x=>`<option>${x}</option>`).join("")}</select></div><div class="actions"><button class="btn primary" onclick="updateStatus()">Update</button></div></div>`;
 }
-function updateStatus(){let s=getStore(),b=s.bookings.find(x=>x.ref===sb.value);b.status=ss.value;b.timeline.unshift({title:ss.value,text:"Status updated at "+new Date().toLocaleString()});saveStore(s);page="desktop";render()}
+async function updateStatus(){
+ const s=getStore(),ref=document.getElementById("sb")?.value,status=document.getElementById("ss")?.value,b=s.bookings.find(x=>x.ref===ref);
+ if(!b||!status)return alert("Select a booking and status first.");
+ if(!await persistNormalizedStatus(b,status,"Updated from Admin status page"))return;
+ b.status=status;b.timeline=b.timeline||[];b.timeline.unshift({title:status,text:"Status updated at "+new Date().toLocaleString()});
+ await saveStore(s);page="desktop";render();
+}
 function drawNotifications(c){
  const s=getStore();c.innerHTML=`<div class="panel"><h3>Announcement Centre</h3><p class="muted">Create operational announcements and notifications away from the dashboard.</p><div class="form"><input id="nt" placeholder="Announcement title"><textarea id="nm" class="full" placeholder="Write the announcement or notification"></textarea></div><div class="actions"><button class="btn primary" onclick="postNotification()">Publish Announcement</button></div></div><div class="panel"><h3>Notification History</h3>${s.notifications.map(n=>`<div class="event"><b>${n.title}</b><div class="muted">${n.text}</div></div>`).join("")||"<p class='muted'>No notifications yet.</p>"}</div>`;
 }
@@ -5340,6 +5504,8 @@ function showDriverJobList(){
  window.scrollTo(0,0);
 }
 function setDriverMobileTab(tab){
+ if(IncidentUI.isSaving?.()){crmToast("Please wait for the incident report to finish saving.","Report saving");return;}
+ IncidentUI.captureForm();
  if(driverPhotoIsSaving())return;
  saveDriverFormDraft();
  closeDriverCameras();
@@ -5363,6 +5529,7 @@ function driverStatusCounts(rows){
 function driverMobileNav(){
  return `<div class="driverBottomNav">
   <button class="${driverMobileTab==="jobs"?"active":""}" onclick="setDriverMobileTab('jobs')"><span>${ico("car")}</span>Jobs</button>
+  <button class="${driverMobileTab==="incidents"?"active":""}" onclick="setDriverMobileTab('incidents')"><span>${ico("clipboard")}</span>Incidents</button>
   <button class="${driverMobileTab==="holidays"?"active":""}" onclick="setDriverMobileTab('holidays')"><span>${ico("calendar")}</span>Holidays</button>
   <button class="${driverMobileTab==="history"?"active":""}" onclick="setDriverMobileTab('history')"><span>${ico("receipt")}</span>History</button>
   <button class="${driverMobileTab==="profile"?"active":""}" onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
@@ -5389,6 +5556,7 @@ function driverMobileJobCard(b){
     b.status==="On Route"||["Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?journeySteps(b):
     b.status==="Delivered"?`<div class="panel" style="margin-top:12px;background:#eef9f3"><b>${ico("check")} Delivery Complete</b><p class="muted">Pickup and delivery evidence is available to Admin and Client.</p></div>`:
     `<p class="muted">Waiting for next stage.</p>`}
+  <div class="actions"><button type="button" class="btn secondary" data-incident-booking="${escapeHtml(b.ref)}" onclick="IncidentUI.open(this.dataset.incidentBooking,'Incident')">Full incident report</button></div>
   <details style="margin-top:12px"><summary><b>Journey Timeline</b></summary>
    ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
   </details>
@@ -5449,11 +5617,13 @@ function drawDriverProfileMobile(){
  </div>`;
 }
 function drawDriver(c){
+ IncidentUI.captureForm();
  document.body.classList.add("driver-mode");
  const rows=driverAssignedRows(),counts=driverStatusCounts(rows),name=currentUser?.name||currentStaffUser?.name||"Driver";
  const showingJob=driverMobileTab==="jobs"&&rows.some(b=>b.ref===driverSelectedJobRef&&b.status!=="Delivered");
  let body="";
  if(driverMobileTab==="jobs")body=drawDriverJobsMobile();
+ else if(driverMobileTab==="incidents")body=IncidentUI.renderDriver();
  else if(driverMobileTab==="holidays")body=drawDriverHolidaysMobile();
  else if(driverMobileTab==="history")body=drawDriverHistoryMobile();
  else body=drawDriverProfileMobile();
@@ -5472,6 +5642,7 @@ function drawDriver(c){
   <div class="driverBody">${body}</div>
   ${driverMobileNav()}
  </div>`;
+ if(driverMobileTab==="incidents")IncidentUI.mountDriver();
 }
 function driverCard(b){
  return `<div class="panel"><div><span class="badge">${b.status}</span></div><h2>${b.ref} — ${b.vehicle}</h2><p><b>${b.pickup}</b> → <b>${b.destination}</b></p>
@@ -5798,7 +5969,7 @@ async function captureDeliveryCamera(ref,id){
  stopEvidenceCamera("delivery_"+ref+"_"+id,video);
  button.disabled=false;
 }
-async function incident(ref,status){let note=await crmPrompt("Add location / notes for "+status,"","Report "+status);let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!await persistNormalizedStatus(b,status,note||"No notes"))return;b.status=status;b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
+async function incident(ref,status){let note=await crmPrompt("Add location / notes for "+status,"","Report "+status);if(note===null)return;let s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!b||!await persistNormalizedStatus(b,status,note||"No notes"))return;b.status=status;b.timeline=b.timeline||[];b.timeline.unshift({title:status,text:(note||"No notes")+" · "+new Date().toLocaleString()});s.notifications.unshift({title:status,text:b.ref+" updated to "+status+"."});saveStore(s);draw()}
 async function deliver(ref){
  if(driverPhotoIsSaving())return;
  let s=getStore(),b=s.bookings.find(x=>x.ref===ref);
@@ -5807,11 +5978,13 @@ async function deliver(ref){
   if(document.getElementById(`ds_${ref}_${i}`)?.dataset.captured!=="1")return alert("Please take all required delivery photographs.");
  }
  if(!document.getElementById("dc_"+ref)?.checked)return alert("Confirm vehicle handover.");
+ const receiverName=document.getElementById("rn_"+ref)?.value.trim()||b.receiver;
+ const receiverMobile=document.getElementById("rm_"+ref)?.value.trim()||b.receiverMobile;
   if(!await persistNormalizedStatus(b,"Delivered","Delivery photographs and handover completed"))return;
   b=s.bookings.find(x=>x.ref===ref)||b;
  b.status="Delivered";
- b.receiver=document.getElementById("rn_"+ref)?.value||b.receiver;
- b.receiverMobile=document.getElementById("rm_"+ref)?.value||b.receiverMobile;
+ b.receiver=receiverName;
+ b.receiverMobile=receiverMobile;
  b.deliveryCapturedAt=new Date().toISOString();
  b.deliveryEvidence=b.deliveryEvidence||{};
  b.deliveryEvidence.receiverName=b.receiver;
@@ -5823,8 +5996,9 @@ async function deliver(ref){
   s.notifications.unshift({title:"Delivered",text:b.ref+" has been delivered with photographic evidence."});
   saveStore(s);queueCustomerStatusMessage(b,"delivered");draw();
 }
-window.addEventListener("storage",()=>{if(!app.classList.contains("hidden"))draw()});
-window.addEventListener("ukowupdate",()=>{if(!app.classList.contains("hidden"))draw()});
+window.addEventListener("storage",refreshPortalSafely);
+window.addEventListener("ukowupdate",refreshPortalSafely);
+window.addEventListener("beforeunload",event=>{if(sharedSavePending||IncidentUI.hasUnsaved?.()||IncidentUI.isSaving?.()){event.preventDefault();event.returnValue=""}});
 </script>
 </body>
 </html>
