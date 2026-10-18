@@ -23,18 +23,25 @@ window.HRRegistration = (() => {
     ["Identity & right to work", [
       ["identityType", "Identity document type", "select:,Passport,Driving licence (photocard),National identity card,Biometric residence permit,Birth certificate,Other"],
       ["identityReference", "Identity document number"],
+      ["identityExpiry", "Other identity document expiry (if applicable)", "date"],
+      ["passportExpiry", "Passport expiry (if applicable)", "date"],
+      ["visaExpiry", "Visa expiry (if applicable)", "date"],
       ["rightToWorkStatus", "Right to work status", "select:,British or Irish citizen,Settled status,Pre-settled status,Visa or permit,Pending,Not established"],
       ["rightToWorkShareCode", "Right to work share code"], ["rightToWorkExpiry", "Right to work expiry", "date"]]],
     ["Driving licence", [
       ["drivingLicenceNo", "Licence number"], ["licenceCategories", "Licence categories", "text", "For example B, BE, C1"],
       ["licenceExpiry", "Licence expiry", "date"], ["dvlaShareCode", "DVLA share code"], ["dvlaCheckedOn", "DVLA checked on", "date"],
+      ["dvlaExpiry", "DVLA check expiry (if applicable)", "date"],
       ["endorsements", "Endorsements and penalty points", "area", "Offence code, points, date, expiry"]]],
     ["Qualifications & DBS", [
       ["qualifications", "Qualifications", "area", "Title, awarding body, date achieved, expiry"],
+      ["qualificationExpiry", "Qualification expiry (if applicable)", "date"],
+      ["safetyExpiry", "Safety certificate expiry (if applicable)", "date"],
       ["dbsLevel", "DBS level", "select:,Not required,Basic,Standard,Enhanced,Enhanced with barred lists"],
       ["dbsReference", "DBS certificate number"], ["dbsCheckedOn", "DBS checked on", "date"]]],
+    ["DBS renewal", [["dbsExpiry", "DBS renewal due (if applicable)", "date"]]],
     ["Portal link & notes", [
-      ["portalUserId", "Link existing portal user (optional)", "text", "Choose an existing account, or leave blank. No sign-in account is created here."],
+      ["portalUserId", "Link existing portal user", "text", "Link the Driver account for expiry alerts and access checks. Matching email addresses link automatically on save. No sign-in account is created here."],
       ["notes", "Internal HR notes", "area"]]]
   ];
 

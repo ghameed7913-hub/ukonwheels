@@ -16,6 +16,7 @@
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
   <script src="./hr-screening-api.js"></script>
+  <script src="./driver-compliance.js"></script>
   <script src="./hr-registration.js"></script>
   <link rel="stylesheet" href="./hr-registration.css">
 <script type="module" src="./src/booking-excel-entry.js"></script>
@@ -1330,7 +1331,7 @@ function applyAuthenticatedProfile(profile,session){
     currentUser={name:profile.business_name||profile.name,userName:profile.client_user_name||profile.name,email:profile.email,clientUserId:profile.id,clientAccess:profile.client_access||"Full Access",businessId:profile.business_id||null,accountType:profile.account_type||"private"};
    migrateClientData();
  }else if(role==="driver"){
-   currentUser={name:profile.driver_name||profile.name};
+   currentUser={name:profile.full_name||profile.name,email:profile.email||session.user.email||"",phone:profile.phone||""};
  }else{
    currentUser={name:profile.name||"System Admin"};
  }
@@ -1343,6 +1344,7 @@ function showAuthenticatedPortal(){
  loginEl.classList.add("hidden");
  appEl.classList.remove("hidden");
  if(role!=="driver")document.body.classList.remove("driver-mode");
+ window.DriverCompliance?.start();
   const localPreviewPage=(location.hostname==="localhost"||location.hostname==="127.0.0.1")?new URLSearchParams(location.search).get("ui-page"):null;
   page=role==="driver"?"driver":(localPreviewPage||"desktop");
  render();
@@ -1352,6 +1354,8 @@ async function restoreSupabaseSession(){
  try{
    const {data,error}=await sb.auth.getSession();
    if(error||!data.session)return;
+   currentSession=data.session;
+   await DriverCompliance.checkSession();
    const {data:profile,error:profileError}=await sb.from("profiles").select("*").eq("id",data.session.user.id).maybeSingle();
    if(profileError||!profile||(profile.status&&profile.status!=="Active")){
      await sb.auth.signOut();
@@ -1382,6 +1386,7 @@ async function logoutNow(){
   const saved=await flushSharedStore();
   if(!saved&&!await crmConfirm("Your latest portal changes have not been saved. Signing out now will discard those unsaved changes.","Unsaved changes","Sign out anyway",true))return;
  }
+ window.DriverCompliance?.stop();
  if(sb){
   await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
  }
@@ -1536,6 +1541,7 @@ async function loginNow(){
      const {data:authData,error:authError}=await sb.auth.signInWithPassword({email:emailValue,password:passwordValue});
      if(authError){alert("Sign in failed: "+authError.message);return}
      currentSession=authData.session;
+     await DriverCompliance.checkSession();
      const {data:profile,error:profileError}=await sb.from("profiles").select("*").eq("id",authData.user.id).maybeSingle();
      if(profileError||!profile){
        alert("Signed in, but no profile record was found for this account. Ask an admin to set one up in the 'profiles' table.");
@@ -3961,6 +3967,7 @@ function daysUntil(dateStr){
 }
 
 function checkDocumentExpiries(){
+ if(role==="driver")return; // Driver notices come only from their private HR registration.
  let s=ensureHRData(),changed=false;
  const fields=[
   ["drivingLicenceExpiry","Driving Licence"],["dvlaExpiry","DVLA Record"],["passportExpiry","Passport"],
@@ -5824,19 +5831,13 @@ function drawDriverHistoryMobile(){
  ${rows.length?rows.map(b=>`<div class="driverJob"><div style="display:flex;justify-content:space-between"><b>${b.ref}</b><span class="badge green">Delivered</span></div><h3>${b.vehicle||"Vehicle"} ${b.reg||""}</h3><div class="driverRoute">${b.pickup||"—"} → ${b.destination||"—"}</div><p><b>Delivered:</b> ${b.deliveryEvidence?.deliveredAt?new Date(b.deliveryEvidence.deliveredAt).toLocaleString():(b.deliveryDate||"—")}</p><button class="btn secondary" onclick="showEvidence('${b.ref}')">View Evidence</button></div>`).join(""):`<div class="driverEmpty">No delivered jobs yet.</div>`}`;
 }
 function drawDriverProfileMobile(){
- const name=currentUser?.name||currentStaffUser?.name||"Driver";
- const s=ensureStaffUsers();
- const u=(s.staffUsers||[]).find(x=>x.name===name)||{};
+ const u=currentUser||{};
+ const name=u.name||"Driver";
  return `<div class="driverSectionTitle"><h3 style="margin:0">Driver Profile</h3></div>
  <div class="driverProfileCard">
-  <h2 style="margin-top:0">${name}</h2>
-  <p><b>Email:</b> ${u.email||"driver@ukonwheels.co.uk"}</p>
-  <p><b>Mobile:</b> ${u.phone||"—"}</p>
-  <p><b>Driving Licence:</b> ${u.drivingLicenceNo||"—"}</p>
-  <p><b>Licence Type:</b> ${u.licenceType||"—"}</p>
-  <p><b>DVLA Expiry:</b> ${u.dvlaExpiry||"—"}</p>
-  <p><b>Safety Certificate:</b> ${u.safetyCertificate||"—"}</p>
-  <p><b>Status:</b> <span class="badge ${u.status==="Inactive"?"red":"green"}">${u.status||"Active"}</span></p>
+  <h2 style="margin-top:0">${escapeHtml(name)}</h2>
+  <p><b>Email:</b> ${escapeHtml(u.email||"—")}</p>
+  <p><b>Phone number:</b> ${escapeHtml(u.phone||"—")}</p>
   <div class="actions"><button class="btn secondary" onclick="logoutNow()">Logout</button></div>
  </div>`;
 }
@@ -5863,7 +5864,7 @@ function drawDriver(c){
     <div><strong>${counts.delivered}</strong><small>Delivered</small></div>
     </div>`}
   </div>
-  <div class="driverBody">${body}</div>
+  <div class="driverBody"><div id="driverDocumentAlerts">${window.DriverCompliance?.notices()||""}</div>${body}</div>
   ${driverMobileNav()}
  </div>`;
  if(driverMobileTab==="incidents")IncidentUI.mountDriver();

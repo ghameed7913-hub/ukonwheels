@@ -74,7 +74,8 @@ begin
       'employmentHistory','employmentGaps','references','identityType','identityReference',
       'rightToWorkStatus','rightToWorkShareCode','rightToWorkExpiry','drivingLicenceNo',
       'licenceCategories','licenceExpiry','dvlaShareCode','dvlaCheckedOn','endorsements',
-      'qualifications','dbsLevel','dbsReference','dbsCheckedOn','notes','portalUserId']);
+      'qualifications','dbsLevel','dbsReference','dbsCheckedOn','notes','portalUserId',
+      'passportExpiry','visaExpiry','identityExpiry','dvlaExpiry','qualificationExpiry','safetyExpiry','dbsExpiry']);
   if exists(select 1 from jsonb_each(details) where jsonb_typeof(value) not in ('string','null')) then
     raise exception 'Employee fields must be text'; end if;
   if nullif(details->>'portalUserId','') is not null and not exists(
