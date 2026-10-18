@@ -15,6 +15,7 @@ const inputs = {
 function setup() {
   const store = { staffUsers: [{ email: "test@example.com", name: "Employee", role: "Driver" }], payslips: [] };
   const fields = {
+    psPaymentStatus:{value:"Unpaid"},payslipRegister:{innerHTML:""},
     psUser: { value: "test@example.com" }, psMonth: { value: "2026-10" },
     psTaxEnabled: { checked: true }, psTax: { value: "20", disabled: false },
     psRate: { value: "50" }, psBasic: { value: "1000" }, psOvertime: { value: "100" },
@@ -26,6 +27,7 @@ function setup() {
   let saved, redraws = 0;
   const notices = [];
   const c = vm.createContext({
+    window:{confirm:()=>true},payrollCanManage:true,
     ensureHRData: () => store, deliveredCountForEmployee: () => 2,
     document: { getElementById: id => fields[id] },
     saveStore: async value => { saved = JSON.parse(JSON.stringify(value)); return true; },
@@ -33,6 +35,8 @@ function setup() {
     escapeHtml: value => String(value ?? "").replace(/[&<>"']/g, x => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[x])),
     currency: value => "£" + Number(value || 0).toFixed(2),
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/payroll-payments.js"),"utf8"),c);
+  c.PayrollPayments=c.window.PayrollPayments;
   vm.runInContext(code, c);
   const draw = c.drawHRPayslips;
   c.drawHRPayslips = () => redraws++;
@@ -163,9 +167,55 @@ test("Repeated Generate clicks cannot create duplicate records while saving", as
   c.saveStore = () => new Promise(resolve => { release = resolve; });
   const pending = c.generatePayslip();
   await c.generatePayslip();
-  assert.equal(store.payslips.length, 1);
+  assert.equal(store.payslips.length, 0);
   release(true);
   await pending;
+  assert.equal(store.payslips.length,1);
+});
+test("Paid Drivers create one Wages expense using net pay; Staff create Salary expenses",async()=>{
+  for(const role of ["Driver","Staff"]){
+    const {c,store,fields}=setup();store.staffUsers[0].role=role;fields.psPaymentStatus.value="Paid";
+    await c.generatePayslip();
+    assert.equal(store.payslips[0].paymentStatus,"Paid");assert.equal(store.expenses.length,1);
+    assert.equal(store.expenses[0].category,role==="Driver"?"Wages":"Salary");
+    assert.equal(store.expenses[0].amount,930);assert.equal(store.expenses[0].payslipId,store.payslips[0].id);
+    assert.match(c.payslipDocument(store.payslips[0]),/Payment status:<\/b> Paid/);
+  }
+});
+test("Unpaid generates no expense, status changes do not duplicate and reverting preserves manual expenses and draft inputs",async()=>{
+  const {c,store,fields}=setup();store.expenses=[{category:"Fuel",amount:12}];
+  await c.generatePayslip();const id=store.payslips[0].id;
+  assert.equal(store.expenses.length,1);
+  fields.psBasic.value="777";
+  const select={value:"Paid",disabled:false,isConnected:true};
+  await c.setPayslipPayment(id,"Paid",select);await c.setPayslipPayment(id,"Paid",select);
+  assert.equal(store.expenses.length,2);assert.equal(store.expenses[1].category,"Wages");
+  assert.equal(fields.psBasic.value,"777");assert.match(fields.payslipRegister.innerHTML,/Paid/);
+  await c.setPayslipPayment(id,"Unpaid",select);
+  assert.equal(store.expenses.length,1);assert.equal(store.expenses[0].category,"Fuel");
+  assert.equal(store.payslips[0].paymentStatus,"Unpaid");
+});
+test("Failed status save retains the recorded state and restores the control",async()=>{
+  const {c,store,fields}=setup();await c.generatePayslip();
+  c.saveStore=async()=>false;
+  const select={value:"Paid",disabled:false,isConnected:true};
+  await c.setPayslipPayment(store.payslips[0].id,"Paid",select);
+  assert.equal(store.payslips[0].paymentStatus,"Unpaid");assert.equal(select.value,"Unpaid");
+  assert.equal(select.disabled,false);assert.equal((store.expenses||[]).length,0);
+});
+test("A lost-response retry reuses the payslip reference, and negative balances cannot be marked Paid",async()=>{
+  const {c,store,fields}=setup();let firstID,calls=0;
+  c.SUPABASE_CONFIGURED=true;c.currentSession={user:{id:"admin"}};c.flushSharedStore=async()=>true;
+  c.PayrollPayments.create=async(record,status)=>{
+    calls++;if(!firstID)firstID=record.id;assert.equal(record.id,firstID);
+    if(calls===1)throw Error("Lost response");
+    return {payslips:[{...record,paymentStatus:status}],expenses:[],canManage:true};
+  };
+  c.mergePayrollFinances=data=>Object.assign(store,data);
+  await c.generatePayslip();assert.equal(store.payslips.length,0);assert.equal(fields.psBasic.value,"1000");
+  await c.generatePayslip();assert.equal(store.payslips.length,1);assert.equal(calls,2);
+  const other=setup();other.fields.psAdvance.value="99999";other.fields.psPaymentStatus.value="Paid";
+  await other.c.generatePayslip();assert.equal(other.store.payslips.length,0);
 });
 
 test("Historic payslips keep their stored totals and display new components as zero", () => {

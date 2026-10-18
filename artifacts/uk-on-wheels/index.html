@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="./booking-form.css">
 <link rel="stylesheet" href="./driver-identity.css">
 <script src="./driver-identity-api.js"></script>
+<script src="./payroll-payments.js"></script>
 <script src="./driver-identity-ui.js"></script>
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
@@ -3464,7 +3465,33 @@ function money(v){return "£"+Number(v||0).toFixed(2)}
 
 function monthOf(d){return d?String(d).slice(0,7):""}
 
-function drawAdminAccounts(c){
+let payrollCanManage=null,payrollViewRequest=0;
+function mergePayrollFinances(data){
+ const s=getStore();
+ if(Array.isArray(data.payslips))s.payslips=data.payslips;
+ s.expenses=data.expenses;payrollCanManage=!!data.canManage;
+ STORE_CACHE=s;return s;
+}
+function loadPayrollView(c,draw,loaded){
+ if(typeof SUPABASE_CONFIGURED==="undefined"||!SUPABASE_CONFIGURED||loaded)return false;
+ const request=++payrollViewRequest,actor=currentSession?.user?.id,target=page;
+ c.innerHTML='<div class="panel"><h2>Loading saved payroll and expenses…</h2></div>';
+ (async()=>{
+   try{
+     if(typeof flushSharedStore==="function"&&!await flushSharedStore())throw Error("Save pending portal changes before opening payroll.");
+     const data=await PayrollPayments.read();
+     if(request!==payrollViewRequest||currentSession?.user?.id!==actor||page!==target||!c.isConnected)return;
+     if(target==="hrPayslips"&&!Array.isArray(data.payslips))throw Error("HR access is required to view payslips.");
+     mergePayrollFinances(data);draw(c,true);
+   }catch(e){
+     if(request!==payrollViewRequest||currentSession?.user?.id!==actor||page!==target||!c.isConnected)return;
+     c.innerHTML='<div class="panel"><h2>Payroll and expenses could not load</h2><p>'+escapeHtml(e.message)+'</p><button class="btn secondary" id="retryPayrollView">Retry</button></div>';
+     c.querySelector("#retryPayrollView").onclick=()=>draw(c);
+   }
+ })();return true;
+}
+function drawAdminAccounts(c,loaded=false){
+ if(loadPayrollView(c,drawAdminAccounts,loaded))return;
  const s=ensureAccountsData();
  const expenses=s.expenses.reduce((a,x)=>a+Number(x.amount||0),0);
  const cash=s.transactions.filter(x=>x.method==="Cash").reduce((a,x)=>a+Number(x.amount||0),0);
@@ -3479,15 +3506,16 @@ function drawAdminAccounts(c){
  </div><div class="panel"><h3>Accounts</h3><p class="muted">Use the Accounts menu for expenses, invoices, transactions, pending payments, reports and monthly P&L.</p></div>`;
 }
 
-function drawExpenses(c){
- const s=ensureAccountsData(), cats=["Fuel","Rent","Office","Entertainment","Utility Bills","Rider Fuel","Staff Fuel","Hotel Expense","Vehicle Recovery Expenses","Insurance","Other Expenses"];
+function drawExpenses(c,loaded=false){
+ if(loadPayrollView(c,drawExpenses,loaded))return;
+ const s=ensureAccountsData(), cats=["Wages","Salary","Fuel","Rent","Office","Entertainment","Utility Bills","Rider Fuel","Staff Fuel","Hotel Expense","Vehicle Recovery Expenses","Insurance","Other Expenses"];
  c.innerHTML=`<div class="panel"><h2>Add Expenses</h2><div class="form">
  <input id="exDate" type="date"><select id="exCat"><option value="">Expense Type *</option>${cats.map(x=>`<option>${x}</option>`).join("")}</select>
  <input id="exAmount" type="number" step="0.01" placeholder="Amount (£) *"><select id="exMethod"><option>Cash</option><option>Bank Transfer</option><option>Card</option></select>
  <input id="exRef" placeholder="Receipt / Reference"><input id="exPayee" placeholder="Supplier / Paid To"><textarea id="exNotes" class="full" placeholder="Notes"></textarea>
  </div><div class="actions"><button class="btn primary" onclick="saveExpense()">Add Expense</button></div></div>
  <div class="panel" style="margin-top:12px"><h3>Expense Register</h3><div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
- ${s.expenses.slice().reverse().map(x=>`<tr><td>${x.date}</td><td>${x.category}</td><td>${x.payee||"—"}</td><td>${x.method}</td><td>${x.reference||"—"}</td><td>${money(x.amount)}</td><td>${x.notes||"—"}</td></tr>`).join("")}
+ ${s.expenses.slice().reverse().map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":""}</td></tr>`).join("")}
  </table></div></div>`;
 }
 
@@ -3953,7 +3981,8 @@ function runReport(){
  rResult.innerHTML=out;
 }
 
-function drawProfitLoss(c){
+function drawProfitLoss(c,loaded=false){
+ if(loadPayrollView(c,drawProfitLoss,loaded))return;
  c.innerHTML=`<div class="panel"><h2>Monthly Profit & Loss</h2><div class="form"><input id="plMonth" type="month" value="${new Date().toISOString().slice(0,7)}"></div><div class="actions"><button class="btn primary" onclick="runPL()">Calculate Monthly P&L</button></div></div><div id="plResult"></div>`;
 }
 
@@ -4213,10 +4242,17 @@ function deliveredCountForEmployee(name,month){
  return getStore().bookings.filter(b=>b.status==="Delivered"&&b.driver===name&&String(b.deliveryDate||"").slice(0,7)===month).length;
 }
 
-let selectedPayslipId=null,payslipSaving=false;
-function drawHRPayslips(c){
+let selectedPayslipId=null,payslipSaving=false,payslipPaymentSaving=false,pendingPayslipDraft=null;
+function payslipStatus(p){return p.paymentStatus==="Paid"?"Paid":"Unpaid"}
+function payslipRegisterHtml(s){
+ return `<h3>Generated Payslips</h3><p class="muted">Paid payslips add the net amount to Expenses: Wages for Drivers, Salary for Staff. This records payment; it does not transfer money.</p><div class="scroll"><table style="min-width:1550px"><tr><th>Employee</th><th>Month</th><th>Vehicles Delivered</th><th>Pay + Expenses</th><th>Overtime</th><th>Fuel</th><th>Food</th><th>Travel</th><th>Tax</th><th>Advance Deducted</th><th>Net Pay / Balance</th><th>Payment</th><th>Action</th></tr>
+ ${s.payslips.slice().reverse().map(p=>`<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.month)}</td><td>${p.deliveredCount}</td><td>${currency(p.gross)}</td><td>${currency(p.overtime)}</td><td>${currency(p.fuel)}</td><td>${currency(p.food)}</td><td>${currency(p.travel)}</td><td>${p.taxEnabled===false?"Not applied":currency(p.taxAmount)}</td><td>${currency(p.advance)}</td><td><b>${currency(p.net)}</b></td><td><select aria-label="Payment status for ${escapeHtml(p.name)} ${escapeHtml(p.month)}" data-payslip-id="${escapeHtml(p.id)}" onchange="setPayslipPayment(this.dataset.payslipId,this.value,this)" ${typeof payrollCanManage!=="undefined"&&payrollCanManage===false?"disabled":""}><option ${payslipStatus(p)==="Unpaid"?"selected":""}>Unpaid</option><option ${payslipStatus(p)==="Paid"?"selected":""}>Paid</option></select>${p.paidOn?'<small>Paid '+escapeHtml(p.paidOn)+'</small>':""}</td><td><button class="btn secondary" data-view-payslip="${escapeHtml(p.id)}" onclick="viewPayslip(this.dataset.viewPayslip)">View / Print</button></td></tr>`).join("")}</table></div>`;
+}
+function drawHRPayslips(c,loaded=false){
+ if(typeof loadPayrollView==="function"&&loadPayrollView(c,drawHRPayslips,loaded))return;
  const s=ensureHRData(),users=s.staffUsers||[];
  c.innerHTML=`<div class="noPrint"><div class="panel"><h2>Payslips</h2><p class="muted">Tax applies only to wages and overtime. Fuel, food and travel payments are added without tax. Advances are deducted afterwards.</p>
+ <fieldset style="border:0;padding:0;margin:0" ${typeof payrollCanManage!=="undefined"&&payrollCanManage===false?"disabled":""}>
  <div class="form">
   <label class="autoFieldWrap">Employee / Driver<select id="psUser" onchange="refreshPayslipEstimate()"><option value="">Select Employee / Driver *</option>${users.map(u=>`<option value="${escapeHtml(u.email)}">${escapeHtml(u.name)} — ${escapeHtml(u.role)}</option>`).join("")}</select></label>
   <label class="autoFieldWrap">Pay month<input id="psMonth" type="month" value="${new Date().toISOString().slice(0,7)}" onchange="refreshPayslipEstimate()"></label>
@@ -4229,12 +4265,11 @@ function drawHRPayslips(c){
   <label class="step" style="margin:0;display:flex;align-items:center;gap:8px"><input id="psTaxEnabled" type="checkbox" checked style="width:auto" onchange="refreshPayslipEstimate()"> Apply tax to wages and overtime</label>
   <label class="autoFieldWrap">Tax rate (%) — optional<input id="psTax" type="number" min="0" max="100" step="0.01" value="20" oninput="refreshPayslipEstimate()"></label>
   <label class="autoFieldWrap">Advance already paid — deduction (£)<input id="psAdvance" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Payment status<select id="psPaymentStatus"><option>Unpaid</option><option>Paid</option></select></label>
  </div><div id="payslipEstimate" class="panel" style="margin-top:12px"></div>
  <p class="muted">Enter the total advances already paid for this payslip. This is a manual tax calculation, not an automated PAYE or National Insurance calculation.</p>
- <div class="actions"><button id="generatePayslipBtn" class="btn primary" onclick="generatePayslip()">Generate Payslip</button></div></div>
- <div class="panel" style="margin-top:12px"><h3>Generated Payslips</h3><div class="scroll"><table style="min-width:1450px"><tr><th>Employee</th><th>Month</th><th>Vehicles Delivered</th><th>Pay + Expenses</th><th>Overtime</th><th>Fuel</th><th>Food</th><th>Travel</th><th>Tax</th><th>Advance Deducted</th><th>Net Pay / Balance</th><th>Action</th></tr>
- ${s.payslips.slice().reverse().map(p=>`<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.month)}</td><td>${p.deliveredCount}</td><td>${currency(p.gross)}</td><td>${currency(p.overtime)}</td><td>${currency(p.fuel)}</td><td>${currency(p.food)}</td><td>${currency(p.travel)}</td><td>${p.taxEnabled===false?"Not applied":currency(p.taxAmount)}</td><td>${currency(p.advance)}</td><td><b>${currency(p.net)}</b></td><td><button class="btn secondary" onclick="viewPayslip('${escapeHtml(p.id)}')">View / Print</button></td></tr>`).join("")}
- </table></div></div></div><div id="payslipDetail">${s.payslips.some(p=>p.id===selectedPayslipId)?payslipDocument(s.payslips.find(p=>p.id===selectedPayslipId)):""}</div>`;
+ <div class="actions"><button id="generatePayslipBtn" class="btn primary" onclick="generatePayslip()">Generate Payslip</button></div></fieldset></div>
+ <div class="panel" style="margin-top:12px" id="payslipRegister">${payslipRegisterHtml(s)}</div></div><div id="payslipDetail">${s.payslips.some(p=>p.id===selectedPayslipId)?payslipDocument(s.payslips.find(p=>p.id===selectedPayslipId)):""}</div>`;
  refreshPayslipEstimate();
 }
 
@@ -4262,7 +4297,7 @@ function payslipBreakdown(p){
  return `<table style="width:100%;min-width:0">${rows.map(([label,value])=>`<tr><td>${escapeHtml(label)}</td><td style="text-align:right;white-space:nowrap">${currency(value)}</td></tr>`).join("")}<tr><td><b>Net pay / balance</b></td><td style="text-align:right;white-space:nowrap"><b>${currency(p.net)}</b></td></tr></table>${Number(p.net)<0?`<p role="status">The advance exceeds this payslip's pay by <b>${currency(-p.net)}</b>. This is a balance owed, not a payment due.</p>`:""}`;
 }
 function payslipDocument(p){
- return `<div class="noPrint actions" style="margin:16px 0"><button class="btn primary" onclick="window.print()">Print / Save PDF</button></div><div class="invoiceSheet"><h2>UK On Wheels — Payslip</h2><p><b>Employee:</b> ${escapeHtml(p.name)}<br><b>Role:</b> ${escapeHtml(p.role)}<br><b>Pay month:</b> ${escapeHtml(p.month)}<br><b>Reference:</b> ${escapeHtml(p.id)}</p>${payslipBreakdown(p)}<p class="muted">Fuel, food and travel payments are not included in the tax base. Advance payments are deducted after tax.</p></div>`;
+ return `<div class="noPrint actions" style="margin:16px 0"><button class="btn primary" onclick="window.print()">Print / Save PDF</button></div><div class="invoiceSheet"><h2>UK On Wheels — Payslip</h2><p><b>Employee:</b> ${escapeHtml(p.name)}<br><b>Role:</b> ${escapeHtml(p.role)}<br><b>Pay month:</b> ${escapeHtml(p.month)}<br><b>Reference:</b> ${escapeHtml(p.id)}<br><b>Payment status:</b> ${payslipStatus(p)}${p.paidOn?" · "+escapeHtml(p.paidOn):""}</p>${payslipBreakdown(p)}<p class="muted">Fuel, food and travel payments are not included in the tax base. Advance payments are deducted after tax.</p></div>`;
 }
 function viewPayslip(id){
  if(!hasPermission("hr"))return alert("HR permission is required to view payslips.");
@@ -4281,22 +4316,78 @@ function refreshPayslipEstimate(){
 
 async function generatePayslip(){
  if(!hasPermission("hr"))return alert("HR permission is required to generate payslips.");
- if(payslipSaving)return;
+ if(payslipSaving||payslipPaymentSaving)return;
+ if(typeof payrollCanManage!=="undefined"&&payrollCanManage===false)return alert("HR management permission is required.");
  const s=ensureHRData(),email=document.getElementById("psUser")?.value,u=(s.staffUsers||[]).find(x=>x.email===email),month=document.getElementById("psMonth")?.value;
  if(!u||!/^\d{4}-(0[1-9]|1[0-2])$/.test(month||""))return alert("Select employee and a valid pay month.");
  let amounts;
  try{amounts=readPayslipAmounts(deliveredCountForEmployee(u.name,month))}
  catch(e){return alert(e.message)}
- const record={id:"PAY-"+Date.now()+"-"+Math.random().toString(36).slice(2,7),email:u.email,name:u.name,role:u.role,month,...amounts,createdAt:new Date().toLocaleString()};
+ const status=document.getElementById("psPaymentStatus")?.value||"Unpaid";
+ if(status==="Paid"&&amounts.net<0)return alert("A payslip with a balance owed by the employee cannot be marked Paid.");
+ const actor=typeof currentSession!=="undefined"?currentSession?.user?.id:null;
+ const signature=JSON.stringify({email,name:u.name,role:u.role,profileId:u.id,month,amounts,status});
+ if(!pendingPayslipDraft||pendingPayslipDraft.actor!==actor||pendingPayslipDraft.signature!==signature)
+   pendingPayslipDraft={actor,signature,record:{id:"PAY-"+Date.now()+"-"+Math.random().toString(36).slice(2,7),profileId:u.id||undefined,email:u.email,name:u.name,role:u.role,month,...amounts,paymentStatus:"Unpaid",paymentVersion:0,createdAt:new Date().toLocaleString()}};
+ const record=pendingPayslipDraft.record;
  const button=document.getElementById("generatePayslipBtn");
  payslipSaving=true;if(button)button.disabled=true;
- s.payslips.push(record);
  try{
-  if(!await saveStore(s))return;
+   if(typeof SUPABASE_CONFIGURED!=="undefined"&&SUPABASE_CONFIGURED){
+     if(!await flushSharedStore())throw Error("Save pending portal changes first.");
+     const data=await PayrollPayments.create(record,status);
+     if(currentSession?.user?.id!==actor)throw Error("Your sign-in changed.");
+     mergePayrollFinances(data);
+   }else{
+     const copy=JSON.parse(JSON.stringify(s));
+     if(!copy.payslips.some(p=>p.id===record.id)){
+       const saved={...record,paymentStatus:status};
+       copy.payslips.push(saved);
+       if(status==="Paid"){const expense=PayrollPayments.expense(saved);copy.expenses=[...(copy.expenses||[]),expense];saved.paidOn=expense.date;saved.expenseId=expense.id;}
+     }
+     if(!await saveStore(copy))return;Object.assign(s,copy);
+   }
+   pendingPayslipDraft=null;
   selectedPayslipId=record.id;
-  drawHRPayslips(document.getElementById("content"));
+   if(typeof page==="undefined"||page==="hrPayslips")drawHRPayslips(document.getElementById("content"),true);
  }catch(e){alert("Payslip could not be saved: "+(e.message||"Connection unavailable."))}
  finally{payslipSaving=false;if(button?.isConnected)button.disabled=false}
+}
+
+async function setPayslipPayment(id,status,control){
+ const original=ensureHRData().payslips.find(p=>p.id===id);
+ if(!original)return alert("Payslip not found. Refresh the list.");
+ const previous=payslipStatus(original);
+ if(status===previous)return;
+ if(payslipSaving||payslipPaymentSaving||!hasPermission("hr")||payrollCanManage===false){control.value=previous;return;}
+ if(status==="Paid"&&Number(original.net)<0){control.value=previous;return alert("A payslip with a balance owed by the employee cannot be marked Paid.");}
+ const actor=typeof currentSession!=="undefined"?currentSession?.user?.id:null;
+ payslipPaymentSaving=true;control.disabled=true;
+ try{
+   const category=String(original.role).trim().toLowerCase()==="driver"?"Wages":"Salary";
+   const message=status==="Paid"?`Record ${currency(original.net)} as Paid and add one ${category} expense? This does not transfer money.`:
+     "Mark this payslip Unpaid? Its linked payroll expense will be removed from Expenses. Other expenses are not changed.";
+   const confirmed=typeof crmConfirm==="function"?await crmConfirm(message,"Payslip payment",status==="Paid"?"Mark Paid":"Mark Unpaid"):window.confirm(message);
+   if(!confirmed){control.value=previous;return;}
+   if(typeof SUPABASE_CONFIGURED!=="undefined"&&SUPABASE_CONFIGURED){
+     if(!await flushSharedStore())throw Error("Save pending portal changes first.");
+     const data=await PayrollPayments.setStatus(id,status);
+     if(currentSession?.user?.id!==actor)throw Error("Your sign-in changed.");
+     mergePayrollFinances(data);
+   }else{
+     const s=ensureHRData(),copy=JSON.parse(JSON.stringify(s)),p=copy.payslips.find(p=>p.id===id);
+     copy.expenses=(copy.expenses||[]).filter(e=>!(e.source==="payslip"&&e.payslipId===id));
+     p.paymentStatus=status;p.paymentVersion=Number(p.paymentVersion||0)+1;
+     delete p.paidOn;delete p.expenseId;
+     if(status==="Paid"){const e=PayrollPayments.expense(p);copy.expenses.push(e);p.paidOn=e.date;p.expenseId=e.id;}
+     if(!await saveStore(copy))throw Error("The payment change was not saved.");Object.assign(s,copy);
+   }
+   if(typeof page==="undefined"||page==="hrPayslips"){
+     const register=document.getElementById("payslipRegister");if(register)register.innerHTML=payslipRegisterHtml(ensureHRData());
+     if(selectedPayslipId===id){const box=document.getElementById("payslipDetail");if(box)box.innerHTML=payslipDocument(ensureHRData().payslips.find(p=>p.id===id));}
+   }
+ }catch(e){control.value=previous;alert("Payment status was not confirmed: "+e.message+" Refresh or retry before recording it again.");}
+ finally{payslipPaymentSaving=false;if(control.isConnected)control.disabled=payrollCanManage===false;}
 }
 
 function drawNonResidentRecords(c){
