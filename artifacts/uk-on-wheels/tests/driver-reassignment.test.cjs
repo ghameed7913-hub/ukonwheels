@@ -204,6 +204,8 @@ test("Stale, missing and unauthorised vehicle shortcuts cannot open assignment",
 test("Admin status and dashboard lists place the shortcut beside each vehicle", () => {
   const s = setup("New Booked Vehicle", { driver: "", _driverId: null, vehicle: "Ready car" });
   s.c.selectedStatusPage = "New Booked Vehicle";
+   s.c.statusVehicleSearch = "";
+   s.c.searchStatusVehicles = () => {};
   s.c.visibleBookings = () => s.store.bookings;
   s.c.bookingEvidenceButton = () => "";
   s.c.document.querySelectorAll = () => [];

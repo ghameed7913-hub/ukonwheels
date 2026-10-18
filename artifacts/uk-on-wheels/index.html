@@ -92,6 +92,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .adminStats{display:grid;grid-template-columns:repeat(11,minmax(105px,1fr));background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow-x:auto}
 .adminStat{min-width:108px;text-align:center;padding:16px 8px;border-right:1px solid var(--line);cursor:pointer}
 .adminStat:last-child{border-right:0}.adminStat .ico{display:flex;align-items:center;justify-content:center;color:var(--blue);margin-bottom:4px}.adminStat b{display:block;font-size:11px;margin:8px 0;color:#3f5168}.adminStat strong{font-size:23px}.adminStat small{display:block;color:var(--muted);margin-top:4px;font-size:10px}
+.adminStat:focus-visible,.kpi[role="button"]:focus-visible{outline:3px solid var(--blue);outline-offset:-3px}
 .adminGridTop{display:grid;grid-template-columns:1.4fr .9fr;gap:12px}.adminGridBottom{display:grid;grid-template-columns:1fr 1fr 1.15fr;gap:12px;margin-top:12px}
 .kpiRow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:12px}.kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px}.kpi b{font-size:12px;color:var(--muted);display:block}.kpi strong{font-size:24px;display:block;margin:7px 0}
 .adminDonut{width:200px;height:200px;border-radius:50%;margin:18px auto;background:conic-gradient(var(--blue) 0 17%,#7457d6 17% 28%,#33ae58 28% 40%,var(--brand-red) 40% 55%,#f59a23 55% 60%,#e63d3d 60% 63%,#8b59c8 63% 67%,#40a95a 67% 92%,#f0a632 92% 96%,#f4c542 96%);display:grid;place-items:center}
@@ -2577,6 +2578,7 @@ function drawClientDashboard(c){
 /* === RESTORED ADMIN MODULES === */
 let selectedRoleSummary="Super Admin";
 let selectedStatusPage="New Booked Vehicle";
+let statusVehicleSearch="";
 
 function clientStatus(status){
  const rows=visibleBookings().filter(b=>b.status===status);
@@ -2592,13 +2594,13 @@ function ensureAdminDemoData(){
 
 function drawAdminDashboard(c){
  ensureAdminDemoData();
- const s=getStore(),rows=s.bookings;
+ const s=getStore(),rows=visibleBookings();
  const stats=[
   [ico("car"),"New Booked Vehicles","New Booked Vehicle"],[ico("user"),"Driver Assigned","Driver Assigned"],[ico("truck"),"Picked Up Vehicles","Picked Up"],
   [ico("route"),"On Route","On Route"],[ico("clock"),"Delayed","Delayed"],[ico("alertTriangle"),"Accidents","Accident"],[ico("clipboard"),"Claims","Claims"],
-  [ico("check"),"Delivered","Delivered"],[ico("alertCircle"),"Faults On The Route","Fault On Route"],["AA","Assigned AA On Route","Assigned AA on Route"],[ico("flag"),"Total Vehicles Delivered","Delivered"]
+  [ico("check"),"Delivered","Delivered"],[ico("alertCircle"),"Faults On The Route","Fault On Route"],["AA","Assigned AA On Route","Assigned AA on Route"],[ico("flag"),"Total vehicle","All"]
  ];
- const count=t=>rows.filter(b=>b.status===t).length;
+ const count=t=>t==="All"?rows.length:rows.filter(b=>b.status===t).length;
  const delivered=count("Delivered"), delayed=count("Delayed"), accidents=count("Accident"), claims=count("Claims"), onroute=count("On Route");
  const total=rows.length;
  const bookedValue=rows.reduce((a,b)=>a+Number(b.amount||0),0);
@@ -2626,7 +2628,7 @@ function drawAdminDashboard(c){
  <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:14px 16px 4px"><h3 style="margin:0">Vehicle Status Overview</h3></div>
   <div class="adminStats">
-   ${stats.map(([i,label,status],idx)=>`<div class="adminStat" onclick="openStatusPage('${status}')"><div class="ico">${i}</div><b>${label}</b><strong>${idx===10?delivered:count(status)}</strong><small>${idx===10?"This Month":"Live"}</small></div>`).join("")}
+   ${stats.map(([i,label,status])=>`<div class="adminStat" role="button" tabindex="0" onclick="openStatusPage('${status}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStatusPage('${status}')}"><div class="ico">${i}</div><b>${label}</b><strong>${count(status)}</strong><small>${status==="All"?"All statuses":"Live"}</small></div>`).join("")}
   </div>
  </div>
 
@@ -2646,7 +2648,7 @@ function drawAdminDashboard(c){
 
  <div class="kpiRow">
   <div class="kpi"><b>Total Bookings</b><strong>${total}</strong><span class="muted">This Month</span></div>
-  <div class="kpi"><b>Total Vehicles Delivered</b><strong>${delivered}</strong><span class="muted">This Month</span></div>
+  <div class="kpi" role="button" tabindex="0" style="cursor:pointer" onclick="openStatusPage('All')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStatusPage('All')}"><b>Total vehicle</b><strong>${total}</strong><span class="muted">All statuses</span></div>
   <div class="kpi"><b>On Route Vehicles</b><strong>${onroute}</strong><span class="muted">Live</span></div>
   <div class="kpi"><b>Delayed Vehicles</b><strong>${delayed}</strong><span class="muted">Live</span></div>
   <div class="kpi"><b>Accidents</b><strong>${accidents}</strong><span class="muted">Recorded</span></div>
@@ -4549,14 +4551,40 @@ function queueCustomerStatusMessage(b,eventKey){
 
 function openStatusPage(status){
  selectedStatusPage=status;
+ statusVehicleSearch="";
  page="statusPage";
  render();
 }
 
+function vehicleMatchesSearch(booking,query){
+ const text=String(query||"").trim().toLowerCase();
+ if(!text)return true;
+ const compact=value=>String(value||"").toLowerCase().replace(/[\s-]/g,"");
+ return String(booking.ref||"").toLowerCase().includes(text)||
+  (compact(text)!==""&&(compact(booking.ref).includes(compact(text))||compact(booking.reg).includes(compact(text))));
+}
+function searchStatusVehicles(value){
+ statusVehicleSearch=String(value||"");
+ const rows=Array.from(document.querySelectorAll("#statusVehicleTable tr[data-vehicle-reference]"));
+ let matches=0;
+ for(const row of rows){
+  row.hidden=!vehicleMatchesSearch({ref:row.dataset.vehicleReference,reg:row.dataset.vehicleRegistration},statusVehicleSearch);
+  if(!row.hidden)matches++;
+ }
+ const count=document.getElementById("statusVehicleCount"),empty=document.getElementById("statusVehicleEmpty");
+ if(count)count.textContent=matches+" of "+rows.length+" vehicles";
+ if(empty){empty.hidden=matches>0;empty.textContent=rows.length?"No vehicles match this reference or registration.":"No vehicles currently "+(selectedStatusPage==="All"?"booked.":"in this status.");}
+}
+function clearStatusVehicleSearch(){
+ const input=document.getElementById("statusVehicleSearch");
+ if(input){input.value="";input.focus();}
+ searchStatusVehicles("");
+}
 function drawStatusPage(c){
- const rows=getStore().bookings.filter(b=>b.status===selectedStatusPage);
+ const rows=visibleBookings().filter(b=>selectedStatusPage==="All"||b.status===selectedStatusPage);
  const activeDrivers=portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active");
  const titleMap={
+  "All":"Total vehicle",
   "New Booked Vehicle":"New Booked Vehicles",
   "Driver Assigned":"Driver Assigned",
   "Picked Up":"Picked Up Vehicles",
@@ -4570,13 +4598,17 @@ function drawStatusPage(c){
  };
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-    <div><h2 style="margin:0">${titleMap[selectedStatusPage]||selectedStatusPage}</h2><p class="muted" style="margin:6px 0 0">All vehicle details for this status.</p></div>
-    <div><span class="badge">${rows.length} vehicles</span> <button class="btn secondary" onclick="page='desktop';render()">Back to Dashboard</button></div>
+    <div><h2 style="margin:0">${titleMap[selectedStatusPage]||selectedStatusPage}</h2><p class="muted" style="margin:6px 0 0">${selectedStatusPage==="All"?"All booked vehicles across every status and business.":"All vehicle details for this status."}</p></div>
+    <div><span id="statusVehicleCount" class="badge" role="status" aria-live="polite">${rows.length} vehicles</span> <button class="btn secondary" onclick="page='desktop';render()">Back to Dashboard</button></div>
+  </div>
+  <div style="display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:16px">
+   <label for="statusVehicleSearch" style="flex:1;min-width:0"><span style="display:block;margin-bottom:6px">Search by booking reference or registration number</span><input id="statusVehicleSearch" type="search" style="width:100%;box-sizing:border-box" placeholder="e.g. UKOW-2026-001007 or AB12 CDE" value="${escapeHtml(statusVehicleSearch)}" oninput="searchStatusVehicles(this.value)" aria-controls="statusVehicleTable" aria-describedby="statusVehicleCount"></label>
+   <button type="button" class="btn secondary" onclick="clearStatusVehicleSearch()">Clear search</button>
   </div>
  </div>
  <div class="panel">
   <div class="scroll">
-   <table style="min-width:1700px">
+   <table id="statusVehicleTable" style="min-width:1700px">
     <tr>
       <th>Booking Reference</th><th>Updated By</th><th>Updated Time</th><th>Approved By</th><th>Approval Time</th>
       <th>Business Name</th>
@@ -4599,7 +4631,7 @@ function drawStatusPage(c){
       <th>Pickup Evidence</th>
       <th>Action</th>
     </tr>
-    ${rows.map(b=>`<tr>
+    ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}">
       <td><b>${b.ref}</b></td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${b.lastApprovedBy||"—"}</td><td>${b.lastApprovedAt||"—"}</td>
       <td>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</td>
       <td>${b.vehicle||"—"}${bookingDriverAssignmentButton(b)}</td>
@@ -4624,9 +4656,10 @@ function drawStatusPage(c){
     </tr>`).join("")}
    </table>
   </div>
-  ${rows.length?"":"<p class='muted'>No vehicles currently in this status.</p>"}
+  <p id="statusVehicleEmpty" class="muted" role="status" hidden></p>
  </div>
  <div id="statusBookingDetail"></div>`;
+ searchStatusVehicles(statusVehicleSearch);
 }
 
 function viewStatusBooking(ref){
