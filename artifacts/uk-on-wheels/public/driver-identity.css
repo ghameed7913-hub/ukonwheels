@@ -79,3 +79,17 @@
 .di-aform textarea{min-height:80px}
 .di-aform [aria-invalid="true"]{border-color:var(--brand-red,#e2131f)}
 @media (max-width:760px){.di-arow-main{grid-template-columns:auto minmax(0,1fr)}.di-arow-card{justify-items:start;grid-column:2}.di-arow-act{grid-column:1/-1;justify-content:stretch}.di-arow-act .btn{flex:1}}
+
+/* uploaded Digital ID */
+.di-idhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.di-idhead h3{margin:0}
+.di-upl{border-radius:16px;overflow:hidden;border:1px solid #d9dee7;background:#fbfaf7}
+.di-upl .di-card-status{border-radius:0}
+.di-upl-dl{margin:0;padding:0 16px}
+.di-upl-dl div:last-child{border-bottom:0}
+.di-doc{margin:0;background:#eef1f5;border:1px solid #d9dee7;border-radius:14px;padding:8px;display:flex;justify-content:center}
+.di-doc img{display:block;width:100%;height:auto;max-height:78vh;object-fit:contain;border-radius:8px}
+.di-doc-pdf iframe{width:100%;height:min(70vh,640px);border:0;border-radius:8px;background:#fff}
+.di-openpdf{display:flex;justify-content:center;align-items:center;min-height:48px;text-decoration:none;font-weight:800}
+.di-legacy{opacity:.85;font-size:13px}
+.di-doclink{color:var(--navy,#071a31);text-decoration:underline;overflow-wrap:anywhere}

@@ -273,6 +273,92 @@ test("Real SQL: date validation, own-account notices, API/storage lock and HR re
       end$$;
       reset role;
     `);
+    const uploadedID=fs.readFileSync(path.join(root,"supabase/driver-digital-id-upload.sql"),"utf8");
+    sql(uploadedID);sql(uploadedID);
+    sql(`
+      set role authenticated;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+      insert into storage.objects(bucket_id,name,metadata) values
+        ('driver-company-ids','${driver}/55555555-5555-5555-5555-555555555555.pdf','{"mimetype":"application/pdf","size":2000}'),
+        ('driver-company-ids','${driver}/66666666-6666-6666-6666-666666666666.pdf','{"mimetype":"application/pdf","size":2000}');
+      do $$declare v integer; snapshot jsonb;
+      begin
+        select (r->>'version')::integer into v from jsonb_array_elements(public.list_driver_identities()->'drivers') r
+          where r->>'user_id'='${driver}';
+        snapshot:=public.register_driver_company_id_file('${driver}',
+          '${driver}/55555555-5555-5555-5555-555555555555.pdf','Company ID.pdf','application/pdf',null,v);
+        if snapshot->'card'->>'source'<>'uploaded' or snapshot->'card'->>'state'<>'active'
+          or snapshot->'card'->'document'->>'mime'<>'application/pdf' then raise exception 'Uploaded ID not active';end if;
+        snapshot:=public.register_driver_company_id_file('${driver}',
+          '${driver}/55555555-5555-5555-5555-555555555555.pdf','Company ID.pdf','application/pdf',null,v);
+        if (snapshot->>'version')::integer<>v+1 then raise exception 'ID retry changed version';end if;
+        begin
+          perform public.register_driver_company_id_file('${driver}',
+            '${driver}/66666666-6666-6666-6666-666666666666.pdf','Company ID.pdf','application/pdf',null,v);
+          raise exception 'Stale ID file update accepted';
+        exception when raise_exception then if sqlerrm='Stale ID file update accepted' then raise;end if;end;
+        begin
+          perform public.register_driver_company_id_file('${driver}',
+            '${driver}/66666666-6666-6666-6666-666666666666.pdf','ID.html','text/html',null,v+1);
+          raise exception 'HTML ID accepted';
+        exception when raise_exception then if sqlerrm='HTML ID accepted' then raise;end if;end;
+      end$$;
+      set request.jwt.claim.sub='${driver}';
+      do $$begin
+        if public.own_driver_identity()->'card'->'document'->>'name'<>'Company ID.pdf'
+          or not public.company_id_file_permission('${driver}/55555555-5555-5555-5555-555555555555.pdf',false) then
+          raise exception 'Driver cannot see own uploaded ID';
+        end if;
+        if (select count(*) from storage.objects where bucket_id='driver-company-ids')<>1 then
+          raise exception 'Driver can read another unregistered ID object';
+        end if;
+        begin
+          insert into storage.objects(bucket_id,name,metadata) values('driver-company-ids',
+            '${driver}/77777777-7777-7777-7777-777777777777.pdf','{"mimetype":"application/pdf","size":10}');
+          raise exception 'Driver can upload own official ID';
+        exception when insufficient_privilege then null;end;
+        begin
+          perform public.register_driver_company_id_file('${driver}',
+            '${driver}/55555555-5555-5555-5555-555555555555.pdf','Company ID.pdf','application/pdf',null,0);
+          raise exception 'Driver can issue uploaded ID';
+        exception when insufficient_privilege then null;end;
+      end$$;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+      do $$begin
+        if exists(select 1 from storage.objects where bucket_id='driver-company-ids') then raise exception 'Other Driver can read ID';end if;
+      end$$;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
+      do $$begin
+        if public.company_id_file_permission('${driver}/55555555-5555-5555-5555-555555555555.pdf',false)
+          then raise exception 'Client can read company ID file';end if;
+      end$$;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+      select public.revoke_driver_company_id('${driver}','No longer valid',
+        (select (r->>'version')::integer from jsonb_array_elements(public.list_driver_identities()->'drivers') r where r->>'user_id'='${driver}'));
+      set request.jwt.claim.sub='${driver}';
+      do $$begin
+        if exists(select 1 from storage.objects where bucket_id='driver-company-ids')
+          then raise exception 'Driver can read revoked ID file';end if;
+      end$$;
+      reset role;
+      update public.driver_identities set revoked_at=null,valid_until='2000-01-01' where user_id='${driver}';
+      do $$begin
+        if public.company_id_file_permission('${driver}/55555555-5555-5555-5555-555555555555.pdf',false)
+          then raise exception 'Expired ID file readable';end if;
+      end$$;
+      update public.driver_identities set valid_until=null where user_id='${driver}';
+      delete from storage.objects where bucket_id='driver-company-ids' and name='${driver}/55555555-5555-5555-5555-555555555555.pdf';
+      do $$begin
+        if public.own_driver_identity()->'card'->>'state'<>'suspended' then raise exception 'Missing ID file appeared active';end if;
+      end$$;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+      select public.issue_driver_company_id('${driver}',null,
+        (select (r->>'version')::integer from jsonb_array_elements(public.list_driver_identities()->'drivers') r where r->>'user_id'='${driver}'));
+      do $$declare r jsonb;begin
+        select r0 into r from jsonb_array_elements(public.list_driver_identities()->'drivers') r0 where r0->>'user_id'='${driver}';
+        if r->'card'->>'source'<>'generated' or r->'card'->'document'<>'null'::jsonb then raise exception 'Legacy reissue retained uploaded file';end if;
+      end$$;
+    `);
   } finally {
     if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"],{encoding:"utf8"});
     fs.rmSync(dir,{recursive:true,force:true});

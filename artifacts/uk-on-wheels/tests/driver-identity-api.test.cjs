@@ -5,9 +5,9 @@ const path=require("node:path");
 const vm=require("node:vm");
 const script=fs.readFileSync(path.join(__dirname,"../public/driver-identity-api.js"),"utf8");
 function setup(){
-  let version=1,uploads=0,registers=0,fail=false;
-  const calls=[],urls=[],paths=[];
-  const snapshot=()=>({user_id:"driver-1",name:"Driver",version,photo_path:"driver-1/portrait.jpg",card:null});
+  let version=1,uploads=0,registers=0,fail=false,card=null;
+  const calls=[],urls=[],paths=[],buckets=[];
+  const snapshot=()=>({user_id:"driver-1",name:"Driver",version,photo_path:"driver-1/portrait.jpg",card});
   const context=vm.createContext({
     window:{},SUPABASE_CONFIGURED:true,currentSession:{user:{id:"driver-1"}},
     crypto:{randomUUID:()=>"11111111-1111-1111-1111-111111111111"},
@@ -16,17 +16,19 @@ function setup(){
     document:{createElement:()=>({getContext:()=>({fillRect(){},drawImage(){}}),toBlob:fn=>fn({size:100,type:"image/jpeg"})})},
     sb:{rpc:async(name,args)=>{
       calls.push({name,args});
-      if(name==="register_driver_portrait"||name==="register_hr_driver_portrait"){registers++;if(fail)return {error:{message:"Network failure"}}}
+      if(["register_driver_portrait","register_hr_driver_portrait","register_driver_company_id_file"].includes(name)){
+        registers++;if(fail)return {error:{message:"Network failure"}};
+      }
       if(name==="list_driver_identities")return {data:{canIssue:true,drivers:[snapshot()]}};
       return {data:snapshot()};
     },storage:{from:bucket=>{
-      assert.equal(bucket,"driver-portraits");
+      assert.ok(["driver-portraits","driver-company-ids"].includes(bucket));
       return {createSignedUrl:async(p,seconds)=>{urls.push({p,seconds});return {data:{signedUrl:"https://example.invalid/"+p}}},
-        upload:async(p,blob,options)=>{uploads++;paths.push(p);assert.equal(blob.type,"image/jpeg");assert.equal(options.upsert,false);return {data:{path:p}}}};
+        upload:async(p,blob,options)=>{uploads++;paths.push(p);buckets.push(bucket);assert.equal(options.upsert,false);return {data:{path:p}}}};
     }}}
   });
   vm.runInContext(script,context);
-  return {api:context.window.DriverIdentityAPI,c:context,calls,urls,paths,uploads:()=>uploads,registers:()=>registers,setFail:v=>fail=v};
+  return {api:context.window.DriverIdentityAPI,c:context,calls,urls,paths,buckets,uploads:()=>uploads,registers:()=>registers,setFail:v=>fail=v,setCard:v=>card=v};
 }
 function file(type="image/jpeg",bytes=[255,216,255]){
   return {type,size:bytes.length,slice:()=>({arrayBuffer:async()=>Uint8Array.from(bytes).buffer})};
@@ -87,4 +89,34 @@ test("HR cannot reuse a cached portrait version after changing accounts",async()
   s.c.currentSession={user:{id:"another-admin"}};
   await assert.rejects(s.api.uploadHRPhoto("driver-1",file()),/Refresh/);
   assert.equal(s.uploads(),0);
+});
+test("Uploaded company ID PDFs have their own private bucket, version and idempotent retry",async()=>{
+  const s=setup();s.c.currentSession={user:{id:"admin"}};await s.api.list();
+  const f={...file("application/pdf",Buffer.from("%PDF-1.7\n")) ,name:"Company ID.pdf"};
+  s.setFail(true);await assert.rejects(s.api.uploadDigitalID("driver-1",f,"2030-01-01"),/Network failure/);
+  s.setFail(false);await s.api.uploadDigitalID("driver-1",f,"2030-01-01");
+  assert.equal(s.uploads(),1);assert.equal(s.buckets[0],"driver-company-ids");assert.match(s.paths[0],/\.pdf$/);
+  const calls=s.calls.filter(c=>c.name==="register_driver_company_id_file");
+  assert.equal(calls[1].args.p_name,"Company ID.pdf");
+  assert.equal(calls[1].args.p_mime,"application/pdf");assert.equal(calls[1].args.p_expected_version,1);
+  assert.equal(calls[1].args.p_path,calls[0].args.p_path);
+});
+test("Rejected company ID files never reach storage; IDs cannot reuse portrait paths",async()=>{
+  const s=setup();await s.api.list();
+  await assert.rejects(s.api.uploadDigitalID("driver-1",file("text/html",[60,62])),/company ID/);
+  await assert.rejects(s.api.uploadDigitalID("driver-1",file("application/pdf",[1,2,3])),/contents/);
+  await assert.rejects(s.api.uploadDigitalID("driver-1",{...file(),size:10485761}),/10 MB/);
+  assert.equal(s.uploads(),0);
+  const f=file();await s.api.uploadPhoto(f);await s.api.uploadDigitalID("driver-1",f,null);
+  assert.deepEqual(s.buckets,["driver-portraits","driver-company-ids"]);assert.equal(s.uploads(),2);
+});
+test("Drivers receive a signed ID-file link only for an active card",async()=>{
+  const s=setup();
+  const base={source:"uploaded",document:{path:"driver-1/id.pdf",name:"Company ID.pdf",mime:"application/pdf"}};
+  s.setCard({...base,state:"active"});let snap=await s.api.own();assert.ok(snap.card.document.url);
+  for(const state of ["revoked","expired","suspended"]){
+    s.setCard({...base,state});snap=await s.api.own();assert.equal(snap.card.document.url,null);
+  }
+  s.c.currentSession={user:{id:"admin"}};
+  const rows=await s.api.list();assert.ok(rows.drivers[0].card.document.url);
 });

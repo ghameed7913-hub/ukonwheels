@@ -42,7 +42,7 @@ test("Revoked and expired IDs are explicitly not valid",async()=>{
 });
 test("An unissued card is never displayed as official identification",async()=>{
   const s=setup({...snap,card:null});s.ui.mountDriver();await tick();
-  assert.match(s.ui.renderCard(),/not a form of identification/);
+  assert.match(s.ui.renderCard(),/profile portrait is not a company ID/);
   assert.doesNotMatch(s.ui.renderCard(),/UKOW-ID-/);
 });
 test("Changing accounts clears the previous portrait before rendering",async()=>{
@@ -82,4 +82,30 @@ test("HR portrait controls are included only in the permission-controlled branch
   assert.match(script,/await a\.uploadHRPhoto\(uid,file\)/);
   assert.match(script,/Your file is still selected; retry when ready/);
   assert.match(script,/if\(!adminLive\(A\)\|\|S\.admin\.gen!==gen\)return/);
+});
+test("The Digital ID page shows the whole uploaded card image and escapes its filename",async()=>{
+  const card={...snap.card,source:"uploaded",document:{mime:"image/png",url:"https://example.invalid/id-card.png",name:'<Company ID>'}};
+  const s=setup({...snap,card});s.ui.mountDriver();await tick();
+  const html=s.ui.renderCard();
+  assert.match(html,/<img[^>]+id-card\.png/);assert.match(html,/UKOW-ID-000001/);
+  assert.doesNotMatch(html,/<Company ID>/);
+  const css=fs.readFileSync(path.join(__dirname,"../public/driver-identity.css"),"utf8");
+  assert.match(css,/object-fit:\s*contain/);
+});
+test("A PDF ID has an open-in-viewer link; invalid IDs never expose a stale file",async()=>{
+  const base={...snap.card,source:"uploaded",document:{mime:"application/pdf",url:"https://example.invalid/id.pdf",name:"ID.pdf"}};
+  const s=setup({...snap,card:base});s.ui.mountDriver();await tick();
+  const html=s.ui.renderCard();assert.match(html,/<iframe/);
+  assert.match(html,/Open Digital ID PDF/);assert.match(html,/noopener noreferrer/);
+  for(const state of ["revoked","expired","suspended"]){
+    const invalid=setup({...snap,card:{...base,state}});invalid.ui.mountDriver();await tick();
+    const output=invalid.ui.renderCard();
+    assert.doesNotMatch(output,/https:\/\/example.invalid\/id.pdf|<iframe|Open Digital ID PDF/);
+    assert.match(output,/Digital ID not available to show/);
+  }
+});
+test("Digital ID is its own Driver tab without removing History",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
+  const nav=html.match(/function driverMobileNav\(\)\{([\s\S]*?)\n\}/)?.[1]||"";
+  assert.match(nav,/Digital ID/);assert.match(nav,/companyId/);assert.match(nav,/History/);
 });
