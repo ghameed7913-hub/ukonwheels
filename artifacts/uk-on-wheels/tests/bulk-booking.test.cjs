@@ -9,7 +9,7 @@ const ui = fs.readFileSync(path.join(__dirname,"../public/bulk-booking-ui.js"),"
 const html = fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
 
 function setup(options = {}) {
-  const stored = options.stored || new Map(), saved = options.saved || new Map(), calls = [];
+  const stored = options.stored || new Map(), saved = options.saved || new Map(), calls = [], rpcCalls=[];
   const fields = {};
   for (const id of ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
     fields[id] = {value:"",innerHTML:"",textContent:"",disabled:false,isConnected:true,addEventListener() {}};
@@ -20,8 +20,8 @@ function setup(options = {}) {
   const button = {disabled:false,isConnected:true}, store = {bookings:[],businesses:[business]};
   let failRow = 0, loseResponse = false, lookupFails = false, writesBlocked = false, refreshFails = false, confirmation = true;
   const context = vm.createContext({
-    window:{},crypto,console,Date,role:"admin",currentUser:{name:"Admin"},
-    currentSession:{user:{id:"admin-test"}},SUPABASE_CONFIGURED:true,
+    window:{},crypto,console,Date,role:options.role || "admin",currentUser:options.user || {name:"Admin"},
+    currentSession:{user:{id:"admin-test",email:"own@example.test"}},SUPABASE_CONFIGURED:true,
     hasPermission:()=>true,selectedBookingBusiness:id=>store.businesses.find(b=>b.id===id)||null,
     getStore:()=>store,saveStore:async()=>true,
     toggleCustomerTypeFields(){},crmConfirm:async()=>confirmation,
@@ -53,13 +53,19 @@ function setup(options = {}) {
   context.BulkBookingUI = context.window.BulkBookingUI;
   vm.runInContext(source,context);
   const api=context.window.BulkBooking;
+  context.sb.rpc=async(name,payload)=>{
+    rpcCalls.push({name,payload});
+    if(options.rpcMissing)return {error:{code:"PGRST202",message:"Function missing"}};
+    return {data:await context.createLinkedBooking(payload.p_booking,payload.p_reference)};
+  };
   api.mount(); api.setMode("bulk");
+  if(!options.empty && JSON.parse(stored.get("ukow-bulk-booking:admin-test")||"{}").rows?.length===0){api.addRow();api.addRow();}
   const state=()=>JSON.parse(stored.get("ukow-bulk-booking:admin-test")||"null");
   const fill=(index,values={})=>{
     const row=state().rows[index];
     for(const [field,value] of Object.entries({vehicle:"Ford Focus",reg:"AB"+(10+index)+" CDE",...values}))api.updateRow(row.id,field,value);
   };
-  return {api,context,fields,stored,saved,calls,state,fill,button,store,business,
+  return {api,context,fields,stored,saved,calls,rpcCalls,state,fill,button,store,business,
     failAt:n=>{failRow=n;},loseNext:()=>{loseResponse=true;},lookupFail:value=>{lookupFails=value;},
     blockStorage:()=>{writesBlocked=true;},failRefresh:()=>{refreshFails=true;},cancel:()=>{confirmation=false;}};
 }
@@ -78,11 +84,11 @@ test("Bulk mode adds/removes vehicles and keeps the single booking path availabl
 
 test("All vehicles validate before any write, including duplicate registrations and invalid numbers",async()=>{
   const s=setup();s.fill(0);await s.api.submit();
-  assert.equal(s.calls.length,0);assert.match(s.fields.bulkBookingStatus.textContent,/Vehicle 2/);
+  assert.equal(s.calls.length,0);assert.match(s.state().rows[1].message,/Vehicle 2/);
   s.fill(1,{reg:"ab10cde"});await s.api.submit();
-  assert.equal(s.calls.length,0);assert.match(s.fields.bulkBookingStatus.textContent,/more than once/);
+  assert.equal(s.calls.length,0);assert.match(s.state().rows[1].message,/more than once/);
   s.fill(1,{reg:"ZZ12AAA",amount:"-1"});await s.api.submit();
-  assert.equal(s.calls.length,0);assert.match(s.fields.bulkBookingStatus.textContent,/zero or more/);
+  assert.equal(s.calls.length,0);assert.match(s.state().rows[1].message,/zero or more/);
   s.fill(1,{reg:"ZZ12AAA",amount:"Infinity"});await s.api.submit();
   assert.equal(s.calls.length,0);
 });
@@ -164,7 +170,7 @@ test("Double submission and edits during a save cannot duplicate or change the c
 });
 
 test("Wrong-role and expired-session bulk submissions do not write bookings",async()=>{
-  for(const role of ["client","driver"]){
+  for(const role of ["driver"]){
     const s=setup();s.fill(0);s.fill(1);s.context.role=role;
     await s.api.submit();assert.equal(s.calls.length,0);
   }
@@ -251,7 +257,7 @@ test("Every single booking field is available on each bulk vehicle, with safe bu
   for(const field of ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"])
     assert.match(content,new RegExp('id="bulk-'+id+'-'+field+'"'));
   s.business.status="Inactive";s.api.updateDetail(id,"customerType","Business");
-  assert.match(s.fields.bulkVehicleRows.innerHTML,/<option value="business-1" selected disabled>Test Motors — inactive/);
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/<option value="business-1" selected disabled>Test Motors - inactive/);
 });
 
 test("Separate vehicle details reach the booking save without changing shared defaults or another vehicle",async()=>{
@@ -294,7 +300,7 @@ test("Required per-vehicle details and invalid private email or charge block the
     s.api.setOwnDetails(id,true);
     for(const [f,v] of Object.entries(detail))s.api.updateDetail(id,f,v);
     await s.api.submit();assert.equal(s.calls.length,0);
-    assert.match(s.fields.bulkBookingStatus.textContent,/Vehicle 2:/);
+    assert.match(s.state().rows[1].message,/Vehicle 2:/);
   }
 });
 
@@ -340,6 +346,123 @@ test("Shared default refresh updates inherited vehicles without overwriting inde
   assert.match(s.fields.bulkVehicleRows.innerHTML,/Collection A/);
 });
 
+const importValues = overrides => ({customerType:"Business",biz:"Test Motors",privateCustomerName:"",privateCustomerMobile:"",privateCustomerEmail:"",
+  vehicle:"Ford Focus",reg:"AB10CDE",pickup:"Excel pickup",dest:"Excel delivery",service:"Vehicle Delivery",
+  miles:"40",amount:"100",bdate:"2026-11-01",ddate:"2026-11-02",receiver:"Excel Receiver",mobile:"07123456789",dropoff:"17:30",notes:"Excel instructions",...overrides});
+async function upload(s,values,errors=[]) {
+  s.context.window.BookingExcel={readFile:async()=>values.map((v,i)=>({values:v,excelRow:i+2,errors:errors[i]||{}}))};
+  await s.api.uploadFile({name:"vehicles.xlsx"},{value:"chosen"});
+}
+test("Excel bulk entry starts empty, hides the repeated form and cannot save before upload",()=>{
+  const s=setup({empty:true});
+  assert.equal(s.state().rows.length,0);assert.equal(s.button.disabled,true);
+  assert.equal(s.fields.bookingSharedFields.hidden,true);
+  assert.match(s.fields.bulkVehicleRows.innerHTML,/Nothing to review/);
+  s.api.setMode("single");assert.equal(s.fields.bookingSharedFields.hidden,false);
+  assert.equal(s.button.disabled,false);
+});
+test("Excel upload previews every value before saving separate New Booked Vehicle references",async()=>{
+  const s=setup({empty:true});
+  await upload(s,[importValues(),importValues({vehicle:"BMW 320",reg:"AB11CDE",pickup:"Different pickup",amount:"230.50"})]);
+  assert.equal(s.calls.length,0);
+  const draft=s.state();
+  assert.equal(draft.sourceName,"vehicles.xlsx");assert.equal(draft.rows.length,2);
+  assert.equal(draft.rows[0].details.biz,"business-1");
+  assert.equal(draft.rows[1].details.pickup,"Different pickup");
+  await s.api.submit();assert.equal(s.calls.length,2);
+  assert.notEqual(s.calls[0].ref,s.calls[1].ref);
+  for(const call of s.calls)assert.equal(call.booking.status,"New Booked Vehicle");
+  assert.equal(s.calls[1].booking.amount,230.5);
+  assert.match(s.fields.bulkBookingStatus.textContent,/New Booked Vehicles/);
+});
+test("Excel errors and duplicate registrations annotate all affected rows and stop all writes",async()=>{
+  const s=setup({empty:true});
+  await upload(s,[importValues(),importValues({reg:"ab10 cde",pickup:""})],[{},{mobile:"Receiver mobile number: keep as text"}]);
+  assert.match(s.state().rows[0].message,/more than once/);
+  assert.match(s.state().rows[1].message,/Excel row 3.*keep as text/);
+  await s.api.submit();assert.equal(s.calls.length,0);
+  const second=s.state().rows[1];
+  s.api.updateRow(second.id,"reg","AB11CDE");
+  s.api.updateDetail(second.id,"pickup","Corrected pickup");
+  s.api.updateDetail(second.id,"mobile","07123456789");
+  await s.api.submit();assert.equal(s.calls.length,2);
+});
+test("A failed or cancelled replacement keeps the existing Excel draft and file name",async()=>{
+  const s=setup({empty:true});
+  await upload(s,[importValues()]);
+  const initial=s.state();
+  s.context.window.BookingExcel.readFile=async()=>{throw new Error("Corrupt workbook");};
+  await s.api.uploadFile({name:"broken.xlsx"});
+  assert.equal(s.state().rows[0].reference,initial.rows[0].reference);
+  assert.equal(s.state().sourceName,"vehicles.xlsx");
+  assert.match(s.fields.bulkBookingStatus.textContent,/Corrupt workbook/);
+  s.cancel();await upload(s,[importValues({reg:"OTHER"})]);
+  assert.equal(s.state().rows[0].reg,"AB10CDE");
+});
+test("A partial Excel save locks file replacement and retry keeps refs and details after reload",async()=>{
+  const s=setup({empty:true});
+  await upload(s,[importValues(),importValues({reg:"AB11CDE",pickup:"Second Excel pickup"})]);
+  s.failAt(2);await s.api.submit();
+  const original=s.state();
+  await upload(s,[importValues({reg:"OTHER"})]);
+  assert.equal(s.state().rows.length,2);assert.equal(s.state().sourceName,"vehicles.xlsx");
+  const restored=setup({stored:s.stored,saved:s.saved});
+  assert.equal(restored.state().rows[1].details.pickup,"Second Excel pickup");
+  await restored.api.submit();
+  assert.equal(restored.calls.length,1);assert.equal(restored.calls[0].ref,original.rows[1].reference);
+  assert.equal(restored.saved.size,2);
+});
+test("Client Excel bookings use the Client RPC and the signed-in Business account only",async()=>{
+  const s=setup({empty:true,role:"client",user:{name:"Own Motors",businessId:"business-1",accountType:"business",email:"own@example.test"}});
+  await upload(s,[importValues({customerType:"",biz:"",amount:""}),importValues({customerType:"",biz:"",amount:"",reg:"AB11CDE"})]);
+  await s.api.submit();
+  assert.equal(s.rpcCalls.length,2);
+  for(const {name,payload} of s.rpcCalls){
+    assert.equal(name,"client_create_bulk_booking");
+    assert.equal(payload.p_booking._businessId,"business-1");
+    assert.equal(payload.p_booking.amount,0);
+    assert.equal(payload.p_booking.customerType,"Business");
+    assert.equal(payload.p_booking.ref,payload.p_reference);
+  }
+});
+test("Private Client imports always link to their own email and cannot change customer identity",async()=>{
+  const s=setup({empty:true,role:"client",user:{name:"Own Client",accountType:"private",email:"own@example.test"}});
+  await upload(s,[importValues({customerType:"",biz:"",amount:""})]);
+  const id=s.state().rows[0].id;
+  s.api.updateDetail(id,"privateCustomerEmail","other@example.test");
+  s.api.updateRow(id,"amount","999");
+  await s.api.submit();
+  assert.equal(s.rpcCalls.length,1);
+  assert.equal(s.rpcCalls[0].payload.p_booking.privateCustomerEmail,"own@example.test");
+  assert.equal(s.rpcCalls[0].payload.p_booking._businessId,null);
+  assert.equal(s.rpcCalls[0].payload.p_booking.amount,0);
+});
+test("Cross-account Client Excel rows and supplied charges fail before any RPC",async()=>{
+  const s=setup({empty:true,role:"client",user:{name:"Own Motors",businessId:"business-1",accountType:"business"}});
+  await upload(s,[importValues({biz:"Another Company",amount:"200"})]);
+  await s.api.submit();assert.equal(s.rpcCalls.length,0);
+  assert.match(s.state().rows[0].message,/own signed-in account/);
+  assert.match(s.state().rows[0].message,/cannot set charges/);
+});
+test("Missing Client setup is explicit and retains the uploaded preview for retry",async()=>{
+  const s=setup({empty:true,role:"client",rpcMissing:true,user:{name:"Own Client",accountType:"private",email:"own@example.test"}});
+  await upload(s,[importValues({customerType:"",biz:"",amount:""})]);
+  await s.api.submit();
+  assert.equal(s.state().rows[0].status,"failed");
+  assert.match(s.state().rows[0].message,/client-bulk-booking-patch.sql/);
+  assert.equal(s.state().sourceName,"vehicles.xlsx");
+});
+test("An account change while parsing Excel never imports data into another account",async()=>{
+  const s=setup({empty:true});
+  s.context.window.BookingExcel={readFile:async()=>{
+    s.context.currentSession={user:{id:"another-user"}};
+    return [{values:importValues(),errors:{},excelRow:2}];
+  }};
+  await s.api.uploadFile({name:"vehicles.xlsx"});
+  assert.equal(s.state().rows.length,0);
+  assert.equal(s.calls.length,0);
+});
+
 // Isolated browser fixture: real form/controller/RPC mapping, with synthetic data and a fake Supabase boundary.
 // No authentication client or network-writing code is loaded. Output stays in the ignored generated-artifacts directory.
 if(process.argv.includes("--visual-fixture")) {
@@ -350,14 +473,14 @@ if(process.argv.includes("--visual-fixture")) {
   }
   const styles=[...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join("\n")+
     ["booking-form.css","bulk-booking.css"].map(f=>fs.readFileSync(path.join(__dirname,"../public",f),"utf8")).join("\n");
-  const out=path.resolve(__dirname,"../../../generated-artifacts/bulk-details");
+  const out=path.resolve(__dirname,"../../../generated-artifacts/excel-booking");
   fs.mkdirSync(out,{recursive:true});
-  const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bulk details isolated test</title><style>${styles}
+  const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Excel bulk booking isolated test</title><script type="module" src="/src/booking-excel-entry.js"></script><style>${styles}
     body{padding:16px}#content{max-width:1100px;margin:auto}.fixture-note{padding:12px;background:#fff4db;margin-bottom:16px}
     </style></head><body><p class="fixture-note">Isolated browser test — synthetic data only; no real bookings or accounts.</p><main id="content"></main><script>
-    const role="admin",SUPABASE_CONFIGURED=true,currentSession={user:{id:"fixture-admin"}},currentUser={name:"Synthetic Admin"};
+    const role=new URLSearchParams(location.search).has("client")?"client":"admin",SUPABASE_CONFIGURED=true,currentSession={user:{id:"fixture-"+role,email:"own@example.test"}},currentUser={name:role==="client"?"Synthetic Motors":"Synthetic Admin",businessId:"business-1",accountType:"business",email:"own@example.test"};
     const fixtureStore={bookings:[],businesses:[{id:"business-1",name:"Synthetic Motors",status:"Active"},{id:"business-2",name:"Second Motors",status:"Active"}]};
-    const getStore=()=>fixtureStore,hasPermission=()=>true,loadNormalizedPortalData=async()=>{},crmConfirm=async()=>confirm("Discard unsaved rows?");
+    const getStore=()=>fixtureStore,hasPermission=()=>true,loadNormalizedPortalData=async()=>{window.refreshed=true;},crmConfirm=async()=>confirm("Replace or discard unsaved rows?");
     const escapeHtml=v=>String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
     window.testCalls=JSON.parse(sessionStorage.getItem("fixture-calls")||"[]");window.failRegistration=null;
     const saved=JSON.parse(sessionStorage.getItem("fixture-records")||"{}");
@@ -365,8 +488,9 @@ if(process.argv.includes("--visual-fixture")) {
       from:()=>({select:()=>({eq:(field,ref)=>({maybeSingle:async()=>({data:saved[ref]||null})})})}),
       rpc:async(name,payload)=>{
         window.testCalls.push({name,payload});sessionStorage.setItem("fixture-calls",JSON.stringify(window.testCalls));
-        if(payload.p_vehicle_registration===window.failRegistration)return {error:{message:"Synthetic failure"}};
-        const record={id:crypto.randomUUID(),reference:payload.p_reference,vehicle_registration:payload.p_vehicle_registration,created_by:"fixture-admin"};
+        const reg=payload.p_vehicle_registration||payload.p_booking?.reg;
+        if(reg===window.failRegistration)return {error:{message:"Synthetic failure"}};
+        const record={id:crypto.randomUUID(),reference:payload.p_reference,vehicle_registration:reg,created_by:currentSession.user.id,status:"New Booked Vehicle"};
         saved[record.reference]=record;sessionStorage.setItem("fixture-records",JSON.stringify(saved));
         return {data:record};
       }
@@ -382,7 +506,6 @@ if(process.argv.includes("--visual-fixture")) {
     ${source}
     drawBooking(document.getElementById("content"));
     if(!sessionStorage.getItem("fixture-started")){
-      for(const [id,value] of Object.entries({biz:"business-1",pickup:"Shared Collection",dest:"Shared Delivery",service:"Vehicle Delivery",miles:"40",amount:"100",bdate:"2026-11-01",ddate:"2026-11-02",receiver:"Shared Receiver",mobile:"07000000000",dropoff:"18:00",notes:"Shared instructions"}))document.getElementById(id).value=value;
       BulkBooking.setMode("bulk");sessionStorage.setItem("fixture-started","1");
     }
     enhancePortalUsability();

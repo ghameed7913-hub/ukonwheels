@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "exceljs": "4.4.0",
     "jspdf": "^4.2.1"
   }
 }

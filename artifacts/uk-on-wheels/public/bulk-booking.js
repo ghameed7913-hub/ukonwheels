@@ -2,10 +2,10 @@
 (() => {
   "use strict";
   const fieldIds = ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"];
-  let owner = null, mode = "single", rows = [], common = null, busy = false, generation = 0;
+  let owner = null, mode = "single", rows = [], common = null, busy = false, generation = 0, sourceName = "";
   const el = id => document.getElementById(id);
   const userId = () => currentSession?.user?.id || (!SUPABASE_CONFIGURED ? currentUser?.email || "local-admin" : null);
-  const allowed = () => (role === "admin" || role === "staff") && hasPermission("booking");
+  const allowed = () => role === "client" || ((role === "admin" || role === "staff") && hasPermission("booking"));
   const key = id => "ukow-bulk-booking:" + id;
   const normalReg = value => String(value || "").replace(/[\s-]/g,"").toUpperCase();
   const newRow = () => {
@@ -24,7 +24,7 @@
   function persist() {
     if (!owner) return false;
     try {
-      sessionStorage.setItem(key(owner),JSON.stringify({version:1,mode,rows,common}));
+      sessionStorage.setItem(key(owner),JSON.stringify({version:1,mode,rows,common,sourceName}));
       return true;
     } catch (_) {
       status("The browser could not save this batch's recovery details. No further vehicles will be submitted until browser session storage is available.");
@@ -34,7 +34,7 @@
   function load() {
     const id = userId();
     if (owner === id) return;
-    owner = id; mode = "single"; rows = []; common = null;
+    owner = id; mode = "single"; rows = []; common = null; sourceName = "";
     if (!id) return;
     try {
       const saved = JSON.parse(sessionStorage.getItem(key(id)) || "null");
@@ -43,7 +43,8 @@
         for (const row of rows) if (row.status === "saving") {
           row.status = "uncertain"; row.message = "Interrupted save. Retry to check the saved booking before sending again.";
         }
-        common = saved.common; mode = saved.mode === "bulk" ? "bulk" : "single";
+        common = saved.common; sourceName = typeof saved.sourceName === "string" ? saved.sourceName : "";
+        mode = saved.mode === "bulk" ? "bulk" : "single";
       }
     } catch (_) { status("The saved bulk draft could not be restored. Check existing bookings before starting again."); }
   }
@@ -52,23 +53,30 @@
     if (!el("bulkBookingPanel")) return;
     el("bulkBookingPanel").hidden = mode !== "bulk";
     el("singleVehicleFields").hidden = mode === "bulk";
+    // An Excel row carries a complete booking, not a large duplicated shared form.
+    el("bookingSharedFields").hidden = mode === "bulk";
+    if (el("tariffInfo")) el("tariffInfo").hidden = mode === "bulk";
     if (el("bulkSharedNotice")) el("bulkSharedNotice").hidden = mode !== "bulk";
     if (el("bookingMode")) { el("bookingMode").value = mode; el("bookingMode").disabled = busy; }
     el("bookingSharedFields").disabled = busy || (mode === "bulk" && hasCommittedRows());
     el("bulkBookingEditor").disabled = busy;
-    el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy,common || snapshot(),getStore().businesses || [],SUPABASE_CONFIGURED);
+    el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy,common || snapshot(),getStore().businesses || [],SUPABASE_CONFIGURED,{client:role === "client",sourceName});
     el("bulkBookingResults").innerHTML = BulkBookingUI.summary(rows,busy);
     const button = document.querySelector('button[onclick="createBooking()"]');
     if (button) {
       button.textContent = mode === "bulk" ? busy ? "Creating vehicle bookings…" : rows.length && rows.every(r=>r.status === "saved") ? "All vehicles booked" : rows.some(r=>r.status !== "editing") ? "Retry remaining vehicles" : "Create all vehicle bookings" : "Create Booking";
-      button.disabled = busy || (mode === "bulk" && rows.length > 0 && rows.every(r=>r.status === "saved"));
+      button.disabled = busy || (mode === "bulk" && (!rows.length || rows.every(r=>r.status === "saved")));
     }
     if (el("bulkNewBatch")) el("bulkNewBatch").disabled = busy;
+    if (el("bulkExcelFile")) el("bulkExcelFile").disabled = busy || hasCommittedRows();
+    if (el("bulkWorkbookInfo")) el("bulkWorkbookInfo").textContent = sourceName
+      ? sourceName+" — "+rows.length+" vehicle"+(rows.length===1?"":"s")+" loaded. "+(hasCommittedRows()?"Finish/retry this batch, or start a new batch before uploading another file.":"Review every row before saving.")
+      : rows.length ? "Restored vehicle draft. Review the rows before saving." : "No file uploaded yet. Download and fill in the template first.";
   }
   function mount() {
     if (!allowed() || !el("bulkBookingPanel")) return;
     load();
-    el("bulkBookingPanel").innerHTML = BulkBookingUI.shell() + '<div class="actions"><button id="bulkNewBatch" type="button" class="btn secondary" onclick="BulkBooking.newBatch()">Start a new batch</button></div>';
+    el("bulkBookingPanel").innerHTML = BulkBookingUI.shell({client:role === "client"}) + '<div class="actions"><button id="bulkNewBatch" type="button" class="btn secondary" onclick="BulkBooking.newBatch()">Start a new batch</button></div>';
     if (common && mode === "bulk") {
       for (const id of fieldIds) if (el(id)) el(id).value = common[id] ?? "";
       toggleCustomerTypeFields();
@@ -97,11 +105,6 @@
       draw(); return;
     }
     mode = value === "bulk" ? "bulk" : "single";
-    if (mode === "bulk" && !rows.length) {
-      rows = [newRow(),newRow()];
-      rows[0].vehicle = el("veh")?.value || "";
-      rows[0].reg = el("reg")?.value || "";
-    }
     common = snapshot(); persist(); draw();
   }
   function addRow() {
@@ -112,7 +115,8 @@
   function updateRow(id,field,value) {
     if (busy || !["vehicle","reg","miles","amount"].includes(field)) return;
     const row = rows.find(r=>r.id === id);
-    if (!row || ["saved","uncertain","saving"].includes(row.status)) return;
+    if (!row || ["saved","uncertain","saving"].includes(row.status) || (role === "client" && field === "amount")) return;
+    if (row.importErrors) delete row.importErrors[field];
     row[field] = value; row.status = "editing"; row.message = "";
     persist();
   }
@@ -136,6 +140,8 @@
   function updateDetail(id,field,value) {
     const row = editableRow(id);
     if (!row?.details || !fieldIds.includes(field) || ["miles","amount"].includes(field)) return;
+    if (role === "client" && ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail"].includes(field)) return;
+    if (row.importErrors) delete row.importErrors[field];
     row.details[field] = value; row.status = "editing"; row.message = "";
     persist();
     if (field === "customerType") draw();
@@ -153,7 +159,7 @@
     if (rows.some(r=>r.status !== "saved" && hasRowInput(r)) &&
       !await crmConfirm("Discard the remaining unsaved vehicle rows? Any bookings already saved will remain.","Start a new batch","Discard unsaved rows")) return;
     if (busy) return;
-    rows = [newRow(),newRow()]; common = snapshot(); mode = "bulk";
+    rows = []; sourceName = ""; common = snapshot(); mode = "bulk";
     persist(); draw(); status("New batch ready. Saved bookings from previous batches are unchanged.");
   }
   function number(value,label) {
@@ -161,17 +167,110 @@
     if (!Number.isFinite(n) || n < 0) throw new Error(label+" must be a valid number of zero or more.");
     return n;
   }
+  function ownClientDetails(values) {
+    const business = currentUser?.accountType === "business";
+    if (business && !currentUser?.businessId) throw new Error("Your Client account has no linked business. Ask Admin to link it before booking.");
+    return {...values,customerType:business?"Business":"Private",biz:business?currentUser.businessId:"",
+      privateCustomerName:business?"":currentUser?.userName || currentUser?.name || "",
+      privateCustomerMobile:business?"":currentUser?.phone || values.privateCustomerMobile || "",
+      privateCustomerEmail:business?"":currentSession?.user?.email || currentUser?.email || ""};
+  }
+  function resolveBusiness(value) {
+    const text = String(value || "").trim().toLowerCase();
+    const businesses = getStore().businesses || [];
+    const exact = businesses.find(b=>b.id && b.id.toLowerCase() === text);
+    if (exact) return exact.id;
+    const matches = businesses.filter(b=>String(b.name || "").trim().toLowerCase() === text);
+    return matches.length === 1 ? matches[0].id || matches[0].name : value;
+  }
+  function validateRows(shared) {
+    let valid = true;
+    const registrations = new Map();
+    for (const row of rows) {
+      const reg = normalReg(row.reg);
+      if (reg) registrations.set(reg,(registrations.get(reg) || 0)+1);
+    }
+    rows.forEach((row,index)=>{
+      if (row.status === "saved") return;
+      const errors = Object.values(row.importErrors || {});
+      try { prepare(shared,[row]); }
+      catch (error) { errors.push(error.message.replace(/^Vehicle 1:\s*/,"")); }
+      if (normalReg(row.reg) && registrations.get(normalReg(row.reg))>1) errors.push("Registration "+normalReg(row.reg)+" appears more than once in this batch.");
+      if (errors.length) {
+        valid = false;
+        row.message = (row.excelRow ? "Excel row "+row.excelRow : "Vehicle "+(index+1))+": "+errors.join(" ");
+      } else if (!["uncertain","saving"].includes(row.status)) row.message = "";
+    });
+    return valid;
+  }
+  async function downloadTemplate() {
+    try {
+      if (!allowed()) throw new Error("Sign in to a booking account first.");
+      if (!window.BookingExcel) throw new Error("Excel tools are still loading. Refresh the page and try again.");
+      await window.BookingExcel.downloadTemplate({
+        client:role === "client",name:currentUser?.name || "",
+        businesses:role === "client" ? [] : (getStore().businesses || []).filter(b=>b.id && String(b.status || "Active").toLowerCase()==="active" && String(b.accountType || "business").toLowerCase()==="business")
+      });
+      status("Excel template downloaded. Fill the Bookings sheet, then upload it here.");
+    } catch (error) { status(error.message || "The template could not be downloaded."); }
+  }
+  async function uploadFile(file,input) {
+    if (!file || busy || !allowed() || mode !== "bulk") return;
+    load();
+    const id = owner, runGeneration = generation;
+    try {
+      assertOwner(id);
+      if (hasCommittedRows()) throw new Error("Finish or reconcile this batch, then start a new batch before uploading another file.");
+      if (rows.some(hasRowInput) && !await crmConfirm("Replace the unsaved preview with this Excel file? No saved booking will be deleted.","Replace bulk preview","Replace unsaved rows")) return;
+      assertOwner(id);
+      if (busy || hasCommittedRows() || mode !== "bulk") return;
+      if (!window.BookingExcel) throw new Error("Excel tools are still loading. Refresh the page and try again.");
+      busy = true; draw(); status("Reading Excel file…");
+      const records = await window.BookingExcel.readFile(file);
+      assertOwner(id);
+      const imported = records.map(record=>{
+        const row = newRow(), values = {...record.values};
+        row.excelRow = record.excelRow; row.importErrors = {...record.errors};
+        if (role === "client") {
+          const own = ownClientDetails(values);
+          for (const field of ["customerType","biz","privateCustomerName","privateCustomerEmail"]) {
+            const supplied = String(values[field] || "").trim().toLowerCase();
+            const expected = String(own[field] || "").trim().toLowerCase();
+            const ownName = String(currentUser?.name || "").trim().toLowerCase();
+            if (supplied && supplied !== expected && !(field === "biz" && supplied === ownName)) row.importErrors[field] = "Client bookings must use your own signed-in account. Leave the customer columns blank or correct the Excel file.";
+          }
+          if (Number(values.amount || 0) !== 0) row.importErrors.amount = "Clients cannot set charges. Leave Customer charge blank in the Excel file; Operations sets it.";
+          Object.assign(values,own);
+        } else values.biz = resolveBusiness(values.biz);
+        Object.assign(row,{vehicle:values.vehicle || "",reg:values.reg || "",miles:values.miles || "",amount:values.amount || "",details:values});
+        return row;
+      });
+      // Persist the replacement before dropping the previous editable draft.
+      const previous = {rows,common,sourceName};
+      rows = imported; common = snapshot(); sourceName = file.name;
+      validateRows(common);
+      if (!persist()) { rows=previous.rows;common=previous.common;sourceName=previous.sourceName;return; }
+      status(rows.some(r=>r.message)?"File loaded with errors. Fix the highlighted rows or correct and upload the file again. No bookings have been created.":rows.length+" vehicles ready to review. Uploading has not created any bookings; save when everything is correct.");
+    } catch (error) {
+      if (owner === id && userId() === id) status(error.message || "The Excel file could not be imported. Your previous preview was kept.");
+    } finally {
+      if (input) input.value = "";
+      if (generation === runGeneration) busy = false;
+      if (owner === id && userId() === id) draw();
+    }
+  }
   function prepare(shared,vehicles) {
     if (!vehicles.length) throw new Error("Add at least one vehicle to the batch.");
     const seen = new Set();
     return vehicles.map((row,index) => {
-    const values = row.details || shared;
+    if (role === "client" && Number(row.amount || 0) !== 0) throw new Error("Vehicle "+(index+1)+": Clients cannot set customer charges. Leave that column blank.");
+    const values = role === "client" ? ownClientDetails(row.details || shared) : row.details || shared;
     const label = "Vehicle "+(index+1)+": ";
     const sharedCustomer = !row.details;
     const type = values.customerType || "Business";
     let business, businessId = null;
     if (type === "Business") {
-      const selected = selectedBookingBusiness(values.biz);
+      const selected = role === "client" ? {id:currentUser.businessId,name:currentUser.name,status:"Active"} : selectedBookingBusiness(values.biz);
       if (!selected || String(selected.accountType || "business").toLowerCase() !== "business" || String(selected.status || "Active").toLowerCase() !== "active" || (SUPABASE_CONFIGURED && !selected.id)) throw new Error(label+"Select an active saved business before creating the batch.");
       business = selected.name; businessId = selected.id || null;
     } else if (type === "Private") {
@@ -199,7 +298,7 @@
          vehicle,reg,pickup:values.pickup.trim(),destination:values.dest.trim(),
          service,
          miles:row.miles == null || row.miles === "" ? defaultMiles : number(row.miles,"Vehicle "+(index+1)+" miles"),
-         amount:row.amount == null || row.amount === "" ? defaultAmount : number(row.amount,"Vehicle "+(index+1)+" charge"),
+         amount:role === "client" ? 0 : row.amount == null || row.amount === "" ? defaultAmount : number(row.amount,"Vehicle "+(index+1)+" charge"),
          bookingDate:values.bdate || new Date().toISOString().slice(0,10),
          deliveryDate:values.ddate || "",receiver:values.receiver.trim(),receiverMobile:values.mobile.trim(),
          dropoffTill:values.dropoff || "",notes,status:"New Booked Vehicle",paymentStatus:"Pending",driver:"",
@@ -220,7 +319,15 @@
   async function saveOne(booking,id) {
     assertOwner(id);
     if (SUPABASE_CONFIGURED) {
-      const saved = await createLinkedBooking(booking,booking.ref);
+      let saved;
+      if (role === "client") {
+        const result = await sb.rpc("client_create_bulk_booking",{p_reference:booking.ref,p_booking:booking});
+        if (result.error) {
+          if (["PGRST202","42883"].includes(result.error.code)) throw new Error("Client Excel booking needs the Supabase setup: ask Admin to run supabase/client-bulk-booking-patch.sql. Your uploaded preview has been kept.");
+          throw new Error(result.error.message);
+        }
+        saved = result.data;
+      } else saved = await createLinkedBooking(booking,booking.ref);
       assertOwner(id);
       if (!saved?.id || saved.reference !== booking.ref) throw new Error("The server did not confirm this vehicle's booking reference.");
       return saved;
@@ -239,8 +346,11 @@
     try {
       assertOwner(id);
       if (SUPABASE_CONFIGURED && !currentSession) throw new Error("Sign in again before creating bookings.");
-      if (el("biz")?.disabled && !hasCommittedRows()) throw new Error("Please wait for saved businesses to finish loading.");
+      if (role !== "client" && el("biz")?.disabled && !hasCommittedRows()) throw new Error("Please wait for saved businesses to finish loading.");
       if (!hasCommittedRows()) common = snapshot();
+      if (!validateRows(common)) {
+        persist(); draw(); status("Fix the highlighted vehicle rows before saving. No additional bookings have been created."); return;
+      }
       const bookings = prepare(common,rows);
       if (!persist()) return;
       busy = true; draw();
@@ -293,7 +403,7 @@
       }
       assertOwner(id);
       const savedCount = rows.filter(r=>r.status === "saved").length;
-      status((savedCount === rows.length ? "All "+savedCount+" vehicles booked successfully. Each has its own reference and can be assigned to a Driver." : savedCount+" of "+rows.length+" vehicles saved. Review the row messages and retry remaining vehicles; saved bookings will not be created again.")+refreshError);
+      status((savedCount === rows.length ? "All "+savedCount+" vehicles booked successfully. Each has its own reference and is available in New Booked Vehicles"+(role === "client"?" and your Bookings list.":", ready for Driver assignment.") : savedCount+" of "+rows.length+" vehicles saved. Review the row messages and retry remaining vehicles; saved bookings will not be created again.")+refreshError);
     } catch (e) {
       if (owner === id && userId() === id) status(e.message || "The batch could not be saved.");
     } finally {
@@ -304,7 +414,7 @@
   function clearSession() {
     if (owner) { try { sessionStorage.removeItem(key(owner)); } catch (_) {} }
     generation++;
-    owner = null; mode = "single"; rows = []; common = null; busy = false;
+    owner = null; mode = "single"; rows = []; common = null; busy = false; sourceName = "";
   }
-  window.BulkBooking = {mount,setMode,addRow,updateRow,setOwnDetails,updateDetail,refresh,removeRow,newBatch,submit,clearSession,isActive:()=>mode === "bulk" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode === "bulk" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode === "bulk" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
+  window.BulkBooking = {mount,setMode,addRow,updateRow,setOwnDetails,updateDetail,refresh,downloadTemplate,uploadFile,removeRow,newBatch,submit,clearSession,isActive:()=>mode === "bulk" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode === "bulk" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode === "bulk" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
 })();
