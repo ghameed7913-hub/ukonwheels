@@ -1676,9 +1676,11 @@ async function supabaseCreateLogin(email,password,profileFields){
  }catch(e){alert("Network error creating the login for "+email+".");return false}
 }
 
-async function requestAccountPasswordReset(email){
+async function requestAccountPasswordReset(email,canSend=()=>true){
  if(!email)return alert("No email address is saved for this account.");
+ if(!canSend())return false;
  if(!await crmConfirm("Send a secure password-reset email to "+email+"? The password changes only after the account holder opens the email and chooses a new password.","Send password reset","Send reset email"))return false;
+ if(!canSend()){alert("The signed-in account or selected user changed. Reopen Created Users before requesting a reset.");return false}
  try{
   const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
   if(error)throw error;
@@ -2966,6 +2968,7 @@ function drawCreateUsers(c){
 
  <div class="panel">
   <h3>Created Users</h3>
+  <p class="muted">Change Password sends a secure reset email. The user chooses their new password from the email link.</p>
   <div class="scroll"><table style="min-width:1000px">
    <tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Status</th><th>Action</th></tr>
    ${s.staffUsers.map((u,i)=>`<tr>
@@ -2974,6 +2977,7 @@ function drawCreateUsers(c){
     <td>
       <button class="btn secondary" onclick="viewUserInformation(${i})">View Information</button>
       <button class="btn secondary" onclick="viewStaffUserActivity(${i})">Activity</button>
+      ${role==="admin"?`<button class="btn secondary" ${!SUPABASE_CONFIGURED||!currentSession?.user?.id||String(currentSession.user.id).startsWith("local-preview-")||!u.id||!u.email||String(u.status).toLowerCase()==="deleted"?"disabled":""} onclick="sendCreatedUserPasswordReset(${i},this)">Change Password</button>`:""}
       <button class="btn ${u.status==="Active"?"warn":"primary"}" ${u.role==="Unassigned"?"disabled":""} onclick="toggleUserStatus(${i})">${u.status==="Active"?"Deactivate":"Activate"}</button>
       <button class="btn danger" onclick="deleteStaffUser(${i})">Delete</button>
     </td>
@@ -2981,6 +2985,27 @@ function drawCreateUsers(c){
   </table></div>
  </div>
  <div id="userInformationArea"></div>`;
+}
+
+const createdUserPasswordResets=new Set();
+async function sendCreatedUserPasswordReset(index,button){
+ if(role!=="admin"||!SUPABASE_CONFIGURED||!currentSession?.user?.id||String(currentSession.user.id).startsWith("local-preview-"))return alert("Sign in as Admin to send a password-reset email.");
+ const u=ensureStaffUsers().staffUsers[index];
+ if(!u?.id||String(u.status).toLowerCase()==="deleted")return alert("Reload Created Users and choose a saved user.");
+ const email=String(u.email||"").trim();
+ if(!email)return alert("No email address is saved for this account.");
+ const actor=currentSession.user.id,userId=u.id;
+ const key=actor+":"+userId;
+ if(createdUserPasswordResets.has(key))return;
+ const canSend=()=>role==="admin"&&currentSession?.user?.id===actor&&ensureStaffUsers().staffUsers.some(user=>user.id===userId&&String(user.email||"").trim()===email&&String(user.status).toLowerCase()!=="deleted");
+ createdUserPasswordResets.add(key);
+ const label=button?.textContent;
+ if(button){button.disabled=true;button.textContent="Requesting reset…"}
+ try{return await requestAccountPasswordReset(email,canSend)}
+ finally{
+  createdUserPasswordResets.delete(key);
+  if(button?.isConnected){button.disabled=false;button.textContent=label}
+ }
 }
 
 function viewUserInformation(index){
