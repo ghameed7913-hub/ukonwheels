@@ -30,7 +30,14 @@ test("Staff with Accounts and Reports can navigate to all six Accounts pages",()
 test("Staff without Accounts does not gain a finance menu or finance access",()=>{
   const {c,menu,errors}=portal("staff",["hr"]);
   assert.ok(!menu.some(x=>x.key==="accounts"));
+  assert.ok(!menu.some(x=>x.group==="trading"));
   c.go("expenses");assert.equal(c.page,"desktop");assert.equal(errors.length,1);
+});
+test("Buying and Selling deny Client, Driver and HR-only navigation",()=>{
+ for(const role of ["client","driver","staff"]){
+   const {c,errors}=portal(role,["hr"]);
+   c.go("buying");c.go("selling");assert.equal(c.page,"desktop");assert.equal(errors.length,2);
+ }
 });
 test("Accounts guidance describes only the submenu areas available to that user",()=>{
   for(const permissions of [["accounts"],["accounts","reports"]]){

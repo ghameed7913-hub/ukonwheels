@@ -51,6 +51,8 @@ test("Real SQL: atomic paid expenses, role access, idempotency, stale snapshots 
     sql(patch);sql(patch);
     const bulk=fs.readFileSync(path.resolve(__dirname,"../../../supabase/bulk-expenses.sql"),"utf8");
     sql(bulk);sql(bulk);
+    const trading=fs.readFileSync(path.resolve(__dirname,"../../../supabase/vehicle-trading.sql"),"utf8");
+    sql(trading);sql(trading);
     sql(`${as(1)}
       select public.create_portal_payslip('${slip("DRV")}'::jsonb,'Unpaid');
       do $$declare result jsonb;begin
@@ -168,6 +170,56 @@ test("Real SQL: atomic paid expenses, role access, idempotency, stale snapshots 
       if (select count(*) from jsonb_array_elements(public.read_payroll_finances()->'expenses') e where e->>'source'='expense-batch')<>6
         then raise exception 'Concurrent batches lost expenses';end if;
     end$$;`);
+    const tradeId="40000000-0000-0000-0000-000000000001",mutation="50000000-0000-0000-0000-000000000001";
+    const vehicle=JSON.stringify({purchaseDate:"2026-10-18",purchaseSource:"auction",sellerName:"Test Auction",
+      purchaseAmount:1000,fuel:20.10,motCharges:40,roadTax:30,auctionCharges:100,mileage:42000,
+      registration:"ab12 cde",make:"Ford",model:"Focus",serviceHistory:"Full",logBook:"Yes",soldFor:null,totalCost:1,profit:999});
+    sql(`${as(1)}do $$declare r jsonb;begin
+      r:=public.save_vehicle_trade('${tradeId}',0,'${mutation}','${vehicle}');
+      if (r#>>'{trade,totalCost}')::numeric<>1190.10 or r#>'{trade,profit}'<>'null'::jsonb
+        or r#>>'{trade,day}'<>'Sunday' or r#>>'{trade,registration}'<>'AB12 CDE'
+        then raise exception 'Trade totals/unsold/day/registration wrong';end if;
+      perform public.save_vehicle_trade('${tradeId}',0,'${mutation}','${vehicle}');
+      if (select count(*) from public.vehicle_trades)<>1 then raise exception 'Duplicate trade retry';end if;
+      begin perform public.save_vehicle_trade('${tradeId}',1,'${mutation}',jsonb_set('${vehicle}'::jsonb,'{fuel}','99'));
+        raise exception 'Changed mutation accepted';exception when invalid_parameter_value then null;end;
+      begin perform public.save_vehicle_trade('40000000-0000-0000-0000-000000000099',0,'${mutation}',jsonb_set('${vehicle}'::jsonb,'{roadTax}','-1'));
+        raise exception 'Negative cost accepted';exception when invalid_parameter_value then null;end;
+      if exists(select 1 from public.app_store where data ? 'vehicleTrades') then raise exception 'Private trades leaked into shared store';end if;
+    end$$;`);
+    for(const n of [2,3,4,6])sql(`${as(n)}do $$begin
+      begin perform public.read_vehicle_trades();raise exception 'Unauthorised trade read';
+        exception when insufficient_privilege then null;end;
+      if (select count(*) from public.vehicle_trades)<>0 then raise exception 'Trade RLS leak';end if;
+      begin perform public.save_vehicle_trade('${tradeId}',1,'${mutation}','${vehicle}');raise exception 'Unauthorised trade write';
+        exception when insufficient_privilege then null;end;
+    end$$;`);
+    sql(`${as(5)}do $$begin
+      if (public.read_vehicle_trades()->>'canManage')::boolean or (select count(*) from public.vehicle_trades)<>1
+        then raise exception 'Accounts viewer incorrect access';end if;
+      begin perform public.save_vehicle_trade('${tradeId}',1,'${mutation}','${vehicle}');raise exception 'Viewer wrote trade';
+        exception when insufficient_privilege then null;end;
+      begin update public.vehicle_trades set version=99;raise exception 'Direct table write allowed';
+        exception when insufficient_privilege then null;end;
+    end$$;`);
+    sql(`${as(7)}do $$declare r jsonb;begin
+      r:=public.save_vehicle_trade('${tradeId}',1,'50000000-0000-0000-0000-000000000002',jsonb_set('${vehicle}'::jsonb,'{soldFor}','1500'));
+      if (r#>>'{trade,profit}')::numeric<>309.90 or (r#>>'{trade,version}')::int<>2 then raise exception 'Trade profit wrong';end if;
+      r:=public.save_vehicle_trade('${tradeId}',2,'50000000-0000-0000-0000-000000000003',jsonb_set('${vehicle}'::jsonb,'{soldFor}','1100'));
+      if (r#>>'{trade,profit}')::numeric<>-90.10 then raise exception 'Trade loss wrong';end if;
+      r:=public.save_vehicle_trade('${tradeId}',3,'50000000-0000-0000-0000-000000000004',jsonb_set('${vehicle}'::jsonb,'{soldFor}','1190.10'));
+      if (r#>>'{trade,profit}')::numeric<>0 then raise exception 'Trade break even wrong';end if;
+      r:=public.save_vehicle_trade('${tradeId}',4,'50000000-0000-0000-0000-000000000005',jsonb_set('${vehicle}'::jsonb,'{soldFor}','0'));
+      if (r#>>'{trade,profit}')::numeric<>-1190.10 then raise exception 'Zero sale treated as unsold';end if;
+      begin perform public.save_vehicle_trade('${tradeId}',1,'50000000-0000-0000-0000-000000000006','${vehicle}');
+        raise exception 'Stale version accepted';exception when serialization_failure then null;end;
+    end$$;`);
+    await Promise.all([1,7].map((actor,i)=>parallel(`${as(actor)}do $$begin
+      begin perform public.save_vehicle_trade('${tradeId}',5,'50000000-0000-0000-0000-00000000000${i+7}',jsonb_set('${vehicle}'::jsonb,'{soldFor}','${1300+i*100}'));
+      exception when serialization_failure then null;end;
+    end$$;`)));
+    sql(`${as(1)}do $$begin if (select version from public.vehicle_trades where id='${tradeId}')<>6
+      then raise exception 'Concurrent trade overwritten or saved twice';end if;end$$;`);
     // Existing Driver RPC: test the real ownership filter and HR-to-Driver status hand-off.
     sql(`reset role;
       alter table public.profiles add column email text;

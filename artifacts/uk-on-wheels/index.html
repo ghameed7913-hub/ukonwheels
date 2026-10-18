@@ -18,6 +18,9 @@
 <link rel="stylesheet" href="./expense-bulk.css">
 <script src="./expense-bulk-ui.js"></script>
 <script src="./expense-bulk.js"></script>
+<link rel="stylesheet" href="./vehicle-trading.css">
+<script src="./vehicle-trading-ui.js"></script>
+<script src="./vehicle-trading.js"></script>
 <link rel="stylesheet" href="./driver-payments.css">
 <script src="./driver-payments-ui.js"></script>
 <script src="./driver-payments.js"></script>
@@ -1089,7 +1092,7 @@ document.addEventListener("DOMContentLoaded",()=>{
        DriverPayments.acceptScopedStore(STORE_CACHE);
       }
      }
-    if(role==="admin"&&previewParams.get("ui-page")==="expenses"){
+    if(role==="admin"&&["expenses","buying","selling"].includes(previewParams.get("ui-page"))){
       currentSession={user:{id:"local-preview-admin"}};
       STORE_CACHE.expenses=[];STORE_CACHE.invoices=[];STORE_CACHE.transactions=[];
       STORE_CACHE.invoiceSettings=ensureInvoiceSettings({}).invoiceSettings;
@@ -1344,6 +1347,7 @@ function applyAuthenticatedProfile(profile,session){
   window.DriverIdentityUI?.reset();
   window.DriverPayments?.reset();
   window.ExpenseBulk?.reset();
+  window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
   window.BulkBooking?.clearSession();
@@ -1419,6 +1423,7 @@ async function logoutNow(){
  window.DriverIdentityUI?.reset();
  window.DriverPayments?.reset();
  window.ExpenseBulk?.reset();
+ window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
   await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
@@ -1741,6 +1746,9 @@ function nav(){
     {key:"accountReports",label:"Reports"},
     {key:"pnl",label:"Profit & Loss"}
   ]},
+  {group:"trading",key:"buying",label:"Buying & Selling",icon:"car",items:[
+    {key:"buying",label:"Buying"},{key:"selling",label:"Selling"}
+  ]},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",items:[
     {key:"hrRegister",label:"Employee Registration"},
     {key:"driverCompanyIDs",label:"Driver photos & IDs"},
@@ -1792,6 +1800,9 @@ function nav(){
     {key:"pendingPayments",label:"Pending Payments"},
     ...(hasPermission("reports")?[{key:"accountReports",label:"Reports"}]:[]),
     {key:"pnl",label:"Profit & Loss"}
+  ]},
+  {group:"trading",key:"buying",label:"Buying & Selling",icon:"car",cat:"accounts",items:[
+    {key:"buying",label:"Buying"},{key:"selling",label:"Selling"}
   ]},
   {key:"reports",label:"Reports & Invoices",icon:"chart",cat:"reports"},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",cat:"hr",items:[
@@ -1854,6 +1865,7 @@ function hasPermission(key){
 function render(){
  document.body.classList.toggle("client-mode",role==="client");
  document.body.classList.toggle("driver-mode",role==="driver");
+ document.body.classList.toggle("trading-mode",["buying","selling"].includes(page)&&(role==="admin"||(role==="staff"&&hasPermission("accounts"))));
  if(typeof checkDocumentExpiries==="function")checkDocumentExpiries();
  const title=role==="driver"?"Driver Mobile App":role==="client"?"Client Portal":role==="staff"?(currentStaffUser?.role||"Staff Portal"):"Admin Portal";
  const displayName=role==="client"&&currentUser.userName?currentUser.userName:currentUser.name;
@@ -1995,6 +2007,9 @@ async function persistNormalizedStatus(b,status,note=""){
 }
 function go(p){
  if(p==="logout"){logoutNow();return}
+ if(["buying","selling"].includes(p)&&!(role==="admin"||(role==="staff"&&hasPermission("accounts")))){
+   alert("Accounts access is required for Buying & Selling.");return;
+ }
  if(role==="client"){
    const allowed=["desktop","booking","clientBookings","clientTracking","clientInvoices","clientReports","clientPayments","clientBusiness","clientUsers","clientSettings","clientStatusPage","reports"];
    if(!allowed.includes(p)){alert("This section is not available in the Client Portal.");return}
@@ -2022,6 +2037,8 @@ function statusTabs(){
 }
 function draw(){
  const c=document.getElementById("content");
+ if(page==="buying")return VehicleTrading.draw(c,"buying");
+ if(page==="selling")return VehicleTrading.draw(c,"selling");
  if(page==="incidents"){
   if(role!=="admin"){c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;}
   return IncidentUI.renderAdmin(c);
