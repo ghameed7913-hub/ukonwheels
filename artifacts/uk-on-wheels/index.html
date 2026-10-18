@@ -15,6 +15,9 @@
 <link rel="stylesheet" href="./driver-identity.css">
 <script src="./driver-identity-api.js"></script>
 <script src="./payroll-payments.js"></script>
+<link rel="stylesheet" href="./driver-payments.css">
+<script src="./driver-payments-ui.js"></script>
+<script src="./driver-payments.js"></script>
 <script src="./driver-identity-ui.js"></script>
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
@@ -208,7 +211,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .driverJob h3{margin:6px 0}.driverRoute{background:#f7f9fc;border-radius:10px;padding:10px;margin:10px 0}
 .driverMeta{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px}
 .driverMeta div{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px}
-.driverBottomNav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(520px,100%);background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(6,minmax(0,1fr));z-index:50;padding-bottom:env(safe-area-inset-bottom)}
+.driverBottomNav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(520px,100%);background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(7,minmax(0,1fr));z-index:50;padding-bottom:env(safe-area-inset-bottom)}
 .driverBottomNav button{border:0;background:#fff;padding:10px 2px;font-size:11px;line-height:1.15;color:#53647a;min-width:0;overflow-wrap:anywhere}@media (max-width:400px){.driverBottomNav button{font-size:10px}}.driverBottomNav button.active{color:var(--brand-red);font-weight:700}
 .driverBottomNav span{display:block;font-size:20px;margin-bottom:3px}
 .driverSectionTitle{display:flex;justify-content:space-between;align-items:center;margin:8px 0 12px}
@@ -1074,7 +1077,14 @@ document.addEventListener("DOMContentLoaded",()=>{
        sample("PREVIEW-103","On Route","Volkswagen Golf","LM56 NOP","Birmingham","Bristol")
       ];
       driverSelectedJobRef=previewParams.get("ui-job")||null;
-      driverMobileTab=previewParams.get("ui-tab")==="incidents"?"incidents":"jobs";
+      driverMobileTab=["incidents","payments"].includes(previewParams.get("ui-tab"))?previewParams.get("ui-tab"):"jobs";
+      if(driverMobileTab==="payments"){
+       STORE_CACHE.payslips=[
+        {id:"PREVIEW-PAY-PENDING",profileId:"local-preview-driver",name:"James Wilson",month:"2026-10",net:850,basic:1000,overtime:100,fuel:60,food:20,travel:40,gross:1220,taxAmount:220,taxPct:20,taxEnabled:true,advance:150,paymentStatus:"Unpaid"},
+        {id:"PREVIEW-PAY-PAID",profileId:"local-preview-driver",name:"James Wilson",month:"2026-09",net:400,basic:500,taxAmount:100,taxPct:20,taxEnabled:true,paymentStatus:"Paid",paidOn:"2026-10-01"}
+       ];
+       DriverPayments.acceptScopedStore(STORE_CACHE);
+      }
      }
     page=role==="driver"?"driver":(previewParams.get("ui-page")||"desktop");
    showAuthenticatedPortal();
@@ -1131,6 +1141,7 @@ async function initStoreFromSupabase(profile=null){
          if(fresh.error)throw fresh.error;
          if(currentSession?.user?.id!==sessionId)return;
          STORE_CACHE={...fresh.data,bookings:getStore().bookings||[]};
+         window.DriverPayments?.acceptScopedStore(fresh.data);
          sharedReadError="";renderSharedSaveNotice();refreshPortalSafely();
        }catch(e){sharedReadError="Your portal data could not be refreshed: "+(e.message||"Connection unavailable.");renderSharedSaveNotice()}
      },30000);
@@ -1321,6 +1332,7 @@ function migrateClientData(){
 function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
   window.DriverIdentityUI?.reset();
+  window.DriverPayments?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
   window.BulkBooking?.clearSession();
@@ -1394,6 +1406,7 @@ async function logoutNow(){
  }
  window.DriverCompliance?.stop();
  window.DriverIdentityUI?.reset();
+ window.DriverPayments?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
   await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
@@ -5870,6 +5883,7 @@ function driverMobileNav(){
   <button class="${driverMobileTab==="incidents"?"active":""}" onclick="setDriverMobileTab('incidents')"><span>${ico("clipboard")}</span>Incidents</button>
   <button class="${driverMobileTab==="holidays"?"active":""}" onclick="setDriverMobileTab('holidays')"><span>${ico("calendar")}</span>Holidays</button>
   <button class="${driverMobileTab==="history"?"active":""}" onclick="setDriverMobileTab('history')"><span>${ico("receipt")}</span>History</button>
+  <button class="${driverMobileTab==="payments"?"active":""}" ${driverMobileTab==="payments"?'aria-current="page"':""} onclick="setDriverMobileTab('payments')"><span>${ico("receipt")}</span>Payments</button>
   <button class="${driverMobileTab==="companyId"?"active":""}" ${driverMobileTab==="companyId"?'aria-current="page"':""} onclick="setDriverMobileTab('companyId')"><span><span class="ico-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2"/><circle cx="8.5" cy="11" r="2.2"/><path d="M5.5 16c.6-1.6 1.7-2.4 3-2.4s2.4.8 3 2.4M14 10h4.5M14 13.5h3"/></svg></span></span>Digital ID</button>
   <button class="${driverMobileTab==="profile"?"active":""}" ${driverMobileTab==="profile"?'aria-current="page"':""} onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
  </div>`;
@@ -5953,7 +5967,7 @@ function drawDriver(c){
  IncidentUI.captureForm();
  document.body.classList.add("driver-mode");
  const rows=driverAssignedRows(),counts=driverStatusCounts(rows),name=currentUser?.name||currentStaffUser?.name||"Driver";
- const identityReady=globalThis.DriverIdentityUI?.ready()===true;
+ const identityReady=globalThis.DriverIdentityUI?.ready()===true||(driverMobileTab==="payments"&&DriverPayments.isLocalPreview());
  const activeTab=identityReady?driverMobileTab:"profile";
  const showingJob=activeTab==="jobs"&&rows.some(b=>b.ref===driverSelectedJobRef&&b.status!=="Delivered");
  let body="";
@@ -5961,6 +5975,7 @@ function drawDriver(c){
  else if(activeTab==="incidents")body=IncidentUI.renderDriver();
  else if(activeTab==="holidays")body=drawDriverHolidaysMobile();
  else if(activeTab==="history")body=drawDriverHistoryMobile();
+ else if(activeTab==="payments")body=DriverPayments.view();
  else if(activeTab==="companyId")body=DriverIdentityUI.renderCard();
  else body=drawDriverProfileMobile();
 
@@ -5979,6 +5994,7 @@ function drawDriver(c){
   ${driverMobileNav()}
  </div>`;
  if(activeTab==="incidents")IncidentUI.mountDriver();
+ if(activeTab==="payments")DriverPayments.mount();
  globalThis.DriverIdentityUI?.mountDriver();
 }
 function driverCard(b){

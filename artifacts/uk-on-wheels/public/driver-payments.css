@@ -1,0 +1,40 @@
+.driverPayments{--dp-paid:#08784b;--dp-pend:#966000;--dp-owe:#b31d2c}
+.driverPayments .dpStatusLine{margin:-6px 0 12px;font-size:12px;color:var(--muted)}
+.driverPayments .dpRefresh{min-height:44px}
+.driverPayments .dpRefresh:focus-visible,.driverPayments summary:focus-visible{outline:3px solid var(--brand-red);outline-offset:2px}
+.driverPayments .dpAlert{background:#fff0f1;border:1px solid #ffd8dc;color:#a2212c;border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;line-height:1.45}
+.driverPayments .dpAlertAct{margin-top:10px}
+.driverPayments .dpSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px}
+.driverPayments .dpSum{background:#fff;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:12px;padding:12px}
+.driverPayments .dpSum b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.driverPayments .dpSum strong{display:block;font-size:21px;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.driverPayments .dpSum small{font-size:11px;color:var(--muted)}
+.driverPayments .dpSumPend{border-left-color:var(--amber)}.driverPayments .dpSumPaid{border-left-color:var(--green)}.driverPayments .dpSumOwed{border-left-color:var(--red)}
+.driverPayments .dpSumOwed strong{color:var(--dp-owe)}
+.driverPayments .dpGroup h4{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:14px}
+.driverPayments .dpCard{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;box-shadow:0 3px 12px #0000000a;overflow:hidden}
+.driverPayments .dpCard>summary{list-style:none;cursor:pointer;padding:14px;display:grid;gap:3px;min-height:48px}
+.driverPayments .dpCard>summary::-webkit-details-marker{display:none}
+.driverPayments .dpTop{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.driverPayments .dpMonth{font-weight:700;color:var(--navy)}
+.driverPayments .dpAmt{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px}
+.driverPayments .dpPaid .dpAmt{color:var(--dp-paid)}.driverPayments .dpNeg{color:var(--dp-owe)}
+.driverPayments .dpSub{font-size:13px;color:#3f5168}
+.driverPayments .dpOwed .dpSub{color:var(--dp-owe);font-weight:700}
+.driverPayments .dpRef{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.driverPayments .dpMore{font-size:13px;font-weight:700;color:var(--brand-red);margin-top:6px}
+.driverPayments .dpMore::after{content:" +"}
+.driverPayments .dpCard[open] .dpMore::after{content:" \2212"}
+.driverPayments .dpBody{border-top:1px solid var(--line);padding:12px 14px 14px;background:#fafcfe}
+.driverPayments .dpBreak{margin:0;display:grid;gap:0}
+.driverPayments .dpRow{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #edf1f5;font-size:13px}
+.driverPayments .dpRow dt{color:#3f5168}.driverPayments .dpRow dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.driverPayments .dpRowGross{font-weight:700}.driverPayments .dpRowDeduct dd{color:var(--dp-owe)}
+.driverPayments .dpBreakNet .dpRow{border-bottom:0;border-top:2px solid var(--navy);font-size:15px;font-weight:800;margin-top:4px}
+.driverPayments .dpMeta,.driverPayments .dpNote{font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.45}
+.driverPayments .dpNoteOwed{color:var(--dp-owe);background:#fff0f1;border-radius:8px;padding:8px 10px}
+.driverPayments .dpSkel{display:grid;gap:10px}
+.driverPayments .dpSkel i{display:block;height:108px;border-radius:14px;background:linear-gradient(90deg,#e9eef5,#f5f8fb,#e9eef5);background-size:200% 100%;animation:dpShim 1.3s linear infinite}
+@keyframes dpShim{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.driverPayments .dpSkel i{animation:none}}
+@media (max-width:700px){.driverPayments .dpSummary{grid-template-columns:1fr 1fr}.driverPayments .dpSumOwed{grid-column:1/-1}}
