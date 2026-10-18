@@ -28,6 +28,7 @@
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
+<script src="./invoice-vehicles.js"></script>
   <script src="./hr-screening-api.js"></script>
   <script src="./driver-compliance.js"></script>
   <script src="./hr-registration.js"></script>
@@ -3655,13 +3656,17 @@ function drawInvoices(c,settingsLoaded=false){
  </div>
 
  <div class="panel" style="margin-top:12px"><h2>Generate Invoice</h2><div class="form">
- <select id="invBiz"><option value="">Select Client *</option>${s.businesses.map(b=>`<option value="${b.name}">${b.name}</option>`).join("")}</select>
- <input id="invDate" type="date"><input id="invDue" type="date">
+ <label class="autoFieldWrap">Client *<select id="invBiz" onchange="loadInvoiceVehicles()"><option value="">Select Client *</option>${s.businesses.map(b=>`<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`).join("")}</select></label>
+ <label class="autoFieldWrap">Invoice date<input id="invDate" type="date"></label>
+ <label class="autoFieldWrap">Payment due date<input id="invDue" type="date"></label>
+ <label class="autoFieldWrap">Delivered from *<input id="invDeliveredFrom" type="date" onchange="loadInvoiceVehicles()" required></label>
+ <label class="autoFieldWrap">Delivered to *<input id="invDeliveredTo" type="date" onchange="loadInvoiceVehicles()" required></label>
  <label class="step" style="margin:0;display:flex;align-items:center;gap:8px"><input id="invVatEnabled" type="checkbox" checked style="width:auto" onchange="toggleInvoiceVat()"> Apply VAT to this invoice</label>
  <label class="autoFieldWrap" for="invVat">VAT rate (%)<input id="invVat" type="number" min="0" step="0.01" value="20"></label>
  <input id="invExtra" type="number" step="0.01" placeholder="Extra Phrasal (£)"><input id="invOther" type="number" step="0.01" placeholder="Other Charges (£)">
  <textarea id="invOtherDesc" class="full" placeholder="Other Charges Description"></textarea></div>
  <p class="muted">VAT is optional for each invoice. Untick “Apply VAT” to generate an invoice without VAT.</p>
+ <p class="muted">Choose a client and delivery date range, then tick the vehicles to invoice. Both dates are included, using actual delivery dates in UK time. Paid and already-invoiced vehicles are excluded.</p>
  <div class="actions"><button class="btn primary" id="loadInvoiceBtn">Load Delivered Vehicles</button></div><div id="invVehicleArea"></div></div>
  <div class="panel" style="margin-top:12px"><h3>Generated Invoices</h3><div class="scroll"><table style="min-width:1250px"><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Vehicles</th><th>Subtotal</th><th>VAT</th><th>Extras</th><th>Total</th><th>Status</th><th>Payment Date</th><th>Action</th></tr>
  ${s.invoices.slice().reverse().map(i=>`<tr>
@@ -3821,21 +3826,31 @@ async function reopenInvoice(invoiceNo){
 
 function loadInvoiceVehicles(){
  const s=ensureAccountsData();
- const bizEl=document.getElementById("invBiz");
  const area=document.getElementById("invVehicleArea");
- if(!bizEl||!area)return alert("Invoice page could not initialise.");
- const biz=bizEl.value;
- if(!biz)return alert("Select a client.");
- const rows=s.bookings.filter(b=>b.status==="Delivered"&&b.business===biz&&b.paymentStatus!=="Paid");
+ if(!area)return alert("Invoice page could not initialise.");
+ loadInvoiceVehicles.selection=null;
+ let range;
+ try{range=InvoiceVehicles.readRange(document)}
+ catch(error){area.innerHTML=`<p class="muted" role="status">${escapeHtml(error.message)}</p>`;return}
+ const biz=range.client,rows=InvoiceVehicles.matching(s.bookings,range);
+ const missing=s.bookings.filter(b=>b.business===biz&&b.status==="Delivered"&&b.paymentStatus!=="Paid"&&!b.invoiceNo&&!InvoiceVehicles.deliveryDay(b)).length;
+ const missingNotice=missing?`<p class="muted">${missing} delivered vehicle(s) have no recorded actual delivery date and cannot be matched to this period. Requested delivery dates are not used.</p>`:"";
  if(!rows.length){
-   area.innerHTML=`<div class="panel" style="margin-top:12px"><h3>No Delivered Vehicles Available</h3><p class="muted">There are no unpaid delivered vehicles for ${biz}. A vehicle must have status <b>Delivered</b> before it can be added to an invoice.</p></div>`;
+   area.innerHTML=`<div class="panel" style="margin-top:12px"><h3>No Delivered Vehicles Available</h3><p class="muted">No uninvoiced, unpaid delivered vehicles for ${escapeHtml(biz)} from ${escapeHtml(range.from)} to ${escapeHtml(range.to)}.</p>${missingNotice}</div>`;
    return;
  }
- area.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Delivered Vehicles for ${biz}</h3><div class="scroll"><table style="min-width:1150px"><tr><th>Include</th><th>Booking</th><th>Vehicle</th><th>Reg</th><th>Delivered</th><th>Manual Charge (£)</th></tr>
- ${rows.map((b,i)=>`<tr><td><input id="ii_${i}" type="checkbox" checked></td><td>${b.ref}</td><td>${b.vehicle}</td><td>${b.reg||"—"}</td><td>${b.deliveryDate||"—"}</td><td><input id="ic_${i}" type="number" step="0.01" value="${Number(b.amount||0).toFixed(2)}"></td></tr>`).join("")}
+ loadInvoiceVehicles.selection={key:range.key,refs:rows.map(b=>b.ref)};
+ area.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Delivered Vehicles for ${escapeHtml(biz)}</h3><p class="muted">${rows.length} vehicle(s) delivered from ${escapeHtml(range.from)} to ${escapeHtml(range.to)}. Tick only the vehicles to include.</p>${missingNotice}
+ <div class="actions"><button class="btn secondary" type="button" onclick="selectInvoiceVehicles(true)">Select all</button><button class="btn secondary" type="button" onclick="selectInvoiceVehicles(false)">Clear selection</button></div>
+ <div class="scroll"><table style="min-width:1150px"><tr><th>Include</th><th>Booking</th><th>Vehicle</th><th>Reg</th><th>Actual delivery date</th><th>Manual Charge (£)</th></tr>
+ ${rows.map((b,i)=>`<tr><td><input id="ii_${i}" type="checkbox" aria-label="Include ${escapeHtml(b.ref)}"></td><td>${escapeHtml(b.ref)}</td><td>${escapeHtml(b.vehicle)}</td><td>${escapeHtml(b.reg||"—")}</td><td>${InvoiceVehicles.deliveryDay(b)}</td><td><input id="ic_${i}" type="number" min="0" step="0.01" aria-label="Charge for ${escapeHtml(b.ref)}" value="${Number(b.amount||0).toFixed(2)}"></td></tr>`).join("")}
  </table></div><div class="actions"><button class="btn primary" id="generateInvoiceBtn">Generate Invoice</button></div></div>`;
  const gen=document.getElementById("generateInvoiceBtn");
  if(gen)gen.addEventListener("click",()=>makeInvoice(rows.map(b=>b.ref)));
+}
+
+function selectInvoiceVehicles(checked){
+ (loadInvoiceVehicles.selection?.refs||[]).forEach((ref,i)=>{const input=document.getElementById("ii_"+i);if(input)input.checked=checked});
 }
 
 function toggleInvoiceVat(){
@@ -3853,15 +3868,23 @@ function calculateInvoiceTotals(subtotal,vatEnabled,vatRate,extra=0,other=0){
 async function makeInvoice(refs){
  const actorId=typeof currentSession!=="undefined"?currentSession?.user?.id:null;
  let s=ensureAccountsData(),items=[],subtotal=0;
+ let range;
+ try{
+  range=InvoiceVehicles.readRange(document);
+  const selection=loadInvoiceVehicles.selection;
+  if(!selection||selection.key!==range.key||JSON.stringify(selection.refs)!==JSON.stringify(refs))throw new Error("Reload the delivered vehicles for the selected client and dates before generating.");
+ }catch(error){return alert(error.message)}
  refs.forEach((ref,i)=>{
    const include=document.getElementById("ii_"+i);
    const chargeEl=document.getElementById("ic_"+i);
    if(include&&include.checked&&chargeEl){
      const charge=Number(chargeEl.value||0),b=s.bookings.find(x=>x.ref===ref);
-     if(b){items.push({ref,vehicle:b.vehicle,reg:b.reg||"",charge});subtotal+=charge;}
+      if(b){items.push({ref,vehicle:b.vehicle,reg:b.reg||"",charge,deliveredDate:InvoiceVehicles.deliveryDay(b)});subtotal+=charge;}
+      else items.push({ref,charge});
    }
  });
  if(!items.length)return alert("Select at least one delivered vehicle.");
+  try{InvoiceVehicles.validate(items,s.bookings,range)}catch(error){return alert(error.message)}
  const bizEl=document.getElementById("invBiz"),dateEl=document.getElementById("invDate"),dueEl=document.getElementById("invDue"),vatEl=document.getElementById("invVat"),extraEl=document.getElementById("invExtra"),otherEl=document.getElementById("invOther"),descEl=document.getElementById("invOtherDesc");
  const vatEnabled=document.getElementById("invVatEnabled")?.checked!==false;
  const extra=Number(extraEl?.value||0),other=Number(otherEl?.value||0);
@@ -3871,12 +3894,14 @@ async function makeInvoice(refs){
  const invoiceNo="INV-"+String(Date.now()).slice(-7);
  const billToSource=s.businesses.find(b=>b.name===bizEl?.value)||{name:bizEl?.value||""};
  const billTo=Object.fromEntries(["name","address","postcode","email","phone","vatNumber","companyReg"].map(key=>[key,billToSource[key]||""]));
- const invoice={invoiceNo,business:bizEl?.value||"",date:dateEl?.value||new Date().toISOString().slice(0,10),dueDate:dueEl?.value||"",vehicleCount:items.length,items,...totals,extraPhrasal:extra,otherCharges:other,otherDescription:descEl?.value.trim()||"",status:"Unpaid",billTo};
+ const invoice={invoiceNo,business:range.client,deliveryFrom:range.from,deliveryTo:range.to,date:dateEl?.value||new Date().toISOString().slice(0,10),dueDate:dueEl?.value||"",vehicleCount:items.length,items,...totals,extraPhrasal:extra,otherCharges:other,otherDescription:descEl?.value.trim()||"",status:"Unpaid",billTo};
  if(makeInvoice.saving)return;makeInvoice.saving=true;
  try{
    let settings=s.invoiceSettings;
    if(typeof SUPABASE_CONFIGURED!=="undefined"&&SUPABASE_CONFIGURED)settings=await InvoiceTools.readSettings(sb);
    if(actorId&&currentSession?.user?.id!==actorId)throw new Error("The sign-in changed. Reopen Invoices before generating an invoice.");
+    if(InvoiceVehicles.readRange(document).key!==range.key||loadInvoiceVehicles.selection?.key!==range.key)throw new Error("The client or delivery dates changed. Review the vehicles before generating.");
+    InvoiceVehicles.validate(items,ensureAccountsData().bookings,range);
    if(!settings)throw new Error("Save your company and bank details once before generating invoices.");
    invoice.companyDetails=JSON.parse(JSON.stringify(settings));
  }catch(error){makeInvoice.saving=false;return alert("Invoice was not generated. "+error.message);}
