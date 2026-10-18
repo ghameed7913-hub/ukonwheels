@@ -38,17 +38,17 @@ test("Own portrait is served privately with a short signed URL",async()=>{
   assert.match(v.photo_url,/example.invalid/);assert.equal(s.urls[0].seconds,120);
   assert.equal(s.calls[0].name,"own_driver_identity");assert.equal(s.calls[0].args,undefined);
 });
-test("Portrait upload normalizes images and retries metadata without a second upload",async()=>{
-  const s=setup(),f=file();s.setFail(true);
-  await assert.rejects(s.api.uploadPhoto(f),/Network failure/);
-  s.setFail(false);await s.api.uploadPhoto(f);
+test("HR portrait upload normalizes images and retries metadata without a second upload",async()=>{
+  const s=setup(),f=file();await s.api.list();s.setFail(true);
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",f),/Network failure/);
+  s.setFail(false);await s.api.uploadHRPhoto("driver-1",f);
   assert.equal(s.uploads(),1);assert.equal(s.registers(),2);
 });
 test("Invalid/oversized images never reach storage",async()=>{
-  const s=setup();
-  await assert.rejects(s.api.uploadPhoto(file("image/svg+xml")),/JPEG/);
-  await assert.rejects(s.api.uploadPhoto(file("image/jpeg",[1,2,3])),/contents/);
-  await assert.rejects(s.api.uploadPhoto({...file(),size:10485761}),/10 MB/);
+  const s=setup();await s.api.list();
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",file("image/svg+xml")),/JPEG/);
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",file("image/jpeg",[1,2,3])),/contents/);
+  await assert.rejects(s.api.uploadHRPhoto("driver-1",{...file(),size:10485761}),/10 MB/);
   assert.equal(s.uploads(),0);
 });
 test("Issue and revoke use server data and optimistic versions, not generated local IDs",async()=>{
@@ -107,7 +107,7 @@ test("Rejected company ID files never reach storage; IDs cannot reuse portrait p
   await assert.rejects(s.api.uploadDigitalID("driver-1",file("application/pdf",[1,2,3])),/contents/);
   await assert.rejects(s.api.uploadDigitalID("driver-1",{...file(),size:10485761}),/10 MB/);
   assert.equal(s.uploads(),0);
-  const f=file();await s.api.uploadPhoto(f);await s.api.uploadDigitalID("driver-1",f,null);
+  const f=file();await s.api.uploadHRPhoto("driver-1",f);await s.api.uploadDigitalID("driver-1",f,null);
   assert.deepEqual(s.buckets,["driver-portraits","driver-company-ids"]);assert.equal(s.uploads(),2);
 });
 test("Drivers receive a signed ID-file link only for an active card",async()=>{
@@ -119,4 +119,19 @@ test("Drivers receive a signed ID-file link only for an active card",async()=>{
   }
   s.c.currentSession={user:{id:"admin"}};
   const rows=await s.api.list();assert.ok(rows.drivers[0].card.document.url);
+});
+test("The retired self-service photo method never uploads or calls a registration RPC",async()=>{
+  const s=setup();await assert.rejects(s.api.uploadPhoto(file()),/only be changed by Admin\/HR/);
+  assert.equal(s.uploads(),0);assert.equal(s.calls.length,0);
+});
+test("HR expiry edits use the selected Driver, loaded version and explicit null for no expiry",async()=>{
+  const s=setup();
+  assert.throws(()=>s.api.setExpiry("driver-1","2030-01-01"),/Refresh/);
+  await s.api.list();await s.api.setExpiry("driver-1","2030-01-01");await s.api.setExpiry("driver-1",null);
+  const edits=s.calls.filter(c=>c.name==="update_driver_company_id_expiry");
+  assert.equal(edits[0].args.p_user_id,"driver-1");assert.equal(edits[0].args.p_expected_version,1);
+  assert.equal(edits[0].args.p_valid_until,"2030-01-01");assert.equal(edits[1].args.p_valid_until,null);
+  assert.equal(s.uploads(),0);
+  s.c.currentSession={user:{id:"new-admin"}};
+  assert.throws(()=>s.api.setExpiry("driver-1","2030-01-01"),/Refresh/);
 });

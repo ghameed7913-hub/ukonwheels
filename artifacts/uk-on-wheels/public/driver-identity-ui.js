@@ -123,13 +123,8 @@ function renderProfile(){
   var url=o&&o.photo_url;
   var h=head+'<div class="di-sec-head"><h3 id="diPhotoTitle">Driver portrait</h3>'+(has?'<span class="di-tag ok">Saved</span>':'<span class="di-tag warn">Required</span>')+'</div>';
   h+='<div class="di-portrait-row">'+photoHtml(has?url:null,o&&o.name,"di-ph-lg")+'<div class="di-portrait-copy">'+
-    (has?'<p>Your portrait is on file. Admin/HR keep your company ID card separately.</p>':'<p><b>Upload a clear, recent head-and-shoulders photo.</b> Jobs stay locked until your portrait is saved.</p>')+
-    '<p class="di-small">JPEG, PNG or WebP, up to 10 MB. Plain background, face uncovered, no filters.</p></div></div>';
-  if(has&&card&&card.state==="active")h+='<div class="hrr-msg info" role="note">Replacing your portrait may need HR to confirm your Digital ID again. Your current ID may stop being valid until then.</div>';
-  h+='<form class="di-upload" data-di="form" novalidate><label class="di-file"><span>'+(has?"Replace portrait":"Choose portrait")+'</span>'+
-    '<input type="file" accept="image/jpeg,image/png,image/webp" data-di="file" aria-describedby="diUpMsg"></label>'+
-    '<button class="btn" type="submit" data-di="upload"'+(S.uploading?' disabled aria-busy="true"':'')+'>'+(S.uploading?"Uploading...":"Upload portrait")+'</button>'+
-    '<div id="diUpMsg" role="status" aria-live="polite">'+(S.upErr?'<div class="hrr-msg err" role="alert">'+esc(S.upErr)+'</div>':S.upOk?'<div class="hrr-msg ok">'+esc(S.upOk)+'</div>':'')+'</div></form>';
+    (has?'<p>Your profile photo is managed by Admin/HR. Contact them if it needs changing.</p>':'<p><b>Ask Admin/HR to upload your profile photo.</b> Jobs stay locked until Admin/HR saves it.</p>')+
+    '<p class="di-small">Drivers cannot upload, replace or remove their profile photo.</p></div></div>';
   h+='<div class="di-id-teaser"><div><b>Digital ID</b><div class="di-small">'+esc(card&&card.reference?card.reference+" · ":"")+esc(si.label)+'</div></div>'+
     '<span class="di-badge di-'+si.key+'">'+esc(si.label)+'</span></div>'+
     '<button class="btn secondary di-full" type="button" onclick="setDriverMobileTab(\'companyId\')">Open Digital ID</button>'+
@@ -193,40 +188,6 @@ function mountDriver(){
   if(!root||root.dataset.diBound)return;
   root.dataset.diBound="1";
   root.addEventListener("click",function(ev){var b=ev.target.closest('[data-di="retry"]');if(b){S.err=null;load();redraw(true);}});
-  var form=root.querySelector('[data-di="form"]');
-  if(form)form.addEventListener("submit",function(ev){ev.preventDefault();upload(form);});
-}
-function setUpMsg(form,cls,msg){var m=form.querySelector("#diUpMsg");if(m){m.innerHTML="";if(msg){var d=document.createElement("div");d.className="hrr-msg "+cls;if(cls==="err")d.setAttribute("role","alert");d.textContent=msg;m.appendChild(d);}}}
-async function upload(form){
-  if(S.uploading)return;
-  var input=form.querySelector('[data-di="file"]'),f=input&&input.files&&input.files[0],a=api(),uid=S.uid,gen=S.gen;
-  S.upOk=null;
-  if(!f){setUpMsg(form,"err","Choose a photo first.");return;}
-  if(TYPES.indexOf(f.type)<0){setUpMsg(form,"err","Use a JPEG, PNG or WebP photo.");return;}
-  if(f.size>MAX_BYTES){setUpMsg(form,"err","That photo is larger than 10 MB. Choose a smaller one.");return;}
-  if(!a||typeof a.uploadPhoto!=="function"){setUpMsg(form,"err","Upload service unavailable. Ask an administrator to run supabase/driver-company-id.sql.");return;}
-  var card=S.own&&S.own.card;
-  if(card&&card.state==="active"){
-    var msg="Your company ID "+(card.reference||"")+" is active. Replacing your portrait means HR must reissue your ID before it can be shown again. Continue?";
-    var ok=typeof crmConfirm==="function"?await crmConfirm(msg,"Replace portrait?","Replace portrait",true):window.confirm(msg);
-    if(!ok)return;
-  }
-  S.uploading=true;var btn=form.querySelector('[data-di="upload"]');if(btn){btn.disabled=true;btn.textContent="Uploading...";btn.setAttribute("aria-busy","true");}
-  setUpMsg(form,"info","Uploading your portrait...");
-  var before=ready();
-  try{
-    var snap=await a.uploadPhoto(f);
-    if(gen!==S.gen||uid!==sessUid())return;
-    if(!snap||(snap.user_id!=null&&String(snap.user_id)!==String(uid)))throw new Error("Upload response did not match the signed-in Driver.");
-    S.own=snap;S.ownAt=Date.now();S.err=null;S.upErr=null;S.upOk=before?"Portrait saved.":"Portrait saved. Jobs are now unlocked.";S.uploading=false;
-    input.value="";
-    if(isDriverView()&&typeof drawDriver==="function")drawDriver(document.getElementById("content")); /* single redraw; Driver stays on profile */
-  }catch(e){
-    if(gen!==S.gen||uid!==sessUid())return;
-    S.uploading=false;S.upErr=null;
-    if(btn){btn.disabled=false;btn.textContent="Retry upload";btn.removeAttribute("aria-busy");}
-    setUpMsg(form,"err","Upload failed: "+errText(e)+" Your selected photo is kept; press Retry upload.");
-  }
 }
 function resetDriver(){
   stopTimers();
@@ -252,7 +213,7 @@ async function drawAdmin(container){
     bindAdmin();
   }
 }
-function adminDirty(){var A=S.admin;if(!A||!A.container)return false;var f=A.container.querySelector(".di-aform");if(!f)return false;return Array.prototype.some.call(f.querySelectorAll("input,textarea"),function(i){return i.type==="file"?!!(i.files&&i.files.length):!!i.value;});}
+function adminDirty(){var A=S.admin;if(!A||!A.container)return false;var f=A.container.querySelector(".di-aform");if(!f)return false;return Array.prototype.some.call(f.querySelectorAll("input,textarea"),function(i){return i.type==="file"?!!(i.files&&i.files.length):i.value!==i.defaultValue;});}
 function adminLive(A){return !!(A&&S.admin===A&&A.container.isConnected&&(typeof page==="undefined"||page==="driverCompanyIDs"));}
 function adminBody(html){if(!adminLive(S.admin))return;var b=S.admin.container.querySelector("[data-body]");if(b){b.removeAttribute("aria-busy");b.innerHTML=html;}}
 function adminRender(){
@@ -273,13 +234,14 @@ function adminRow(r){
     '<div class="di-arow-who"><b>'+esc(r.name||"Unnamed Driver")+'</b><span class="di-small">'+esc(r.email||"")+(r.account_status&&r.account_status!=="active"?' · account '+esc(r.account_status):'')+'</span>'+
     '<span class="di-small">'+(r.photo_path?"Portrait on file":"<b>No portrait uploaded</b>")+'</span></div>'+
     '<div class="di-arow-card"><span class="di-mono">'+esc(c?c.reference:"—")+'</span><span class="di-badge di-'+si.key+'">'+esc(si.label)+'</span>'+
-    (c&&c.valid_until?'<span class="di-small">until '+esc(fmtDate(c.valid_until))+'</span>':'')+
+    (c?'<span class="di-small">Expiry: '+esc(c.valid_until?fmtDate(c.valid_until):"No expiry set")+'</span>':'')+
     '<span class="di-small">'+(isUploaded(c)?"Uploaded company ID":c?"Generated card (legacy)":"No Digital ID uploaded")+'</span>'+
     (isUploaded(c)&&c.document&&c.document.url?'<a class="di-small di-doclink" href="'+esc(c.document.url)+'" target="_blank" rel="noopener noreferrer">Review file'+(c.document.name?': '+esc(c.document.name):'')+'</a>':'')+'</div>';
   if(A.data.canIssue){
     var upl=isUploaded(c);
     h+='<div class="di-arow-act"><button class="btn secondary" type="button" data-di-a="open-photo">'+(r.photo_path?"Replace portrait":"Upload portrait")+'</button>'+
       '<button class="btn" type="button" data-di-a="open-digital"'+(r.photo_path?'':' disabled title="Upload a portrait first"')+'>'+(upl?"Replace Digital ID":"Upload Digital ID")+'</button>'+
+      (c?'<button class="btn secondary" type="button" data-di-a="open-expiry">'+(c.valid_until?"Edit ID expiry":"Set ID expiry")+'</button>':'')+
       '<button class="btn secondary di-legacy" type="button" data-di-a="open-issue"'+(r.photo_path?'':' disabled title="Upload a portrait first"')+'>'+(c&&!upl?(c.state==="active"?"Reissue generated card":"Renew generated card"):"Generate portal card (legacy)")+'</button>'+
       (c&&c.state==="active"?'<button class="btn secondary di-danger" type="button" data-di-a="open-revoke">Revoke</button>':'')+'</div>';
   }
@@ -288,10 +250,11 @@ function adminRow(r){
     var fid="di-f-"+id;
     if(open.kind==="photo")h+='<form class="di-aform" data-di-a="photo"><label class="hrr-f" for="'+fid+'"><span>Driver profile portrait</span><input id="'+fid+'" type="file" name="portrait" accept="image/jpeg,image/png,image/webp" required><small>JPEG, PNG or WebP, up to 10 MB. Profile photo only; this is not the company ID card.</small></label>';
     else if(open.kind==="digital")h+='<form class="di-aform" data-di-a="digital"><label class="hrr-f" for="'+fid+'"><span>Company ID card file</span><input id="'+fid+'" type="file" name="idfile" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" required><small>The existing company ID card: JPEG, PNG, WebP or PDF, up to 10 MB. The whole card is shown to the Driver, uncropped. Uploading also issues it as their active Digital ID. Do not upload passports or licences here.</small></label>'+
-      '<label class="hrr-f" for="'+fid+'-u"><span>Valid until (optional)</span><input id="'+fid+'-u" type="date" name="until"><small>Leave blank for no expiry.</small></label>';
-    else if(open.kind==="issue")h+='<form class="di-aform" data-di-a="issue"><p class="di-small">Legacy option: creates a portal-generated card from the Driver&rsquo;s portrait. It does not upload or use a company ID file. Prefer Upload Digital ID.</p><label class="hrr-f" for="'+fid+'"><span>Valid until (optional)</span><input id="'+fid+'" type="date" name="until"><small>Leave blank for no expiry.</small></label>';
+      '<label class="hrr-f" for="'+fid+'-u"><span>Digital ID expiry date (optional)</span><input id="'+fid+'-u" type="date" name="until" value="'+esc(c&&c.valid_until||"")+'"><small>Leave blank for no expiry.</small></label>';
+    else if(open.kind==="expiry")h+='<form class="di-aform" data-di-a="expiry"><label class="hrr-f" for="'+fid+'"><span>Digital ID expiry date</span><input id="'+fid+'" type="date" name="until" value="'+esc(c.valid_until||"")+'"><small>Leave blank for no expiry. A past date makes the ID expired immediately. This updates portal validity only, not any date printed on the uploaded card. A revoked ID remains revoked.</small></label>';
+    else if(open.kind==="issue")h+='<form class="di-aform" data-di-a="issue"><p class="di-small">Legacy option: creates a portal-generated card from the Driver&rsquo;s portrait. It does not upload or use a company ID file. Prefer Upload Digital ID.</p><label class="hrr-f" for="'+fid+'"><span>Digital ID expiry date (optional)</span><input id="'+fid+'" type="date" name="until"><small>Leave blank for no expiry.</small></label>';
     else h+='<form class="di-aform" data-di-a="revoke"><label class="hrr-f" for="'+fid+'"><span>Reason for revoking (required)</span><textarea id="'+fid+'" name="reason" required minlength="3" maxlength="500"></textarea></label>';
-    h+='<div class="di-aform-msg" role="status" aria-live="polite"></div><div class="hrr-toolbar"><button class="btn'+(open.kind==="revoke"?" di-danger-solid":"")+'" type="submit">'+(open.kind==="photo"?"Upload portrait":open.kind==="digital"?"Upload and issue Digital ID":open.kind==="issue"?"Generate portal card":"Confirm revoke")+'</button><button class="btn secondary" type="button" data-di-a="cancel">Cancel</button></div></form>';
+    h+='<div class="di-aform-msg" role="status" aria-live="polite"></div><div class="hrr-toolbar"><button class="btn'+(open.kind==="revoke"?" di-danger-solid":"")+'" type="submit">'+(open.kind==="photo"?"Upload portrait":open.kind==="digital"?"Upload and issue Digital ID":open.kind==="expiry"?"Save expiry date":open.kind==="issue"?"Generate portal card":"Confirm revoke")+'</button><button class="btn secondary" type="button" data-di-a="cancel">Cancel</button></div></form>';
   }
   return h+'</li>';
 }
@@ -304,7 +267,7 @@ function bindAdmin(){
     var act=b.getAttribute("data-di-a"),li=b.closest(".di-arow");
     if(act==="reload"){if(adminDirty()){var cm="You have an unsaved form open. Refresh and discard it?";Promise.resolve(typeof crmConfirm==="function"?crmConfirm(cm,"Discard changes?","Discard"):window.confirm(cm)).then(function(ok){if(ok&&adminLive(A)&&!A.busy)drawAdmin(c);});return;}drawAdmin(c);return;}
     if(act==="cancel"){S.admin.open=null;adminRender();return;}
-    if(act==="open-issue"||act==="open-revoke"||act==="open-photo"||act==="open-digital"){if(adminDirty()&&!window.confirm("Discard the unsaved form that is already open?"))return;S.admin.open={id:li.getAttribute("data-uid"),kind:act==="open-photo"?"photo":act==="open-digital"?"digital":act==="open-issue"?"issue":"revoke"};adminRender();var f=c.querySelector(".di-aform input,.di-aform textarea");if(f)f.focus();}
+    if(act==="open-issue"||act==="open-revoke"||act==="open-photo"||act==="open-digital"||act==="open-expiry"){if(adminDirty()&&!window.confirm("Discard the unsaved form that is already open?"))return;S.admin.open={id:li.getAttribute("data-uid"),kind:act==="open-photo"?"photo":act==="open-digital"?"digital":act==="open-expiry"?"expiry":act==="open-issue"?"issue":"revoke"};adminRender();var f=c.querySelector(".di-aform input,.di-aform textarea");if(f)f.focus();}
   });
   c.addEventListener("input",function(ev){
     if(!adminLive(A)||S.admin.gen!==A.gen||A.busy)return;
@@ -345,6 +308,16 @@ async function adminSubmit(f){
       if(A.busy)return;
       A.busy=true;btn.disabled=true;f.elements.idfile.disabled=true;say("info","Uploading and issuing Digital ID...");
       snap=await a.uploadDigitalID(uid,idf,du);
+    }else if(kind==="expiry"){
+      var expiry=f.elements.until.value||null;
+      if(!row||!row.card){say("err","Upload or issue a Digital ID first.");return;}
+      if(typeof a.setExpiry!=="function"){say("err","Expiry editing needs the latest portal update and Supabase setup.");return;}
+      var today=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+      var warning=!expiry&&row.card.valid_until?"Remove the expiry date? This ID will no longer expire by date.":expiry&&expiry<today?"This date is in the past. The Digital ID will be expired immediately and hidden from use. Save it?":null;
+      if(warning&&!(typeof crmConfirm==="function"?await crmConfirm(warning,"Digital ID expiry","Save expiry"):window.confirm(warning)))return;
+      if(!adminLive(A)||S.admin.gen!==gen||A.busy)return;
+      A.busy=true;btn.disabled=true;say("info","Saving expiry date...");
+      snap=await a.setExpiry(uid,expiry);
     }else if(kind==="issue"){
       var until=f.until.value||null;
       if(until&&new Date(until+"T23:59:59")<new Date()){say("err","Valid-until date must be in the future.");return;}
@@ -362,7 +335,7 @@ async function adminSubmit(f){
     if(!snap||String(snap.user_id)!==uid)throw Error("The Driver update could not be confirmed. Refresh before continuing.");
     A.busy=false;A.data.drivers=A.data.drivers.map(function(r){return String(r.user_id)===uid?snap:r;});
     A.open=null;adminRender();
-    if(typeof crmToast==="function")crmToast(kind==="photo"?"Portrait saved.":kind==="digital"?"Digital ID uploaded and issued.":kind==="issue"?"Portal card generated.":"Digital ID revoked.","Driver company ID");
+    if(typeof crmToast==="function")crmToast(kind==="photo"?"Portrait saved.":kind==="digital"?"Digital ID uploaded and issued.":kind==="expiry"?"Digital ID expiry saved.":kind==="issue"?"Portal card generated.":"Digital ID revoked.","Driver company ID");
   }catch(e){
     if(!adminLive(A)||S.admin.gen!==gen)return;
     A.busy=false;btn.disabled=false;if(f.elements.portrait)f.elements.portrait.disabled=false;if(f.elements.idfile)f.elements.idfile.disabled=false;

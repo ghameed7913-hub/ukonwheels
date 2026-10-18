@@ -359,6 +359,91 @@ test("Real SQL: date validation, own-account notices, API/storage lock and HR re
         if r->'card'->>'source'<>'generated' or r->'card'->'document'<>'null'::jsonb then raise exception 'Legacy reissue retained uploaded file';end if;
       end$$;
     `);
+    const photoAccess=fs.readFileSync(path.join(root,"supabase/driver-photo-access-and-id-expiry.sql"),"utf8");
+    sql(photoAccess);sql(photoAccess);
+    sql(`
+      grant update,delete on storage.objects to authenticated;
+      create policy legacy_broad_storage_for_test on storage.objects for all to authenticated using(true) with check(true);
+      set role authenticated;
+      set request.jwt.claim.sub='${driver}';
+      do $$declare changed integer;begin
+        if not public.driver_portrait_permission('${driver}/44444444-4444-4444-4444-444444444444.jpg',false)
+          or public.driver_portrait_permission('${driver}/44444444-4444-4444-4444-444444444444.jpg',true)
+          then raise exception 'Driver portrait read/write separation failed';end if;
+        begin
+          perform public.register_driver_portrait('${driver}/44444444-4444-4444-4444-444444444444.jpg');
+          raise exception 'Old self-photo RPC still writable';
+        exception when insufficient_privilege then null;end;
+        begin
+          insert into storage.objects(bucket_id,name,metadata) values('driver-portraits',
+            '${driver}/99999999-9999-9999-9999-999999999999.jpg','{"mimetype":"image/jpeg","size":100}');
+          raise exception 'Driver portrait upload accepted despite restrictive guard';
+        exception when insufficient_privilege then null;end;
+        update storage.objects set metadata='{}' where bucket_id='driver-portraits';
+        get diagnostics changed=row_count;
+        if changed<>0 then raise exception 'Driver can overwrite portraits';end if;
+        delete from storage.objects where bucket_id='driver-portraits';
+        get diagnostics changed=row_count;
+        if changed<>0 then raise exception 'Driver can delete portraits';end if;
+        begin
+          perform public.update_driver_company_id_expiry('${driver}','2030-01-01',0);
+          raise exception 'Driver can edit ID expiry';
+        exception when insufficient_privilege then null;end;
+      end$$;
+      set request.jwt.claim.sub='${admin}';
+      do $$declare v integer; before_card jsonb; edited jsonb;
+      begin
+        select (r->>'version')::integer into v from jsonb_array_elements(public.list_driver_identities()->'drivers') r where r->>'user_id'='${driver}';
+        before_card:=public.register_driver_company_id_file('${driver}',
+          '${driver}/66666666-6666-6666-6666-666666666666.pdf','Company ID.pdf','application/pdf',null,v);
+        v:=(before_card->>'version')::integer;
+        edited:=public.update_driver_company_id_expiry('${driver}','2030-01-01',v);
+        if edited->'card'->>'valid_until'<>'2030-01-01' or edited->'card'->>'state'<>'active'
+          or edited->'card'->>'reference'<>before_card->'card'->>'reference'
+          or edited->'card'->'document'<>before_card->'card'->'document'
+          or edited->'card'->>'issued_at'<>before_card->'card'->>'issued_at'
+          then raise exception 'Expiry edit replaced file/reference/issue details or did not persist';end if;
+        edited:=public.update_driver_company_id_expiry('${driver}','2030-01-01',v);
+        if (edited->>'version')::integer<>v+1 then raise exception 'Expiry retry was not idempotent';end if;
+        begin
+          perform public.update_driver_company_id_expiry('${driver}','2031-01-01',v);
+          raise exception 'Stale expiry edit accepted';
+        exception when raise_exception then if sqlerrm='Stale expiry edit accepted' then raise;end if;end;
+        edited:=public.update_driver_company_id_expiry('${driver}','2000-01-01',v+1);
+        if edited->'card'->>'state'<>'expired' then raise exception 'Past ID date did not expire card';end if;
+      end$$;
+      set request.jwt.claim.sub='${driver}';
+      do $$begin
+        if public.own_driver_identity()->'card'->>'valid_until'<>'2000-01-01'
+          or public.company_id_file_permission('${driver}/66666666-6666-6666-6666-666666666666.pdf',false)
+          then raise exception 'Driver expiry state did not refresh or expired PDF readable';end if;
+      end$$;
+      set request.jwt.claim.sub='${admin}';
+      do $$declare edited jsonb; v integer;begin
+        select (r->>'version')::integer into v from jsonb_array_elements(public.list_driver_identities()->'drivers') r where r->>'user_id'='${driver}';
+        edited:=public.update_driver_company_id_expiry('${driver}',null,v);
+        if edited->'card'->>'valid_until' is not null or edited->'card'->>'state'<>'active' then
+          raise exception 'Removing expiry failed';end if;
+        edited:=public.revoke_driver_company_id('${driver}','Withdrawn',(edited->>'version')::integer);
+        edited:=public.update_driver_company_id_expiry('${driver}','2031-01-01',(edited->>'version')::integer);
+        if edited->'card'->>'state'<>'revoked' then raise exception 'Expiry edit resurrected revoked ID';end if;
+        insert into storage.objects(bucket_id,name,metadata) values('driver-portraits',
+          '${driver}/88888888-8888-8888-8888-888888888888.jpg','{"mimetype":"image/jpeg","size":1000}');
+        edited:=public.register_hr_driver_portrait('${driver}',
+          '${driver}/88888888-8888-8888-8888-888888888888.jpg',(edited->>'version')::integer);
+        if edited->>'photo_path'<>'${driver}/88888888-8888-8888-8888-888888888888.jpg' then
+          raise exception 'HR portrait management was blocked';end if;
+      end$$;
+      set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
+      do $$begin
+        begin perform public.update_driver_company_id_expiry('${driver}','2030-01-01',0);
+          raise exception 'Client can edit Driver ID expiry';
+        exception when insufficient_privilege then null;end;
+        if exists(select 1 from storage.objects where bucket_id='driver-portraits') then
+          raise exception 'Private portrait readable by Client';end if;
+      end$$;
+      reset role;
+    `);
   } finally {
     if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"],{encoding:"utf8"});
     fs.rmSync(dir,{recursive:true,force:true});

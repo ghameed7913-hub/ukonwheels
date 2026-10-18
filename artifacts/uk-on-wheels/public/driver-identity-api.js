@@ -14,6 +14,8 @@ window.DriverIdentityAPI = (() => {
   function check(result) {
     if (!result.error) return result.data;
     const e = result.error;
+    if (e.code==="PGRST202" && /update_driver_company_id_expiry/i.test(e.message||""))
+      throw Error("Digital ID expiry editing needs setup. Ask Admin to run supabase/driver-photo-access-and-id-expiry.sql.");
     if (e.code==="PGRST202" && /register_driver_company_id_file/i.test(e.message||""))
       throw Error("Digital ID upload needs setup. Ask Admin to run supabase/driver-digital-id-upload.sql.");
     if (e.code==="PGRST202" && /register_hr_driver_portrait/i.test(e.message||""))
@@ -81,8 +83,8 @@ window.DriverIdentityAPI = (() => {
     if (!versions.has(userId)) throw Error("Refresh the Driver list before changing a company ID.");
     return versions.get(userId);
   }
-  async function uploadPortrait(file,target,hr) {
-    const id=actor(), expected=hr?version(target):null;
+  async function uploadPortrait(file,target) {
+    const id=actor(), expected=version(target);
     let upload=pending.get(file);
     if(!upload||upload.actor!==id||upload.target!==target) {
       upload={actor:id,target,path:target+"/"+crypto.randomUUID()+".jpg",blob:await normalize(file),uploaded:false};
@@ -93,8 +95,7 @@ window.DriverIdentityAPI = (() => {
       upload.uploaded=true;
     }
     same(id);
-    return hr?rpc("register_hr_driver_portrait",{p_user_id:target,p_path:upload.path,p_expected_version:expected})
-      :rpc("register_driver_portrait",{p_path:upload.path});
+    return rpc("register_hr_driver_portrait",{p_user_id:target,p_path:upload.path,p_expected_version:expected});
   }
   function digitalCheck(result) {
     if(result.error && /bucket not found/i.test(result.error.message||""))
@@ -121,10 +122,10 @@ window.DriverIdentityAPI = (() => {
       for (const row of data.drivers) drivers.push(await decorate(row,id));
       return {...data,drivers};
     },
-    async uploadPhoto(file) {
-      return uploadPortrait(file,actor(),false);
+    async uploadPhoto() {
+      throw Error("Driver photos can only be changed by Admin/HR.");
     },
-    uploadHRPhoto(userId,file) { return uploadPortrait(file,userId,true); },
+    uploadHRPhoto(userId,file) { return uploadPortrait(file,userId); },
     async uploadDigitalID(userId,file,validUntil) {
       const id=actor(), expected=version(userId), ext=await digitalFile(file);same(id);
       let upload=idUploads.get(file);
@@ -139,6 +140,10 @@ window.DriverIdentityAPI = (() => {
       same(id);
       return rpc("register_driver_company_id_file",{p_user_id:userId,p_path:upload.path,p_name:(file.name||"Company ID."+ext).slice(0,200),
         p_mime:file.type,p_valid_until:validUntil||null,p_expected_version:expected});
+    },
+    setExpiry(userId,validUntil) {
+      const id=actor();same(id);
+      return rpc("update_driver_company_id_expiry",{p_user_id:userId,p_valid_until:validUntil||null,p_expected_version:version(userId)});
     },
     issue(userId,validUntil) {
       const id = actor(); same(id);
