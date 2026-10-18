@@ -13,13 +13,14 @@ const generationCode = part("function toggleInvoiceVat(", "function viewInvoice(
 const viewCode = part("function viewInvoice(", "function drawPayments(");
 function setup(enabled = true, rate = "20") {
   const store = {
-    bookings: [{ ref: "TEST-1", vehicle: "Vehicle", reg: "TEST", amount: 100 }],
+    bookings: [{ ref: "TEST-1", vehicle: "Vehicle", reg: "TEST", amount: 100, business:"Test Client",status:"Delivered",_deliveredAt:"2026-10-17T12:00:00Z" }],
     businesses: [{ name: "Test Client" }], invoices: [], invoiceSettings: {},
   };
   const fields = {
     invVatEnabled: { checked: enabled }, invVat: { value: rate, disabled: false },
     invBiz: { value: "Test Client" }, invDate: { value: "2026-10-17" },
     invDue: { value: "" }, invExtra: { value: "25" }, invOther: { value: "10" },
+    invDeliveredFrom:{value:"2026-10-01"},invDeliveredTo:{value:"2026-10-31"},
     invOtherDesc: { value: "Additional charges" }, ii_0: { checked: true }, ic_0: { value: "100" },
     content: { innerHTML: "" },
   };
@@ -31,6 +32,10 @@ function setup(enabled = true, rate = "20") {
     saveStore: async value => { saved = JSON.parse(JSON.stringify(value)); return true; },
     alert: text => notices.push(text), money: value => "£" + Number(value).toFixed(2),
   });
+  c.window={};vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/invoice-vehicles.js"),"utf8"),c);
+  c.InvoiceVehicles=c.window.InvoiceVehicles;
+  c.loadInvoiceVehicles=()=>{};
+  c.loadInvoiceVehicles.selection={key:c.InvoiceVehicles.readRange(c.document).key,refs:["TEST-1"]};
   vm.runInContext(generationCode + "\n" + viewCode, c);
   return { c, store, fields, notices, saved: () => saved };
 }

@@ -15,6 +15,13 @@ function fields(overrides = {}) {
   const values = {cfgCompanyName:"UK On Wheels",cfgBankName:"Saved Bank",cfgAccountNo:"12345678",...overrides};
   return {getElementById(id) {return id==="cfgShowLogo"?{checked:true}:id==="cfgInvoiceLogo"?{files:[]}:{value:values[id]||""};}};
 }
+function prepareSelection(c,inputs,store){
+ inputs.invDeliveredFrom={value:"2030-01-01"};inputs.invDeliveredTo={value:"2030-01-31"};
+ Object.assign(store.bookings[0],{business:inputs.invBiz.value,status:"Delivered",_deliveredAt:"2030-01-10T12:00:00Z"});
+ c.window={};vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/invoice-vehicles.js"),"utf8"),c);
+ c.InvoiceVehicles=c.window.InvoiceVehicles;c.loadInvoiceVehicles=()=>{};
+ c.loadInvoiceVehicles.selection={key:c.InvoiceVehicles.readRange(c.document).key,refs:["BOOKING"]};
+}
 test("company and bank details are saved through one global server call, not per Client", async()=>{
   let sent;
   const client={rpc:async(name,args)=>{sent={name,args};return {data:{...args.p_settings,savedAt:"2030-01-01"}};}};
@@ -63,7 +70,8 @@ test("generated invoice freezes company, bank and billing details for future dow
   let saved;
   const c=vm.createContext({ensureAccountsData:()=>store,document:{getElementById:id=>inputs[id]},
     saveStore:async s=>{saved=JSON.parse(JSON.stringify(s));return true;},alert(){},drawInvoices(){}});
-  vm.runInContext(html.slice(start,end),c);
+   prepareSelection(c,inputs,store);
+   vm.runInContext(html.slice(start,end),c);
   await c.makeInvoice(["BOOKING"]);
   store.invoiceSettings.bankAccountNumber="99999999";
   store.businesses[0].address="Changed address";
@@ -93,6 +101,7 @@ test("a sign-in change during invoice defaults loading prevents creation in anot
     ensureAccountsData:()=>store,document:{getElementById:id=>inputs[id]},
     saveStore:async()=>{writes++;return true;},alert(){},drawInvoices(){}});
   c.InvoiceTools={readSettings:async()=>{c.currentSession={user:{id:"different"}};return {companyName:"Original"};}};
+   prepareSelection(c,inputs,store);
   vm.runInContext(html.slice(start,end),c);
   await c.makeInvoice(["BOOKING"]);
   assert.equal(writes,0);assert.equal(store.invoices.length,0);
