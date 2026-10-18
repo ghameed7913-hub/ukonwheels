@@ -29,13 +29,15 @@ test("Real SQL: atomic paid expenses, role access, idempotency, stale snapshots 
       create table public.profiles(id uuid primary key,role text,status text);
       insert into public.profiles values
         ('${uid(1)}','admin','Active'),('${uid(2)}','driver','Active'),('${uid(3)}','client','Active'),
-        ('${uid(4)}','staff','Active'),('${uid(5)}','staff','Active'),('${uid(6)}','staff','Active');
+        ('${uid(4)}','staff','Active'),('${uid(5)}','staff','Active'),('${uid(6)}','staff','Active'),
+        ('${uid(7)}','staff','Active');
       create function public.is_portal_admin() returns boolean language sql stable security definer as
         $$select exists(select 1 from public.profiles where id=auth.uid() and role='admin' and status='Active')$$;
       create function public.has_portal_permission(k text) returns boolean language sql stable as
         $$select (auth.uid()='${uid(4)}' and k='hr:view')
           or (auth.uid()='${uid(5)}' and k='accounts:view')
-          or (auth.uid()='${uid(6)}' and k='hr:manage')$$;
+          or (auth.uid()='${uid(6)}' and k='hr:manage')
+          or (auth.uid()='${uid(7)}' and k='accounts:manage')$$;
       create function public.hr_screening_access(w boolean default false) returns boolean language sql stable as
         $$select public.is_portal_admin() or public.has_portal_permission('hr:manage')
           or (not w and public.has_portal_permission('hr:view'))$$;
@@ -47,6 +49,8 @@ test("Real SQL: atomic paid expenses, role access, idempotency, stale snapshots 
     `);
     const patch=fs.readFileSync(path.resolve(__dirname,"../../../supabase/payslip-payments.sql"),"utf8");
     sql(patch);sql(patch);
+    const bulk=fs.readFileSync(path.resolve(__dirname,"../../../supabase/bulk-expenses.sql"),"utf8");
+    sql(bulk);sql(bulk);
     sql(`${as(1)}
       select public.create_portal_payslip('${slip("DRV")}'::jsonb,'Unpaid');
       do $$declare result jsonb;begin
@@ -117,6 +121,52 @@ test("Real SQL: atomic paid expenses, role access, idempotency, stale snapshots 
         then raise exception 'Concurrent payroll lost an expense';end if;
       if not exists(select 1 from jsonb_array_elements(public.read_payroll_finances()->'payslips') p where p->>'id'='historic' and p->>'net'='80')
         then raise exception 'Historic total changed';end if;
+    end$$;`);
+    const batch="30000000-0000-0000-0000-000000000001";
+    const rows=JSON.stringify([{date:"2026-10-18",category:"Fuel",amount:10.01,method:"Cash",reference:"R1",notes:"first"},
+      {date:"2026-10-17",category:"Rent",amount:20.02,method:"Bank Transfer",payee:"Supplier"}]);
+    sql(`${as(1)}
+      do $$declare result jsonb;begin
+        result:=public.save_expense_batch('${batch}','${rows}'::jsonb);
+        if result->>'batch_id'<>'${batch}' or (result->>'saved_count')::int<>2
+          or (select count(*) from jsonb_array_elements(result->'expenses') e where e->>'batchId'='${batch}')<>2
+          then raise exception 'Expense batch response is not committed';end if;
+        perform public.save_expense_batch('${batch}','${rows}'::jsonb);
+        if (select count(*) from jsonb_array_elements(public.read_payroll_finances()->'expenses') e where e->>'batchId'='${batch}')<>2
+          then raise exception 'Retry duplicated batch';end if;
+        begin perform public.save_expense_batch('${batch}',jsonb_set('${rows}'::jsonb,'{0,amount}','99'));
+          raise exception 'Changed batch accepted';exception when invalid_parameter_value then null;end;
+        begin perform public.save_expense_batch('30000000-0000-0000-0000-000000000099',jsonb_set('${rows}'::jsonb,'{1,amount}','0'));
+          raise exception 'Partial invalid batch accepted';exception when invalid_parameter_value then null;end;
+        if exists(select 1 from jsonb_array_elements(public.read_payroll_finances()->'expenses') e
+          where e->>'batchId'='30000000-0000-0000-0000-000000000099') then raise exception 'Partial expense persisted';end if;
+        begin perform public.save_expense_batch('30000000-0000-0000-0000-000000000099',jsonb_set('${rows}'::jsonb,'{0,date}','"2026-02-30"'));
+          raise exception 'Impossible expense date accepted';exception when invalid_parameter_value then null;end;
+      end$$;
+      update public.app_store set data=jsonb_set(data,'{expenses}','[{"category":"Office","amount":17}]') where id='main';
+      do $$declare s jsonb;begin
+        s:=public.read_payroll_finances();
+        if (select count(*) from jsonb_array_elements(s->'expenses') e where e->>'batchId'='${batch}')<>2
+          or (select count(*) from jsonb_array_elements(s->'expenses') e where e->>'source'='payslip')<>3
+          or not exists(select 1 from jsonb_array_elements(s->'expenses') e where e->>'category'='Office')
+          then raise exception 'Snapshot protection lost bulk/payroll/manual rows';end if;
+      end$$;`);
+    for(const n of [2,3,4,5,6])sql(`${as(n)}do $$begin
+      begin perform public.save_expense_batch('30000000-0000-0000-0000-000000000099','${rows}');
+        raise exception 'Unauthorised bulk write';exception when insufficient_privilege then null;end;
+    end$$;`);
+    sql(`${as(7)}do $$begin
+      if not (public.read_payroll_finances()->>'canManageExpenses')::boolean then raise exception 'Accounts manager access missing';end if;
+      begin perform public.save_expense_batch('${batch}','${rows}');raise exception 'Foreign batch retry accepted';
+        exception when insufficient_privilege then null;end;
+    end$$;`);
+    await Promise.all([
+      parallel(`${as(1)}begin;select public.save_expense_batch('30000000-0000-0000-0000-000000000002','${rows}');select pg_sleep(0.2);commit;`),
+      parallel(`${as(7)}select public.save_expense_batch('30000000-0000-0000-0000-000000000003','${rows}');`)
+    ]);
+    sql(`${as(1)}do $$begin
+      if (select count(*) from jsonb_array_elements(public.read_payroll_finances()->'expenses') e where e->>'source'='expense-batch')<>6
+        then raise exception 'Concurrent batches lost expenses';end if;
     end$$;`);
     // Existing Driver RPC: test the real ownership filter and HR-to-Driver status hand-off.
     sql(`reset role;
