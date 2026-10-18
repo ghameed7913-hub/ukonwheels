@@ -155,6 +155,67 @@ test("A new assignment still changes New Booked Vehicle to Driver Assigned", asy
   assert.equal(booking.driver, "Next Driver");
 });
 
+test("Each ready vehicle gets an accessible Assign Driver button; other states and permissions do not", () => {
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null });
+  assert.match(s.c.bookingDriverAssignmentButton(s.booking), />Assign Driver<\/button>/);
+  assert.match(s.c.bookingDriverAssignmentButton(s.booking), /aria-label="Assign Driver for TEST-ASSIGN/);
+  for (const override of [
+    { status: "Delivered" }, { _deliveredAt: "2026-10-18" },
+    { deliveredAt: "2026-10-18" }, { status: "Picked Up" },
+    { driver: "Already assigned" }, { _driverId: "assigned-id" },
+  ]) assert.equal(s.c.bookingDriverAssignmentButton({ ...s.booking, ...override }), "");
+  s.deny();
+  assert.equal(s.c.bookingDriverAssignmentButton(s.booking), "");
+});
+
+test("Vehicle shortcut opens only the chosen booking and focuses its Driver selector", () => {
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null });
+  s.store.bookings.push({ ref: "OTHER", status: "New Booked Vehicle", vehicle: "Other car" });
+  let focused = false, rendered = false;
+  s.fields["driver_TEST-ASSIGN"].focus = () => { focused = true; };
+  s.c.render = () => { rendered = true; };
+  s.c.openDriverAssignment("TEST-ASSIGN");
+  assert.equal(s.c.page, "assign");
+  assert.equal(rendered, true);
+  assert.equal(focused, true);
+  assert.match(s.fields.content.innerHTML, /driver_TEST-ASSIGN/);
+  assert.doesNotMatch(s.fields.content.innerHTML, /driver_OTHER/);
+  assert.match(s.fields.content.innerHTML, /Show all bookings/);
+  s.c.drawAssign(s.fields.content);
+  assert.match(s.fields.content.innerHTML, /driver_OTHER/);
+});
+
+test("Stale, missing and unauthorised vehicle shortcuts cannot open assignment", () => {
+  for (const status of ["Picked Up", "Delivered"]) {
+    const s = setup(status);
+    s.c.openDriverAssignment("TEST-ASSIGN");
+    assert.equal(s.c.page, "desktop");
+    assert.match(s.alerts.at(-1), /no longer waiting/);
+  }
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null });
+  s.c.openDriverAssignment("MISSING");
+  assert.match(s.alerts.at(-1), /not found/);
+  s.deny();
+  s.c.openDriverAssignment("TEST-ASSIGN");
+  assert.match(s.alerts.at(-1), /permission/);
+  assert.equal(s.c.page, "desktop");
+});
+
+test("Admin status and dashboard lists place the shortcut beside each vehicle", () => {
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null, vehicle: "Ready car" });
+  s.c.selectedStatusPage = "New Booked Vehicle";
+  s.c.visibleBookings = () => s.store.bookings;
+  s.c.bookingEvidenceButton = () => "";
+  s.c.document.querySelectorAll = () => [];
+  s.c.tabarea = { innerHTML: "" };
+  vm.runInContext(part("function drawStatusPage(", "function viewStatusBooking("), s.c);
+  vm.runInContext(part("function showTab(", "function mergeSavedBusinesses("), s.c);
+  s.c.drawStatusPage(s.fields.content);
+  assert.match(s.fields.content.innerHTML, /<td>Ready car<div[^>]*><button[^>]*>Assign Driver<\/button><\/div><\/td>/);
+  s.c.showTab("New Booked Vehicle");
+  assert.match(s.c.tabarea.innerHTML, /<td>Ready car<div[^>]*><button[^>]*>Assign Driver<\/button><\/div><\/td>/);
+});
+
 test("SQL protects Delivered jobs under a row lock, preserves status, and never deletes evidence", () => {
   assert.ok(sql.indexOf("for update") < sql.indexOf("previous_booking.delivered_at"));
   assert.match(sql, /previous_booking\.driver_id is distinct from p_expected_driver_id/);

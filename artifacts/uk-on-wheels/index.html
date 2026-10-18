@@ -4441,7 +4441,7 @@ function drawStatusPage(c){
     ${rows.map(b=>`<tr>
       <td><b>${b.ref}</b></td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${b.lastApprovedBy||"—"}</td><td>${b.lastApprovedAt||"—"}</td>
       <td>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</td>
-      <td>${b.vehicle||"—"}</td>
+      <td>${b.vehicle||"—"}${bookingDriverAssignmentButton(b)}</td>
       <td>${b.reg||"—"}</td>
       <td>${b.pickup||"—"}</td>
       <td>${b.destination||"—"}</td>
@@ -4635,7 +4635,7 @@ function drawDesktop(c){
 function showTab(status,btn){
  document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("active")); if(btn)btn.classList.add("active");
  const rows=visibleBookings().filter(b=>b.status===status);
- tabarea.innerHTML=`<div class="panel"><h3>${status}</h3><div class="scroll"><table style="min-width:1450px"><tr><th>Booking Ref</th><th>Vehicle</th><th>Reg No</th><th>Collection</th><th>Delivery</th><th>Service</th><th>Miles</th><th>Booking Date</th><th>Delivery Date</th><th>Receiver</th><th>Mobile</th><th>Drop-off Till</th><th>Driver</th><th>Status</th></tr>${rows.map(b=>`<tr><td><b>${b.ref}</b></td><td>${b.vehicle}</td><td>${b.reg}</td><td>${b.pickup}</td><td>${b.destination}</td><td>${b.service}</td><td>${b.miles||0}</td><td>${b.bookingDate||""}</td><td>${b.deliveryDate||""}</td><td>${b.receiver||""}</td><td>${b.receiverMobile||""}</td><td>${b.dropoffTill||""}</td><td>${b.driver||"Not assigned"}</td><td><span class="badge">${b.status}</span>${b.pickupCaptureMode?`<div class="muted" style="font-size:10px;margin-top:4px">${b.pickupCaptureMode}</div>`:""}</td></tr>`).join("")}</table></div>${rows.length?"":"<p class='muted'>No vehicles in this status.</p>"}</div>`;
+ tabarea.innerHTML=`<div class="panel"><h3>${status}</h3><div class="scroll"><table style="min-width:1450px"><tr><th>Booking Ref</th><th>Vehicle</th><th>Reg No</th><th>Collection</th><th>Delivery</th><th>Service</th><th>Miles</th><th>Booking Date</th><th>Delivery Date</th><th>Receiver</th><th>Mobile</th><th>Drop-off Till</th><th>Driver</th><th>Status</th></tr>${rows.map(b=>`<tr><td><b>${b.ref}</b></td><td>${b.vehicle}${bookingDriverAssignmentButton(b)}</td><td>${b.reg}</td><td>${b.pickup}</td><td>${b.destination}</td><td>${b.service}</td><td>${b.miles||0}</td><td>${b.bookingDate||""}</td><td>${b.deliveryDate||""}</td><td>${b.receiver||""}</td><td>${b.receiverMobile||""}</td><td>${b.dropoffTill||""}</td><td>${b.driver||"Not assigned"}</td><td><span class="badge">${b.status}</span>${b.pickupCaptureMode?`<div class="muted" style="font-size:10px;margin-top:4px">${b.pickupCaptureMode}</div>`:""}</td></tr>`).join("")}</table></div>${rows.length?"":"<p class='muted'>No vehicles in this status.</p>"}</div>`;
 }
 function mergeSavedBusinesses(rows){
  const s=getStore(),previous=s.businesses||[];
@@ -5119,15 +5119,32 @@ function addBusiness(){ alert('Use the full Create Business form above.'); }
 function isDeliveredBooking(b){
  return String(b.status||"").trim().toLowerCase()==="delivered"||Boolean(b._deliveredAt||b.deliveredAt);
 }
-function drawAssign(c){
+function canAssignBookedVehicle(b){
+ return Boolean(b&&hasPermission("assign")&&!isDeliveredBooking(b)&&b.status==="New Booked Vehicle"&&!b._driverId&&!b.driver);
+}
+function bookingDriverAssignmentButton(b){
+ if(!canAssignBookedVehicle(b))return "";
+ return `<div style="margin-top:8px"><button type="button" class="btn primary" aria-label="${escapeHtml("Assign Driver for "+b.ref+" — "+(b.reg||b.vehicle||"vehicle"))}" onclick="openDriverAssignment(${escapeHtml(JSON.stringify(b.ref))})">Assign Driver</button></div>`;
+}
+function openDriverAssignment(ref){
+ if(!hasPermission("assign"))return alert("Driver assignment permission is required.");
+ const b=getStore().bookings.find(x=>x.ref===ref);
+ if(!b)return alert("Booking not found.");
+ if(!canAssignBookedVehicle(b))return alert("This vehicle is no longer waiting for its first driver assignment. Check its current booking status.");
+ page="assign";
+ render();
+ drawAssign(document.getElementById("content"),ref);
+ document.getElementById("driver_"+ref)?.focus();
+}
+function drawAssign(c,bookingRef=null){
  const s=getStore();
- const rows=s.bookings.filter(b=>!isDeliveredBooking(b)&&(b.status==="New Booked Vehicle"||b._driverId||b.driver));
+ const rows=s.bookings.filter(b=>(!bookingRef||b.ref===bookingRef)&&!isDeliveredBooking(b)&&(b.status==="New Booked Vehicle"||b._driverId||b.driver));
  const drivers=SUPABASE_CONFIGURED?portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active").map(x=>({id:x.id,name:x.full_name||x.name||x.email,phone:""})):
   s.drivers.map(x=>({id:x.name,name:x.name,phone:x.phone}));
  c.innerHTML=`<div class="panel">
    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
       <div><h2 style="margin:0">Assign Driver</h2><p class="muted" style="margin:6px 0 0">Assign or change the driver before delivery, including after pickup. Existing progress and pictures are kept. Delivered jobs are locked.</p></div>
-      <span class="badge">${rows.length} undelivered bookings</span>
+      <div class="actions">${bookingRef?`<button type="button" class="btn secondary" onclick="drawAssign(document.getElementById('content'))">Show all bookings</button>`:""}<span class="badge">${rows.length} undelivered bookings</span></div>
    </div>
  </div>
  ${rows.length?rows.map(b=>`<div class="panel" style="margin-top:12px">
