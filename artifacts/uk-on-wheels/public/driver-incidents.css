@@ -76,5 +76,5 @@
 @media(max-width:860px){.incAdmin{grid-template-columns:1fr}.incAdmin .incList{max-height:none}}
 @media(max-width:560px){.incGrid{grid-template-columns:1fr}.incGrid .full{grid-column:auto}.incFault{grid-template-columns:1fr 1fr}.incDl{grid-template-columns:1fr}.incDl dt{border-bottom:0;padding-bottom:0}.incCard{padding:12px}.incBar{flex-direction:column}}
 /* Five-item driver bottom nav (Incidents added) */
-.driverApp .driverBottomNav{grid-template-columns:repeat(5,minmax(0,1fr))}
+.driverApp .driverBottomNav{grid-template-columns:repeat(7,minmax(0,1fr))}
 .driverBottomNav button{min-width:0;overflow-wrap:anywhere}

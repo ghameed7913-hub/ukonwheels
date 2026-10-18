@@ -118,6 +118,43 @@ test("Real SQL: atomic paid expenses, role access, idempotency, stale snapshots 
       if not exists(select 1 from jsonb_array_elements(public.read_payroll_finances()->'payslips') p where p->>'id'='historic' and p->>'net'='80')
         then raise exception 'Historic total changed';end if;
     end$$;`);
+    // Existing Driver RPC: test the real ownership filter and HR-to-Driver status hand-off.
+    sql(`reset role;
+      alter table public.profiles add column email text;
+      update public.profiles set email='driver@example.invalid' where id='${uid(2)}';
+      update public.profiles set email='client@example.invalid' where id='${uid(3)}';
+      create table public.bookings(reference text,client_id uuid,created_by uuid,business_id uuid);
+      create function public.is_business_member(uuid) returns boolean language sql as $$select false$$;
+    `);
+    const safety=fs.readFileSync(path.resolve(__dirname,"../../../supabase/portal-safety-fixes.sql"),"utf8");
+    const scoped=safety.match(/create or replace function public\.read_own_portal_store\(\)[\s\S]*?\$\$;/);
+    assert.ok(scoped,"Existing Driver read RPC must exist");sql(scoped[0]);
+    sql(`update public.app_store set data=jsonb_build_object('payslips',jsonb_build_array(
+      jsonb_build_object('id','OWN','profileId','${uid(2)}','role','Driver','name','Driver','month','2026-10','net',123,'email','changed@example.invalid'),
+      jsonb_build_object('id','LEGACY','email','DRIVER@EXAMPLE.INVALID','net',80),
+      jsonb_build_object('id','FOREIGN','profileId','${uid(6)}','email','driver@example.invalid','net',999),
+      jsonb_build_object('id','UNLINKED','profileId',null,'email','driver@example.invalid','net',888),
+      jsonb_build_object('id','SAME-NAME','name','Driver','email','someone@example.invalid','net',777)
+    ),'expenses','[]'::jsonb) where id='main';
+    ${as(2)}
+    do $$declare s jsonb;begin
+      s:=public.read_own_portal_store();
+      if jsonb_array_length(s->'payslips')<>2 or s?'expenses' then raise exception 'Driver financial scope leaked';end if;
+      if not exists(select 1 from jsonb_array_elements(s->'payslips') p where p->>'id'='OWN')
+        or not exists(select 1 from jsonb_array_elements(s->'payslips') p where p->>'id'='LEGACY') then raise exception 'Own payslips missing';end if;
+    end$$;
+    ${as(1)}
+    select public.set_payslip_payment_status('OWN','Paid',0);
+    ${as(2)}
+    do $$begin
+      if not exists(select 1 from jsonb_array_elements(public.read_own_portal_store()->'payslips') p
+        where p->>'id'='OWN' and p->>'paymentStatus'='Paid' and (p->>'net')::numeric=123)
+        then raise exception 'HR paid status did not reach Driver';end if;
+    end$$;
+    ${as(3)}
+    do $$begin if jsonb_array_length(public.read_own_portal_store()->'payslips')<>0
+      then raise exception 'Client received Driver payslips';end if;end$$;
+    `);
   }finally{
     if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"]);
     fs.rmSync(dir,{recursive:true,force:true});
