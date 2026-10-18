@@ -30,6 +30,7 @@
 <script src="./invoice-tools.js"></script>
 <script src="./invoice-vehicles.js"></script>
 <script src="./pickup-checklist.js"></script>
+<script src="./pickup-photo-guides.js"></script>
   <script src="./hr-screening-api.js"></script>
   <script src="./driver-compliance.js"></script>
   <script src="./hr-registration.js"></script>
@@ -77,6 +78,11 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 7px;
 .vehiclePhotoGrid .cameraBox.wide{grid-column:1/-1}
 .cameraAreaTab{width:100%;border:0;background:#f4f7fb;color:#102b4e;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;font-weight:800;text-align:left;cursor:pointer}
 .cameraAreaTab .areaState{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#66758a}
+.cameraAreaTab.has-photo-guide{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;justify-items:stretch}
+.cameraAreaTab.has-photo-guide>.areaState{grid-row:4}
+.cameraAreaTab.has-photo-guide>.pickupPhotoGuide{grid-row:2}
+.cameraAreaTab.has-photo-guide>.pickupPhotoHint{grid-row:3}
+.photo-stored .cameraAreaTab.has-photo-guide>.pickupPhotoGuide,.photo-stored .cameraAreaTab.has-photo-guide>.pickupPhotoHint{display:none}
 .cameraBox.camera-active{border-color:#123f73;box-shadow:0 0 0 2px rgba(18,63,115,.12)}
 .cameraBox.photo-stored{border-color:#17864b}
 .cameraBox.photo-stored .cameraAreaTab{background:#edf9f2;color:#116b3b}
@@ -6108,7 +6114,8 @@ function driverCard(b){
  <h3>Journey Timeline</h3>${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")}</div>`;
 }
 function pickupSteps(b){
- return `<div class="step"><h4>1. Ready to Pickup</h4><label><input type="checkbox" id="ready_${b.ref}"> Ready to Pickup</label></div>
+ return `<style>${window.PickupPhotoGuides?.css||""}</style><div class="step"><h4>1. Ready to Pickup</h4><label><input type="checkbox" id="ready_${b.ref}"> Ready to Pickup</label></div>
+ <p class="muted">Grey illustrations show what to photograph. They are guides only, not saved evidence. Tap a guide to open the live camera and capture your own photo.</p>
  ${window.PickupChecklist.render(b,cameraSlot)}
   <div class="step"><h4>5. Driver Declaration</h4><label><input type="checkbox" id="dec_${b.ref}"> I declare that I have received the vehicle with the listed documents/items and that the inspection and live photographs accurately record its condition. I accept responsibility for changes or damage after pickup.</label></div>
  <p class="muted" id="pickupSaveStatus_${b.ref}" role="status">${b.pickupInspection?.checklist?"Pickup checklist saved. Review the evidence, confirm the declaration, then click Picked Up.":"Save pickup evidence first, then click Picked Up."}</p>
@@ -6116,8 +6123,9 @@ function pickupSteps(b){
 }
 function cameraSlot(b,id,label,wide=false,required=false){
  const ref=b.ref,photo=Object.values(b.pickupPhotos||{}).filter(p=>p.label===label||p.label===String(id)).sort((a,z)=>new Date(z.timestamp||0)-new Date(a.timestamp||0))[0],image=photo?.image||"";
+ const guide=window.PickupPhotoGuides?.render(label)||"";
  return `<div class="cameraBox ${wide?"wide":""} ${photo?"photo-stored":""}" id="box_${ref}_${id}" ${required?'data-required="1"':""}>
-   <button type="button" class="cameraAreaTab" onclick="${photo?"toggleStoredPhoto(this)":"startCamera('"+ref+"','"+id+"')"}"><span>${label}</span><span class="areaState">${photo?"✓ Stored · View":"Tap to photograph"}</span></button>
+   <button type="button" class="cameraAreaTab${guide?" has-photo-guide":""}" onclick="${photo?"toggleStoredPhoto(this)":"startCamera('"+ref+"','"+id+"')"}"><span>${label}</span><span class="areaState">${photo?"✓ Stored · View":"Tap to photograph"}</span>${guide}</button>
    <div class="cameraPreview">
    ${image?`<img class="storedPhoto" src="${image}" alt="${label} captured evidence">`:""}
    <video id="v_${ref}_${id}" playsinline autoplay></video>
