@@ -4689,13 +4689,13 @@ async function loadBookingBusinesses(){
   showBusinessTariff();
  }catch(e){
   if(notice&&select.isConnected)notice.innerHTML=`Saved businesses could not be refreshed: ${escapeHtml(e.message||e)}. <button type="button" class="btn secondary" onclick="loadBookingBusinesses()">Retry</button>`;
- }finally{if(select.isConnected)select.disabled=false}
+ }finally{if(select.isConnected){select.disabled=false;window.BulkBooking?.refresh?.();}}
 }
 function drawBooking(c){
  const s=getStore();
  c.innerHTML=`<div class="panel booking-form"><h3>Create Booking</h3>
  ${role==="admin"||role==="staff"?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles</option></select></label>`:""}
- <p id="bulkSharedNotice" class="muted" hidden>Customer and journey details below apply to every vehicle. Miles and customer charge are defaults <b>per vehicle, not batch totals</b>. You can override them on individual vehicle rows.</p>
+ <p id="bulkSharedNotice" class="muted" hidden>Details below are shared defaults. Each vehicle has the same fields as a single booking: tick <b>Set separate details for this vehicle</b> to edit its customer and journey independently. Miles and customer charge are <b>per vehicle, not batch totals</b>.</p>
  <fieldset id="bookingSharedFields" class="form booking-fields">
   <legend class="booking-sr-only">Customer, vehicle and journey details</legend>
   ${role==="client"

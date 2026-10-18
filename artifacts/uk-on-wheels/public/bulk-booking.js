@@ -56,7 +56,7 @@
     if (el("bookingMode")) { el("bookingMode").value = mode; el("bookingMode").disabled = busy; }
     el("bookingSharedFields").disabled = busy || (mode === "bulk" && hasCommittedRows());
     el("bulkBookingEditor").disabled = busy;
-    el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy);
+    el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy,common || snapshot(),getStore().businesses || [],SUPABASE_CONFIGURED);
     el("bulkBookingResults").innerHTML = BulkBookingUI.summary(rows,busy);
     const button = document.querySelector('button[onclick="createBooking()"]');
     if (button) {
@@ -73,10 +73,20 @@
       for (const id of fieldIds) if (el(id)) el(id).value = common[id] ?? "";
       toggleCustomerTypeFields();
     }
-    for (const id of fieldIds) el(id)?.addEventListener("input",() => {
-      if (mode !== "bulk" || busy || hasCommittedRows()) return;
+    for (const id of fieldIds) {
+      const changed = () => {
+        if (mode !== "bulk" || busy || hasCommittedRows()) return;
+        common = snapshot(); persist(); draw();
+      };
+      el(id)?.addEventListener("input",changed);
+      el(id)?.addEventListener("change",changed);
+    }
+    draw();
+  }
+  function refresh() {
+    if (mode === "bulk" && !busy && !hasCommittedRows()) {
       common = snapshot(); persist();
-    });
+    }
     draw();
   }
   function setMode(value) {
@@ -106,6 +116,31 @@
     row[field] = value; row.status = "editing"; row.message = "";
     persist();
   }
+  function editableRow(id) {
+    if (!allowed() || busy) return null;
+    const row = rows.find(r=>r.id === id);
+    return row && !["saved","uncertain","saving"].includes(row.status) ? row : null;
+  }
+  function setOwnDetails(id,enabled) {
+    const row = editableRow(id);
+    if (!row) return;
+    if (enabled && !row.details) {
+      row.details = {...(hasCommittedRows() ? common : snapshot())};
+      // Capture current defaults once. Separate details never fall back to another customer's data.
+      row.miles = row.miles || row.details.miles || "";
+      row.amount = row.amount || row.details.amount || "";
+    } else if (!enabled) row.details = null;
+    row.status = "editing"; row.message = "";
+    persist(); draw();
+  }
+  function updateDetail(id,field,value) {
+    const row = editableRow(id);
+    if (!row?.details || !fieldIds.includes(field) || ["miles","amount"].includes(field)) return;
+    row.details[field] = value; row.status = "editing"; row.message = "";
+    persist();
+    if (field === "customerType") draw();
+  }
+  const hasRowInput = row => !!(row.vehicle || row.reg || row.details || row.miles || row.amount);
   function removeRow(id) {
     if (busy) return;
     const row = rows.find(r=>r.id === id);
@@ -115,7 +150,7 @@
   async function newBatch() {
     if (busy) return;
     if (rows.some(r=>["uncertain","saving"].includes(r.status))) return status("Retry this batch to check interrupted saves before starting a new batch.");
-    if (rows.some(r=>r.status !== "saved" && (r.vehicle || r.reg)) &&
+    if (rows.some(r=>r.status !== "saved" && hasRowInput(r)) &&
       !await crmConfirm("Discard the remaining unsaved vehicle rows? Any bookings already saved will remain.","Start a new batch","Discard unsaved rows")) return;
     if (busy) return;
     rows = [newRow(),newRow()]; common = snapshot(); mode = "bulk";
@@ -127,41 +162,47 @@
     return n;
   }
   function prepare(shared,vehicles) {
-    const type = shared.customerType || "Business";
-    let business, businessId = null;
-    if (type === "Business") {
-      const selected = selectedBookingBusiness(shared.biz);
-      if (!selected || String(selected.status || "Active").toLowerCase() !== "active" || (SUPABASE_CONFIGURED && !selected.id)) throw new Error("Select an active saved business before creating the batch.");
-      business = selected.name; businessId = selected.id || null;
-    } else if (type === "Private") {
-      if (!shared.privateCustomerName?.trim()) throw new Error("Enter the private customer name.");
-      if (SUPABASE_CONFIGURED && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(shared.privateCustomerEmail?.trim() || "")) throw new Error("Enter the private Client's portal email.");
-      business = "Private Customer";
-    } else throw new Error("Choose a Business or Private customer.");
-    for (const [id,label] of [["pickup","collection address"],["dest","delivery address"],["receiver","receiver name"],["mobile","receiver mobile number"]]) {
-      if (!shared[id]?.trim()) throw new Error("Enter the shared "+label+".");
-    }
     if (!vehicles.length) throw new Error("Add at least one vehicle to the batch.");
     const seen = new Set();
-    const defaultMiles = number(shared.miles,"Shared miles"), defaultAmount = number(shared.amount,"Shared charge");
     return vehicles.map((row,index) => {
+    const values = row.details || shared;
+    const label = "Vehicle "+(index+1)+": ";
+    const sharedCustomer = !row.details;
+    const type = values.customerType || "Business";
+    let business, businessId = null;
+    if (type === "Business") {
+      const selected = selectedBookingBusiness(values.biz);
+      if (!selected || String(selected.accountType || "business").toLowerCase() !== "business" || String(selected.status || "Active").toLowerCase() !== "active" || (SUPABASE_CONFIGURED && !selected.id)) throw new Error(label+"Select an active saved business before creating the batch.");
+      business = selected.name; businessId = selected.id || null;
+    } else if (type === "Private") {
+      if (!values.privateCustomerName?.trim()) throw new Error(label+"Enter the private customer name.");
+      if (SUPABASE_CONFIGURED && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.privateCustomerEmail?.trim() || "")) throw new Error(label+"Enter the private Client's portal email.");
+      business = "Private Customer";
+    } else throw new Error(label+"Choose a Business or Private customer.");
+    for (const [id,label] of [["pickup","collection address"],["dest","delivery address"],["receiver","receiver name"],["mobile","receiver mobile number"]]) {
+      if (!values[id]?.trim()) throw new Error("Vehicle "+(index+1)+": Enter the "+(sharedCustomer?"shared ":"")+label+".");
+    }
+    const defaultMiles = row.details ? 0 : number(values.miles,"Shared miles");
+    const defaultAmount = row.details ? 0 : number(values.amount,"Shared charge");
       const reg = normalReg(row.reg), vehicle = String(row.vehicle || "").trim();
       if (!vehicle || !reg) throw new Error("Vehicle "+(index+1)+": enter make/model and registration.");
       if (seen.has(reg)) throw new Error("Registration "+reg+" appears more than once in this batch.");
       seen.add(reg);
-      const notes = [shared.notes?.trim(),shared.dropoff ? "Latest drop-off time: "+shared.dropoff : ""].filter(Boolean).join("\n");
+       const notes = [values.notes?.trim(),values.dropoff ? "Latest drop-off time: "+values.dropoff : ""].filter(Boolean).join("\n");
+       const service = values.service || "Vehicle Delivery";
+       if (!["Vehicle Delivery","Vehicle Collection & Delivery","Recovery / AA"].includes(service)) throw new Error(label+"Choose a valid service type.");
       return {
         ref:row.reference,customerType:type,_businessId:businessId,business,
-        privateCustomerName:shared.privateCustomerName?.trim() || "",
-        privateCustomerMobile:shared.privateCustomerMobile?.trim() || "",
-        privateCustomerEmail:shared.privateCustomerEmail?.trim() || "",
-        vehicle,reg,pickup:shared.pickup.trim(),destination:shared.dest.trim(),
-        service:shared.service || "Vehicle Delivery",
-        miles:row.miles === "" ? defaultMiles : number(row.miles,"Vehicle "+(index+1)+" miles"),
-        amount:row.amount === "" ? defaultAmount : number(row.amount,"Vehicle "+(index+1)+" charge"),
-        bookingDate:shared.bdate || new Date().toISOString().slice(0,10),
-        deliveryDate:shared.ddate || "",receiver:shared.receiver.trim(),receiverMobile:shared.mobile.trim(),
-        dropoffTill:shared.dropoff || "",notes,status:"New Booked Vehicle",paymentStatus:"Pending",driver:"",
+         privateCustomerName:type === "Private" ? values.privateCustomerName?.trim() || "" : "",
+         privateCustomerMobile:type === "Private" ? values.privateCustomerMobile?.trim() || "" : "",
+         privateCustomerEmail:type === "Private" ? values.privateCustomerEmail?.trim() || "" : "",
+         vehicle,reg,pickup:values.pickup.trim(),destination:values.dest.trim(),
+         service,
+         miles:row.miles == null || row.miles === "" ? defaultMiles : number(row.miles,"Vehicle "+(index+1)+" miles"),
+         amount:row.amount == null || row.amount === "" ? defaultAmount : number(row.amount,"Vehicle "+(index+1)+" charge"),
+         bookingDate:values.bdate || new Date().toISOString().slice(0,10),
+         deliveryDate:values.ddate || "",receiver:values.receiver.trim(),receiverMobile:values.mobile.trim(),
+         dropoffTill:values.dropoff || "",notes,status:"New Booked Vehicle",paymentStatus:"Pending",driver:"",
         createdBy:currentUser?.name || "Admin",createdAt:new Date().toLocaleString(),
         timeline:[{title:"Booking Created",text:"Created in a bulk vehicle booking"}]
       };
@@ -265,5 +306,5 @@
     generation++;
     owner = null; mode = "single"; rows = []; common = null; busy = false;
   }
-  window.BulkBooking = {mount,setMode,addRow,updateRow,removeRow,newBatch,submit,clearSession,isActive:()=>mode === "bulk" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode === "bulk" && rows.some(r=>r.status!=="saved" && (r.vehicle || r.reg)),isComplete:()=>mode === "bulk" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
+  window.BulkBooking = {mount,setMode,addRow,updateRow,setOwnDetails,updateDetail,refresh,removeRow,newBatch,submit,clearSession,isActive:()=>mode === "bulk" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode === "bulk" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode === "bulk" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
 })();
