@@ -1785,7 +1785,14 @@ function nav(){
   {key:"miles",label:"Update Miles",icon:"route",cat:"miles"},
   {key:"amount",label:"Update Amount",icon:"cash",cat:"amount"},
   {key:"destination",label:"Update Destination",icon:"pin",cat:"destination"},
-  {key:"accounts",label:"Accounts",icon:"wallet",cat:"accounts"},
+  {group:"accounts",key:"accounts",label:"Accounts",icon:"wallet",cat:"accounts",items:[
+    {key:"expenses",label:"Add Expenses"},
+    ...(hasPermission("reports")?[{key:"invoices",label:"Generate Invoices"}]:[]),
+    {key:"payments",label:"Cash / Bank Transactions"},
+    {key:"pendingPayments",label:"Pending Payments"},
+    ...(hasPermission("reports")?[{key:"accountReports",label:"Reports"}]:[]),
+    {key:"pnl",label:"Profit & Loss"}
+  ]},
   {key:"reports",label:"Reports & Invoices",icon:"chart",cat:"reports"},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",cat:"hr",items:[
     {key:"hrRegister",label:"Employee Registration"},
@@ -3520,6 +3527,7 @@ function loadPayrollView(c,draw,loaded){
 function drawAdminAccounts(c,loaded=false){
  if(loadPayrollView(c,drawAdminAccounts,loaded))return;
  const s=ensureAccountsData();
+ const accountSections=hasPermission("reports")?"expenses, invoices, transactions, pending payments, reports and monthly P&L":"expenses, transactions, pending payments and monthly P&L";
  const expenses=s.expenses.reduce((a,x)=>a+Number(x.amount||0),0);
  const cash=s.transactions.filter(x=>x.method==="Cash").reduce((a,x)=>a+Number(x.amount||0),0);
  const bank=s.transactions.filter(x=>x.method==="Bank Transfer").reduce((a,x)=>a+Number(x.amount||0),0);
@@ -3530,7 +3538,7 @@ function drawAdminAccounts(c,loaded=false){
   <div class="card"><b>Bank Received</b><strong>${money(bank)}</strong></div>
   <div class="card"><b>Pending Payments</b><strong>${pending}</strong></div>
   <div class="card"><b>Invoices</b><strong>${s.invoices.length}</strong></div>
- </div><div class="panel"><h3>Accounts</h3><p class="muted">Use the Accounts menu for expenses, invoices, transactions, pending payments, reports and monthly P&L.</p></div>`;
+ </div><div class="panel"><h3>Accounts</h3><p class="muted">Use the Accounts menu for ${accountSections}.</p></div>`;
 }
 
 function expenseRegisterHtml(s){
