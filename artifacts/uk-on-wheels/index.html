@@ -10,9 +10,12 @@
 <link rel="icon" href="./uk-on-wheels-logo.jpg">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="stylesheet" href="./driver-incidents.css">
+<link rel="stylesheet" href="./bulk-booking.css">
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script src="./incident-api.js"></script>
 <script src="./driver-incidents.js"></script>
+<script src="./bulk-booking-ui.js"></script>
+<script src="./bulk-booking.js"></script>
 <style>
 :root{--navy:#071a31;--navy2:#0d2547;--blue:#2f6fe0;--brand-red:#e2131f;--brand-red-dark:#b30f19;--bg:#f4f7fb;--line:#e2e8f0;--text:#132238;--muted:#718096;--green:#159a62;--amber:#d99516;--red:#d9363e;--purple:#7457d6}
 *{box-sizing:border-box}body{margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
@@ -1281,6 +1284,7 @@ function migrateClientData(){
 function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
   IncidentUI.reset();
+  window.BulkBooking?.clearSession();
   driverSelectedJobRef=null;
   Object.keys(driverFormDrafts).forEach(ref=>delete driverFormDrafts[ref]);
  }
@@ -1336,6 +1340,8 @@ async function restoreSupabaseSession(){
 }
 
 async function logoutNow(){
+ if(window.BulkBooking?.isBusy()){crmToast("Please wait for the vehicle batch to finish saving before signing out.","Bookings saving");return;}
+ if(window.BulkBooking?.hasUnsaved()&&!await crmConfirm("This bulk booking has unsaved vehicle rows. Signing out will discard those rows. Bookings already saved will remain.","Unsaved bulk booking","Sign out without saving",true))return;
  if(IncidentUI.isSaving?.()){crmToast("Please wait for the incident report to finish saving before signing out.","Report saving");return;}
  if(IncidentUI.hasUnsaved?.()&&!await crmConfirm("Your incident form has unsaved changes. Save a draft before signing out to keep them.","Unsaved incident report","Sign out without saving",true))return;
  if(role==="driver"&&driverPhotoIsSaving())return;
@@ -1356,6 +1362,7 @@ async function logoutNow(){
    console.error("Supabase sign out failed:",e);
  }
  currentSession=null;
+ window.BulkBooking?.clearSession();
  IncidentUI.reset();
  normalizedVisibleIds=new Set();
  driverSelectedJobRef=null;
@@ -4685,7 +4692,9 @@ async function loadBookingBusinesses(){
 function drawBooking(c){
  const s=getStore();
  c.innerHTML=`<div class="panel"><h3>Create Booking</h3>
- <div class="form">
+ ${role==="admin"||role==="staff"?`<label for="bookingMode"><b>Booking entry</b></label><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" style="margin:8px 0 16px" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles</option></select>`:""}
+ <p id="bulkSharedNotice" class="muted" hidden>Customer and journey details below apply to every vehicle. Miles and customer charge are defaults <b>per vehicle, not batch totals</b>. You can override them on individual vehicle rows.</p>
+ <fieldset id="bookingSharedFields" class="form" style="border:0;padding:0;margin:0;min-width:0">
   ${role==="client"
     ? `<input id="customerType" type="hidden" value="${currentUser?.accountType==="business"?"Business":"Private"}"><div class="panel" style="padding:10px"><b>Booking For:</b> ${escapeHtml(currentUser?.name||"Client")}</div>`
     : `<select id="customerType" onchange="toggleCustomerTypeFields()"><option value="Business">Business Customer</option><option value="Private">Private Customer — Admin Only</option></select>`}
@@ -4696,8 +4705,10 @@ function drawBooking(c){
   <input id="privateCustomerMobile" placeholder="Private Customer Mobile Number" style="display:none">
   <input id="privateCustomerEmail" type="email" placeholder="Private Customer Email" style="display:none">
 
-  <input id="veh" placeholder="Vehicle make & model">
-  <input id="reg" placeholder="Registration number">
+  <div id="singleVehicleFields" class="full"><div class="form">
+   <input id="veh" placeholder="Vehicle make & model">
+   <input id="reg" placeholder="Registration number">
+  </div></div>
   <input id="pickup" placeholder="Collection address">
   <input id="dest" placeholder="Delivery address">
   <select id="service"><option>Vehicle Delivery</option><option>Vehicle Collection & Delivery</option><option>Recovery / AA</option></select>
@@ -4709,10 +4720,12 @@ function drawBooking(c){
   <input id="dropoff" type="time" title="Drop-off time till">
   <input id="amount" type="number" placeholder="Customer charge (£)">
   <textarea id="notes" class="full" placeholder="Special instructions"></textarea>
- </div>
+ </fieldset>
  <div id="tariffInfo" class="full muted"></div>
+ ${role==="admin"||role==="staff"?'<div id="bulkBookingPanel" hidden></div>':""}
  <div class="actions"><button class="btn primary" onclick="createBooking()">Create Booking</button></div></div>`;
  toggleCustomerTypeFields();
+ window.BulkBooking?.mount();
  loadBookingBusinesses();
 }
 async function createLinkedBooking(booking,existingRef=null,driverId=null){
@@ -4769,9 +4782,12 @@ async function createBooking(){
  bookingCreationPending=true;
  const button=document.querySelector('button[onclick="createBooking()"]');
  if(button)button.disabled=true;
- try{return await submitBooking()}
+ try{
+  if(typeof BulkBooking!=="undefined"&&BulkBooking.isActive())return await BulkBooking.submit();
+  return await submitBooking();
+ }
  catch(e){alert("Booking was not created: "+(e.message||e))}
- finally{bookingCreationPending=false;if(button?.isConnected)button.disabled=false}
+ finally{bookingCreationPending=false;if(button?.isConnected)button.disabled=Boolean(typeof BulkBooking!=="undefined"&&BulkBooking.isComplete())}
 }
 async function submitBooking(){
  let s=getStore();
