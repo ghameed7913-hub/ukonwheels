@@ -200,6 +200,64 @@ test("Safety: a late payment-save failure leaves booking payment status unchange
   assert.notEqual(scalar(`select payment_status from public.bookings where id='${booking}'`),"Paid");
 });
 
+function installInvoiceSettings() {
+  installSafety();
+  sql(`alter table storage.buckets add column name text,add column public boolean,
+      add column file_size_limit bigint,add column allowed_mime_types text[];
+    alter table storage.objects enable row level security;
+    grant usage on schema storage to authenticated;
+    grant insert on storage.objects to authenticated;`);
+  sql(readFileSync(join(root,"invoice-settings-patch.sql"),"utf8"));
+}
+test("Invoice defaults: save once, read in another session, preserve unrelated portal data",()=>{
+  installInvoiceSettings();
+  const settings={companyName:"Shared Company",bankAccountNumber:"12345678",showLogo:false,internalSecret:"not allowed"};
+  const saved=JSON.parse(scalar(asUser(admin,`select public.save_invoice_company_settings('${JSON.stringify(settings)}');`)));
+  assert.ok(saved.savedAt);assert.equal(saved.internalSecret,undefined);
+  const read=JSON.parse(scalar(asUser(admin,"select public.get_invoice_company_settings();")));
+  assert.equal(read.bankAccountNumber,"12345678");assert.equal(read.showLogo,false);
+  assert.equal(scalar("select jsonb_array_length(data->'invoices') from public.app_store where id='main'"),"4");
+  assert.equal(scalar("select data->>'_resetGeneration' from public.app_store where id='main'"),"synthetic-generation");
+});
+test("Invoice defaults: stale whole-store writes cannot overwrite saved company or bank details",()=>{
+  installInvoiceSettings();
+  sql(asUser(admin,`select public.save_invoice_company_settings('{"companyName":"Shared","bankAccountNumber":"12345678"}');`));
+  sql(asUser(admin,`update public.app_store set data=jsonb_set(jsonb_set(data,'{invoiceSettings}',
+    '{"companyName":"Stale","bankAccountNumber":"99999999"}'),'{unrelated}','"kept"') where id='main';`));
+  assert.equal(scalar("select data->'invoiceSettings'->>'bankAccountNumber' from public.app_store where id='main'"),"12345678");
+  assert.equal(scalar("select data->>'unrelated' from public.app_store where id='main'"),"kept");
+});
+test("Invoice defaults: Clients may read their own invoice settings but cannot save defaults or read another Client's",()=>{
+  installInvoiceSettings();
+  sql(asUser(admin,`select public.save_invoice_company_settings('{"companyName":"Shared","bankAccountNumber":"12345678"}');`));
+  const own=JSON.parse(scalar(asUser(client,"select public.get_invoice_company_settings('OWN');")));
+  assert.equal(own.bankAccountNumber,"12345678");
+  assert.notEqual(sql(asUser(client,"select public.get_invoice_company_settings('FOREIGN');"),false).status,0);
+  assert.notEqual(sql(asUser(client,"select public.get_invoice_company_settings();"),false).status,0);
+  assert.notEqual(sql(asUser(driver,"select public.get_invoice_company_settings('OWN');"),false).status,0);
+  assert.notEqual(sql(asUser(client,`select public.save_invoice_company_settings('{"companyName":"Forged"}');`),false).status,0);
+});
+test("Invoice defaults: historic snapshots remain unchanged when global defaults change",()=>{
+  installInvoiceSettings();
+  sql(`update public.app_store set data=jsonb_set(data,'{invoices,0,companyDetails}',
+    '{"companyName":"Historic","bankAccountNumber":"11111111","showLogo":false}') where id='main';`);
+  sql(asUser(admin,`select public.save_invoice_company_settings('{"companyName":"Future","bankAccountNumber":"22222222"}');`));
+  const own=JSON.parse(scalar(asUser(client,"select public.get_invoice_company_settings('OWN');")));
+  assert.equal(own.companyName,"Historic");assert.equal(own.bankAccountNumber,"11111111");
+});
+test("Invoice logos: only authorized Operations can upload; setup is repeatable without touching evidence",()=>{
+  installInvoiceSettings();
+  const logo="logos/00000000-0000-4000-8000-000000000001.png";
+  assert.notEqual(sql(asUser(client,`insert into storage.objects(bucket_id,name) values('invoice-branding','${logo}');`),false).status,0);
+  sql(asUser(admin,`insert into storage.objects(bucket_id,name) values('invoice-branding','${logo}');`));
+  sql(asUser(admin,`select public.save_invoice_company_settings('{"companyName":"Company","logoPath":"${logo}"}');`));
+  assert.notEqual(sql(asUser(admin,`select public.save_invoice_company_settings('{"companyName":"Company","logoPath":"logos/missing.png"}');`),false).status,0);
+  sql(readFileSync(join(root,"invoice-settings-patch.sql"),"utf8"));
+  assert.equal(scalar("select count(*) from auth.users"),"3");
+  assert.equal(scalar("select count(*) from storage.objects where bucket_id='invoice-branding'"),"1");
+  assert.equal(scalar("select count(*) from storage.buckets where id in ('booking-evidence','incident-evidence','profile-documents')"),"3");
+});
+
 before(() => {
   directory = mkdtempSync(join(tmpdir(), "ukow-reset-isolated-"));
   const initialized = run("initdb", [
