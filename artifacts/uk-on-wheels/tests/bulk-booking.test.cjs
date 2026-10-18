@@ -361,6 +361,58 @@ test("Excel bulk entry starts empty, hides the repeated form and cannot save bef
   s.api.setMode("single");assert.equal(s.fields.bookingSharedFields.hidden,false);
   assert.equal(s.button.disabled,false);
 });
+test("Only Business Excel can be downloaded; Private Clients have no Excel UI",async()=>{
+  const admin=setup({empty:true}),downloaded=[];
+  admin.context.window.BookingExcel={downloadTemplate:async c=>downloaded.push(c)};
+  const shell=admin.context.BulkBookingUI.shell({client:false});
+  assert.match(shell,/Download Business Excel/);assert.doesNotMatch(shell,/Download Private Customer Excel/);
+  await admin.api.downloadTemplate("Business");await admin.api.downloadTemplate("Private");
+  assert.deepEqual(downloaded.map(c=>c.format),["Business"]);
+  assert.equal(downloaded[0].businesses[0].id,"business-1");
+  for(const [accountType,own,other] of [["business","Business","Private"],["private","Private","Business"]]) {
+    const client=setup({empty:true,role:"client",user:{name:"Own Client",businessId:"business-1",accountType,email:"own@example.test"}});
+    const requests=[];client.context.window.BookingExcel={downloadTemplate:async c=>requests.push(c)};
+    const ui=client.context.BulkBookingUI.shell({client:true,accountType});
+    if(accountType==="private")assert.equal(ui,"");
+    else assert.match(ui,/Download Business Excel/);
+    await client.api.downloadTemplate(other);assert.equal(requests.length,0);
+    await client.api.downloadTemplate(own);assert.equal(requests.length,accountType==="business"?1:0);
+    if(requests[0]){assert.equal(requests[0].format,own);assert.equal(requests[0].businesses.length,0);}
+  }
+});
+test("Real Business Excel reaches review and saves independent references without private fields",async()=>{
+  const ExcelJS=require("exceljs");
+  const {buildTemplate,templateColumns,readFile}=await import("../src/booking-excel.js");
+  for(const format of ["Business"]) {
+    const s=setup({empty:true});
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await buildTemplate({format}));
+    const sheet=book.getWorksheet("Bookings"),selected=templateColumns(format);
+    for(let index=0;index<2;index++) {
+      const values={...importValues({reg:index?"AB11CDE":"AB10CDE"}),biz:"Test Motors",
+        privateCustomerName:"Private Client",privateCustomerEmail:"private@example.test",privateCustomerMobile:"07000000001"};
+      selected.forEach(([key],col)=>sheet.getCell(index+2,col+1).value=values[key]??"");
+    }
+    const buffer=await book.xlsx.writeBuffer();
+    s.context.window.BookingExcel={readFile};
+    await s.api.uploadFile({name:format+"-vehicles.xlsx",size:buffer.byteLength,arrayBuffer:async()=>buffer});
+    assert.equal(s.calls.length,0);assert.equal(s.state().rows.length,2);
+    assert.ok(s.state().rows.every(row=>row.details.customerType===format));
+    await s.api.submit();
+    assert.equal(s.calls.length,2);assert.notEqual(s.calls[0].ref,s.calls[1].ref);
+    for(const {booking} of s.calls) {
+      assert.equal(booking.customerType,format);
+      if(format==="Business") {
+        assert.equal(booking._businessId,"business-1");
+        assert.equal(booking.privateCustomerEmail,"");
+      } else {
+        assert.equal(booking._businessId,null);
+        assert.equal(booking.privateCustomerName,"Private Client");
+        assert.equal(booking.privateCustomerEmail,"private@example.test");
+        assert.equal(booking.privateCustomerMobile,"07000000001");
+      }
+    }
+  }
+});
 test("Excel upload previews every value before saving separate New Booked Vehicle references",async()=>{
   const s=setup({empty:true});
   await upload(s,[importValues(),importValues({vehicle:"BMW 320",reg:"AB11CDE",pickup:"Different pickup",amount:"230.50"})]);
@@ -425,17 +477,26 @@ test("Client Excel bookings use the Client RPC and the signed-in Business accoun
     assert.equal(payload.p_booking.ref,payload.p_reference);
   }
 });
-test("Private Client imports always link to their own email and cannot change customer identity",async()=>{
-  const s=setup({empty:true,role:"client",user:{name:"Own Client",accountType:"private",email:"own@example.test"}});
+test("Private Clients cannot restore, upload, download or submit bulk, and single booking remains available",async()=>{
+  const old=setup({empty:true});
+  await upload(old,[importValues()]);
+  const preserved=old.stored.get("ukow-bulk-booking:admin-test");
+  const s=setup({empty:true,stored:old.stored,role:"client",user:{name:"Own Client",accountType:"private",email:"own@example.test"}});
+  let downloads=0;
+  s.context.window.BookingExcel={downloadTemplate:async()=>downloads++};
+  await s.api.downloadTemplate("Business");
   await upload(s,[importValues({customerType:"",biz:"",amount:""})]);
-  const id=s.state().rows[0].id;
-  s.api.updateDetail(id,"privateCustomerEmail","other@example.test");
-  s.api.updateRow(id,"amount","999");
+  s.api.setMode("bulk");s.api.addRow();s.api.refresh();
   await s.api.submit();
-  assert.equal(s.rpcCalls.length,1);
-  assert.equal(s.rpcCalls[0].payload.p_booking.privateCustomerEmail,"own@example.test");
-  assert.equal(s.rpcCalls[0].payload.p_booking._businessId,null);
-  assert.equal(s.rpcCalls[0].payload.p_booking.amount,0);
+  assert.equal(s.rpcCalls.length,0);assert.equal(s.calls.length,0);assert.equal(downloads,0);
+  assert.equal(s.api.isActive(),false);assert.equal(s.api.hasUnsaved(),false);
+  assert.equal(s.fields.bulkBookingPanel.hidden,true);
+  assert.equal(s.fields.bulkBookingPanel.innerHTML,"");
+  assert.equal(s.fields.singleVehicleFields.hidden,false);
+  assert.equal(s.fields.bookingSharedFields.hidden,false);
+  assert.equal(s.fields.bookingSharedFields.disabled,false);
+  assert.equal(s.button.disabled,false);
+  assert.equal(s.stored.get("ukow-bulk-booking:admin-test"),preserved,"Do not delete an old draft or saved bookings.");
 });
 test("Cross-account Client Excel rows and supplied charges fail before any RPC",async()=>{
   const s=setup({empty:true,role:"client",user:{name:"Own Motors",businessId:"business-1",accountType:"business"}});
@@ -445,7 +506,7 @@ test("Cross-account Client Excel rows and supplied charges fail before any RPC",
   assert.match(s.state().rows[0].message,/cannot set charges/);
 });
 test("Missing Client setup is explicit and retains the uploaded preview for retry",async()=>{
-  const s=setup({empty:true,role:"client",rpcMissing:true,user:{name:"Own Client",accountType:"private",email:"own@example.test"}});
+  const s=setup({empty:true,role:"client",rpcMissing:true,user:{name:"Own Client",businessId:"business-1",accountType:"business",email:"own@example.test"}});
   await upload(s,[importValues({customerType:"",biz:"",amount:""})]);
   await s.api.submit();
   assert.equal(s.state().rows[0].status,"failed");

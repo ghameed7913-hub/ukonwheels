@@ -13,16 +13,16 @@ async function workbook(records=[sample]){
   return {book,sheet};
 }
 function file(buffer,name="vehicles.xlsx"){return {name,size:buffer.byteLength,arrayBuffer:async()=>buffer};}
-test("Download produces a genuine Excel template with all single-booking headings, guides and text phone columns",async()=>{
-  const {buildTemplate,columns,recordsFromSheet}=await library;
-  const buffer=await buildTemplate({client:true,name:"Own Client"});
+test("Download produces a genuine Business Excel template with relevant headings, guides and text phone columns",async()=>{
+  const {buildTemplate,templateColumns,recordsFromSheet}=await library;
+  const selected=templateColumns("Business");
+  const buffer=await buildTemplate({client:true,accountType:"business",name:"Own Client"});
   assert.equal(buffer[0],0x50);assert.equal(buffer[1],0x4b);
   const book=new ExcelJS.Workbook();await book.xlsx.load(buffer);
   const sheet=book.getWorksheet("Bookings");
-  assert.deepEqual(sheet.getRow(1).values.slice(1),columns.map(c=>c[1]));
-  assert.equal(sheet.getCell("N2").numFmt,"@");
-  assert.equal(sheet.getCell("O2").numFmt,"@");
-  assert.ok(sheet.getCell("F1").note);
+  assert.deepEqual(sheet.getRow(1).values.slice(1),selected.map(c=>c[1]));
+  assert.equal(sheet.getCell(2,selected.findIndex(([key])=>key==="mobile")+1).numFmt,"@");
+  assert.ok(sheet.getCell(1,selected.findIndex(([key])=>key==="vehicle")+1).note);
   assert.equal(book.worksheets.length,4);
   assert.match(book.getWorksheet("Instructions").getCell("B5").value,/signed-in account only: Own Client/);
   assert.throws(()=>recordsFromSheet(sheet),/no vehicle rows/);
@@ -41,8 +41,11 @@ test("A real .xlsx upload reads every field, Excel dates/time fractions, phones 
   assert.deepEqual(records[1].errors,{});
 });
 test("Excel template has no dropdown selections or filter arrows and typed booking rows still upload",async()=>{
-  const {buildTemplate,readFile,columns}=await library;
-  for (const context of [{businesses:[{name:"Synthetic Motors",id:"business-1"}]},{client:true,name:"Own Client"}]) {
+  const {buildTemplate,readFile,templateColumns}=await library;
+  for (const context of [
+    {format:"Business",businesses:[{name:"Synthetic Motors",id:"business-1"}]},
+    {format:"Business",client:true,accountType:"business",name:"Own Client"}
+  ]) {
     const book=new ExcelJS.Workbook();await book.xlsx.load(await buildTemplate(context));
     for (const sheet of book.worksheets) {
       assert.ok(!sheet.autoFilter,"No filter dropdown arrows on "+sheet.name);
@@ -50,14 +53,56 @@ test("Excel template has no dropdown selections or filter arrows and typed booki
     }
     const sheet=book.getWorksheet("Bookings");
     assert.match(book.getWorksheet("Instructions").getCell("B2").value,/no dropdowns or filter arrows/);
-    columns.forEach(([key],i)=>{sheet.getCell(2,i+1).value=sample[key]??"";});
+    templateColumns(context.format).forEach(([key],i)=>{sheet.getCell(2,i+1).value=sample[key]??"";});
     const rows=await readFile(file(await book.xlsx.writeBuffer()));
     assert.equal(rows.length,1);
-    assert.equal(rows[0].values.customerType,"Business");
+    assert.equal(rows[0].values.customerType,context.format);
     assert.equal(rows[0].values.service,"Vehicle Delivery");
     assert.equal(rows[0].values.mobile,"07123456789");
     assert.deepEqual(rows[0].errors,{});
   }
+});
+test("Business template omits private-customer columns and retains every vehicle/journey field",async()=>{
+  const {buildTemplate,templateColumns,columns,templateFilename,recordsFromSheet}=await library;
+  for (const format of ["Business"]) {
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await buildTemplate({format,businesses:[{name:"Saved Business",id:"business-1"}]}));
+    const sheet=book.getWorksheet("Bookings"),head=sheet.getRow(1).values.slice(1);
+    assert.ok(!head.includes("Customer type"));
+    const unrelated=format==="Business"?["privateCustomerName","privateCustomerMobile","privateCustomerEmail"]:["biz"];
+    for (const [key,label] of columns) assert.equal(head.includes(label),key!=="customerType"&&!unrelated.includes(key),key);
+    assert.equal(!!book.getWorksheet("Businesses"),format==="Business");
+    assert.throws(()=>recordsFromSheet(sheet),/no vehicle rows/);
+    const values={...sample,privateCustomerName:"Private Example",privateCustomerMobile:"07000000001",privateCustomerEmail:"private@example.invalid"};
+    templateColumns(format).forEach(([key],i)=>{sheet.getCell(2,i+1).value=values[key]??"";});
+    const [row]=recordsFromSheet(sheet);
+    for (const key of unrelated) assert.equal(row.values[key],"");
+    assert.equal(row.values.customerType,format);
+    assert.equal(row.values.reg,sample.reg);
+    assert.equal(row.values.notes,sample.notes);
+    if(format==="Private")assert.equal(row.values.privateCustomerMobile,"07000000001");
+    assert.match(templateFilename(format),format==="Private"?/Private-Customer-Bookings\.xlsx$/:/Business-Bookings\.xlsx$/);
+    // Numeric safeguards follow field positions in both narrower templates.
+    for(const key of ["miles","amount"])assert.equal(sheet.getCell(3,templateColumns(format).findIndex(([k])=>k===key)+1).dataValidation.type,"decimal");
+  }
+});
+test("Incomplete or mixed separated headings fail rather than guessing the customer",async()=>{
+  const {buildTemplate,recordsFromSheet}=await library;
+  for (const format of ["Business"]) {
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await buildTemplate({format}));
+    const sheet=book.getWorksheet("Bookings");
+    const last=sheet.columnCount;
+    sheet.getCell(1,last).value="";
+    assert.throws(()=>recordsFromSheet(sheet),/Missing column "Special instructions"/);
+    sheet.getCell(1,last).value="Special instructions";
+    sheet.getCell(1,last+1).value=format==="Business"?"Private customer name":"Business";
+    assert.throws(()=>recordsFromSheet(sheet),/Missing column|Do not mix/);
+  }
+});
+test("Private Clients cannot generate an Excel template or download filename",async()=>{
+  const {buildTemplate,templateFilename}=await library;
+  await assert.rejects(buildTemplate({format:"Private"}),/single-vehicle/);
+  await assert.rejects(buildTemplate({client:true,accountType:"private"}),/single-vehicle/);
+  assert.throws(()=>templateFilename("Private"),/single-vehicle/);
 });
 test("Blank rows are skipped and more than 100 vehicles are rejected without dropping any extra rows",async()=>{
   const {recordsFromSheet}=await library;

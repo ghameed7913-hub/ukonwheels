@@ -14,9 +14,9 @@ function part(start,end) {
 const drawSource=part("function drawBooking(","async function createLinkedBooking(");
 const enhanceSource=part("function enhancePortalUsability(","function openBookingFromRow(");
 const toggleSource=part("function toggleCustomerTypeFields(","function showBusinessTariff(");
-function render(role="admin") {
+function render(role="admin",accountType="business") {
   const c=vm.createContext({
-    role,currentUser:{name:"Synthetic Motors",accountType:"business"},getStore:()=>({}),
+    role,currentUser:{name:"Synthetic Motors",accountType},getStore:()=>({}),
     escapeHtml:v=>String(v??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"),
     bookingBusinessOptions:()=>'<option value="">Select Business</option><option value="business-test">Synthetic Motors</option>',
     toggleCustomerTypeFields(){},loadBookingBusinesses(){},window:{BulkBooking:{mount(){}}},
@@ -33,6 +33,14 @@ test("Every visible Create Booking control has exactly one permanent label",()=>
   assert.equal((page.match(/<span>Business<\/span>/g)||[]).length,1);
   assert.match(page,/class="form booking-fields"/);
   assert.match(page,/onclick="createBooking\(\)"/);
+});
+test("Private Client Create Booking has only single-vehicle fields and no Excel/bulk selector",()=>{
+  const page=render("client","private");
+  assert.doesNotMatch(page,/id="bookingMode"|Bulk vehicles|Excel|Download/);
+  for(const id of ["veh","reg","pickup","dest","receiver","mobile"])
+    assert.match(page,new RegExp('id="'+id+'"'));
+  assert.match(page,/onclick="createBooking\(\)"/);
+  assert.match(render("client","business"),/Bulk vehicles \(Excel\)/);
 });
 test("Repeated enhancement reuses native associated labels on nested controls",()=>{
   const labels=[];
