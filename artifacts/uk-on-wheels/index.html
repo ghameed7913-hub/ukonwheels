@@ -1089,7 +1089,7 @@ let role="admin", currentUser=null, currentStaffUser=null, page="desktop";
 let STORE_CACHE=null, storeReady=false, currentSession=null;
 let normalizedVisibleIds=new Set();
 let normalizedBookings=[],portalProfiles=[],portalClientProfiles=[],normalizedChannel=null,sharedStoreChannel=null;
-let sharedSavePending=null,sharedSaveInFlight=null,sharedSaveError="",sharedReadError="";
+let sharedSavePending=null,sharedSaveInFlight=null,sharedSaveError="",sharedReadError="",scopedStoreTimer=null;
 function refreshPortalSafely(){
  const appEl=document.getElementById("app"),content=document.getElementById("content");
  if(!appEl||appEl.classList.contains("hidden")||!content)return;
@@ -1101,9 +1101,30 @@ function refreshPortalSafely(){
 // One shared row (id='main') in the app_store table holds all booking/business/driver
 // data as JSON. getStore()/saveStore() below read/write this in-memory cache, which is
 // synced to Supabase (and live-updated from other connected devices) automatically.
-async function initStoreFromSupabase(){
+async function initStoreFromSupabase(profile=null){
  if(!SUPABASE_CONFIGURED){STORE_CACHE=JSON.parse(localStorage.getItem(KEY)||"null")||defaults();storeReady=true;return;}
  try{
+   if(typeof scopedStoreTimer!=="undefined"&&scopedStoreTimer){clearInterval(scopedStoreTimer);scopedStoreTimer=null}
+   const accountRole=profile?.role||(typeof role!=="undefined"?role:null);
+   if(["client","driver"].includes(accountRole)){
+     if(sharedStoreChannel){await sb.removeChannel(sharedStoreChannel);sharedStoreChannel=null}
+     const read=await sb.rpc("read_own_portal_store");
+     if(read.error)throw new Error("Your private portal data could not be loaded. Ask Admin to run supabase/portal-safety-fixes.sql. "+read.error.message);
+     STORE_CACHE={businesses:[],drivers:[],bookings:[],notifications:[],...read.data};
+     storeReady=true;
+     const sessionId=profile?.id||currentSession?.user?.id;
+     scopedStoreTimer=setInterval(async()=>{
+       if(currentSession?.user?.id!==sessionId)return;
+       try{
+         const fresh=await sb.rpc("read_own_portal_store");
+         if(fresh.error)throw fresh.error;
+         if(currentSession?.user?.id!==sessionId)return;
+         STORE_CACHE={...fresh.data,bookings:getStore().bookings||[]};
+         sharedReadError="";renderSharedSaveNotice();refreshPortalSafely();
+       }catch(e){sharedReadError="Your portal data could not be refreshed: "+(e.message||"Connection unavailable.");renderSharedSaveNotice()}
+     },30000);
+     return;
+   }
    let {data,error}=await sb.from("app_store").select("data").eq("id","main").maybeSingle();
    if(error) throw error;
    if(!data){
@@ -1151,6 +1172,9 @@ function saveStore(s){
  STORE_CACHE=s;
  window.dispatchEvent(new Event("ukowupdate"));
  if(!SUPABASE_CONFIGURED){localStorage.setItem(KEY,JSON.stringify(s));return Promise.resolve(true)}
+ // Client/Driver business actions persist through their own authorized RPCs.
+ // Never read or write the operations-wide snapshot from these accounts.
+ if(typeof role!=="undefined"&&["client","driver"].includes(role))return Promise.resolve(true);
  if(!storeReady||!currentSession){
   sharedSaveError="Changes have not been saved. Sign in again to reload the saved portal data.";
   renderSharedSaveNotice();return Promise.resolve(false);
@@ -1218,7 +1242,7 @@ function currency(v){return "£"+Number(v||0).toFixed(2)}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
- return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+ return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",dropoffTill:b.dropoff_deadline||"",notes:b.client_notes||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
 }
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
@@ -1254,7 +1278,7 @@ async function loadNormalizedPortalData(){
   const mergePhotos=(oldPhotos,newPhotos)=>Object.keys(newPhotos||{}).length?
    {...Object.fromEntries(Object.entries(oldPhotos||{}).filter(([,photo])=>!photo.storagePath)),...newPhotos}:
    oldPhotos;
-   s.bookings=[...normalizedBookings.map(n=>Object.assign(previous[n.ref]||{},n,{timeline:previous[n.ref]?.timeline?.length?previous[n.ref].timeline:n.timeline,pickupInspection:n.pickupInspection||previous[n.ref]?.pickupInspection,pickupPhotos:mergePhotos(previous[n.ref]?.pickupPhotos,n.pickupPhotos),deliveryPhotos:mergePhotos(previous[n.ref]?.deliveryPhotos,n.deliveryPhotos)})),...legacy];STORE_CACHE=s;
+   s.bookings=[...normalizedBookings.map(n=>Object.assign(previous[n.ref]||{},n,{dropoffTill:n.dropoffTill||previous[n.ref]?.dropoffTill||"",timeline:previous[n.ref]?.timeline?.length?previous[n.ref].timeline:n.timeline,pickupInspection:n.pickupInspection||previous[n.ref]?.pickupInspection,pickupPhotos:mergePhotos(previous[n.ref]?.pickupPhotos,n.pickupPhotos),deliveryPhotos:mergePhotos(previous[n.ref]?.deliveryPhotos,n.deliveryPhotos)})),...legacy];STORE_CACHE=s;
   if(!normalizedChannel){
    normalizedChannel=sb.channel("ukow-live-bookings").on("postgres_changes",{event:"*",schema:"public",table:"bookings"},async()=>{await loadNormalizedPortalData();refreshPortalSafely()}).subscribe();
   }
@@ -1327,7 +1351,7 @@ async function restoreSupabaseSession(){
      await sb.auth.signOut();
      return;
    }
-    await initStoreFromSupabase();
+    await initStoreFromSupabase(profile);
     await removeSeededDemoData();
     await loadProfilePortalPermissions(profile);
     applyAuthenticatedProfile(profile,data.session);
@@ -1356,6 +1380,7 @@ async function logoutNow(){
   await Promise.all([sharedStoreChannel,normalizedChannel].filter(Boolean).map(channel=>sb.removeChannel(channel)));
  }
  sharedStoreChannel=null;normalizedChannel=null;
+ if(scopedStoreTimer){clearInterval(scopedStoreTimer);scopedStoreTimer=null}
  sharedSavePending=null;sharedSaveError="";sharedReadError="";renderSharedSaveNotice();
  document.getElementById("evidenceOverlay")?.remove();
  try{
@@ -1516,7 +1541,7 @@ async function loginNow(){
        await sb.auth.signOut();
        return;
      }
-       await initStoreFromSupabase();
+       await initStoreFromSupabase(profile);
        await removeSeededDemoData();
        await loadProfilePortalPermissions(profile);
        applyAuthenticatedProfile(profile,authData.session);
@@ -2188,7 +2213,7 @@ function findClientTracking(){
 
 function drawClientInvoices(c){
  const s=ensureAccountsData(),businessName=currentUser?.name||"Prestige Motors Ltd";
- const invoices=(s.invoices||[]).filter(i=>i.business===businessName);
+ const invoices=SUPABASE_CONFIGURED?(s.invoices||[]):(s.invoices||[]).filter(i=>i.business===businessName);
  c.innerHTML=`<div class="panel"><h2>Invoices</h2><p class="muted">Invoices generated by UK On Wheels for your business appear here.</p>
  <div class="scroll"><table style="min-width:1200px"><tr><th>Invoice</th><th>Date</th><th>Due Date</th><th>Vehicles</th><th>Subtotal</th><th>VAT</th><th>Extras</th><th>Total</th><th>Status</th><th>Payment Date</th><th>Action</th></tr>
  ${invoices.map(i=>`<tr><td><b>${i.invoiceNo}</b></td><td>${i.date||"—"}</td><td>${i.dueDate||"—"}</td><td>${i.vehicleCount||0}</td><td>${currency(i.subtotal)}</td><td>${i.vatEnabled===false?"Not applied":currency(i.vatAmount)}</td><td>${currency(i.extraTotal)}</td><td><b>${currency(i.total)}</b></td><td><span class="badge ${i.status==="Paid"?"green":"amber"}">${i.status}</span></td><td>${i.paymentDate||"—"}</td><td><button class="btn secondary" onclick="viewInvoice('${i.invoiceNo}')">View Invoice</button></td></tr>`).join("")}
@@ -3008,10 +3033,12 @@ function editUserInformation(index){
  box.scrollIntoView({behavior:"smooth"});
 }
 
-function saveUserInformationChanges(index){
+async function saveUserInformationChanges(index){
  let s=ensureStaffUsers();
- const u=s.staffUsers[index];
- if(!u)return;
+ const original=s.staffUsers[index];
+ if(!original)return;
+ if(saveUserInformationChanges.saving)return;
+ const u={...original};
 
  const first=document.getElementById("euFirstName").value.trim();
  const middle=document.getElementById("euMiddleName").value.trim();
@@ -3022,12 +3049,13 @@ function saveUserInformationChanges(index){
 
  const duplicate=s.staffUsers.some((x,i)=>i!==index && (x.email||"").toLowerCase()===email.toLowerCase());
  if(duplicate)return alert("Another user already uses this email address.");
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return alert("Enter a valid email address.");
 
  u.firstName=first;
  u.middleName=middle;
  u.lastName=last;
  u.name=[first,middle,last].filter(Boolean).join(" ");
- u.email=email;
+ u.email=email.toLowerCase();
  u.phone=phone;
  u.role=document.getElementById("euRole").value;
  u.status=document.getElementById("euStatus").value;
@@ -3058,14 +3086,28 @@ function saveUserInformationChanges(index){
  if(v?.files?.length)u.visaCard=v.files[0].name;
 
  // Reset defaults only if the designation changed and current permissions are absent.
- if(!u.permissions || !u.permissions.length)u.permissions=defaultPermissionsForRole(u.role);
+ if(u.role!==original.role||!u.permissions?.length)u.permissions=defaultPermissionsForRole(u.role);
 
  u.updatedAt=new Date().toLocaleString();
+ saveUserInformationChanges.saving=true;
+ try{
+ if(SUPABASE_CONFIGURED){
+  if(role!=="admin"||!currentSession||!u.id)return alert("Sign in as Admin and reload the saved user before editing their account.");
+  const {error}=await sb.rpc("admin_edit_portal_user",{p_user_id:u.id,p_details:u,p_permissions:u.role==="Staff"?serverPermissionKeys(u.permissions):[]});
+  if(error)return alert("User changes were not saved. "+error.message+" If setup is missing, run supabase/portal-safety-fixes.sql.");
+  await initStoreFromSupabase({role:"admin"});
+  await loadNormalizedPortalData();
+ }else{
+ s.staffUsers[index]=u;
  s.notifications.unshift({title:"User Information Updated",text:u.name+" profile details were updated."});
- saveStore(s);
+ if(!await saveStore(s))return;
+ }
  alert("User information updated successfully.");
  drawCreateUsers(document.getElementById("content"));
- setTimeout(()=>viewUserInformation(index),50);
+ const savedIndex=getStore().staffUsers.findIndex(x=>x.id===u.id);
+ if(savedIndex>=0)setTimeout(()=>viewUserInformation(savedIndex),50);
+ }catch(e){alert("User changes could not be confirmed. Reload the user before trying again. "+(e.message||"Connection unavailable."))}
+ finally{saveUserInformationChanges.saving=false}
 }
 
 function toggleVisaFields(){
@@ -3532,7 +3574,22 @@ function openMarkInvoicePaid(invoiceNo){
  const paidAmount=Number(amountEl?.value||0);
  if(!paymentDate)return alert("Please select the payment date.");
  if(!Number.isFinite(paidAmount)||paidAmount<=0)return alert("Please enter a valid amount paid.");
+ if(Math.round(paidAmount*100)<Math.round(Number(i.total)*100))return alert("The invoice is not fully paid. Enter the full outstanding amount before marking it Paid.");
  if(paymentMethod==="Bank Transfer"&&!paymentRef)return alert("Please enter the bank/payment reference number.");
+ if(typeof SUPABASE_CONFIGURED!=="undefined"&&SUPABASE_CONFIGURED){
+  markInvoicePaid.pending=markInvoicePaid.pending||new Set();
+  if(markInvoicePaid.pending.has(invoiceNo))return;
+  markInvoicePaid.pending.add(invoiceNo);
+  try{
+   const {error}=await sb.rpc("settle_portal_invoice",{p_invoice_no:invoiceNo,p_amount:paidAmount,p_date:paymentDate,p_method:paymentMethod,p_reference:paymentRef});
+   if(error)return alert("Invoice payment was not saved: "+error.message+" If setup is missing, run supabase/portal-safety-fixes.sql.");
+   await initStoreFromSupabase({role});
+   await loadNormalizedPortalData();
+   alert("Invoice marked Paid successfully.");drawInvoices(document.getElementById("content"));
+  }catch(e){alert("Payment could not be confirmed. Reload the invoice before retrying. "+(e.message||"Connection unavailable."))}
+  finally{markInvoicePaid.pending.delete(invoiceNo)}
+  return;
+ }
   for(const item of i.items||[]){
    const booking=s.bookings.find(b=>b.ref===item.ref);
    if(booking&&!await persistBookingPayment(booking,"Paid"))return;
@@ -4022,15 +4079,26 @@ function setHolidayStatus(id,status){
  drawHRHolidays(document.getElementById("content"));
 }
 
-function submitDriverHolidayRequest(){
+async function submitDriverHolidayRequest(){
  let s=ensureHRData(),name=currentUser?.name||"Driver";
  const u=(s.staffUsers||[]).find(x=>x.name===name);
  const from=document.getElementById("drvHolFrom")?.value,to=document.getElementById("drvHolTo")?.value;
  if(!from||!to)return alert("Please select holiday dates.");
  if(to<from)return alert("End date cannot be before start date.");
- s.holidays.push({id:"HOL-"+Date.now(),email:u?.email||"",name,role:"Driver",from,to,type:document.getElementById("drvHolType")?.value||"Annual Leave",notes:document.getElementById("drvHolNotes")?.value.trim()||"",requestedBy:name,requestedAt:new Date().toLocaleString(),status:"Pending"});
+ const request={id:"HOL-"+Date.now(),email:u?.email||"",name,role:"Driver",from,to,type:document.getElementById("drvHolType")?.value||"Annual Leave",notes:document.getElementById("drvHolNotes")?.value.trim()||"",requestedBy:name,requestedAt:new Date().toLocaleString(),status:"Pending"};
+ if(SUPABASE_CONFIGURED){
+  if(submitDriverHolidayRequest.saving)return;
+  submitDriverHolidayRequest.saving=true;
+  try{
+   const {data,error}=await sb.rpc("request_own_driver_holiday",{p_request:request});
+   if(error)return alert("Holiday request was not saved: "+error.message);
+   request.id=data.id;request.profileId=data.profileId;
+  }catch(e){return alert("Holiday request could not be confirmed. Reload before retrying. "+(e.message||"Connection unavailable."))}
+  finally{submitDriverHolidayRequest.saving=false}
+ }
+ s.holidays.push(request);
  s.notifications.unshift({title:"Holiday Request",text:`${name} requested holiday ${from} to ${to}.`});
- saveStore(s);alert("Holiday request sent to HR.");drawDriver(document.getElementById("content"));
+ await saveStore(s);alert("Holiday request sent to HR.");drawDriver(document.getElementById("content"));
 }
 
 function deliveredCountForEmployee(name,month){
@@ -4872,14 +4940,12 @@ async function submitBooking(){
  };
 
   if(SUPABASE_CONFIGURED&&currentSession&&role==="client"){
-   const parts=vehicle.split(/\s+/);
-   const {data,error}=await sb.rpc("create_portal_booking",{
-    p_customer_type:type,p_business_id:currentUser?.businessId||null,p_vehicle_make:parts.shift()||vehicle,p_vehicle_model:parts.join(" "),
-    p_vehicle_registration:regValue,p_vehicle_type:null,p_service_type:booking.service,p_pickup_address:pickupValue,p_pickup_postcode:null,
-    p_destination_address:destinationValue,p_destination_postcode:null,p_receiver_name:receiverValue,p_receiver_mobile:receiverMobileValue,
-    p_requested_delivery_date:booking.deliveryDate||null,p_client_notes:document.getElementById("notes")?.value.trim()||null
-   });
+   booking._businessId=currentUser?.businessId||null;
+   const fingerprint=JSON.stringify({...booking,ref:null,createdAt:null,timeline:null});
+   if(submitBooking.clientDraft?.fingerprint!==fingerprint)submitBooking.clientDraft={fingerprint,reference:"UKOW-"+new Date().getFullYear()+"-"+crypto.randomUUID().replace(/-/g,"").toUpperCase()};
+   const {data,error}=await sb.rpc("client_create_bulk_booking",{p_reference:submitBooking.clientDraft.reference,p_booking:booking});
    if(error)return alert("Booking could not be shared with the operations team: "+error.message);
+   submitBooking.clientDraft=null;
    await loadNormalizedPortalData();
    alert("Booking created successfully. Admin and authorised Staff can now see it.");
    page="clientBookings";render();return;
@@ -5621,7 +5687,7 @@ function drawDriverJobsMobile(){
 }
 function drawDriverHolidaysMobile(){
  const s=ensureHRData(),name=currentUser?.name||currentStaffUser?.name||"Driver";
- const my=(s.holidays||[]).filter(h=>h.name===name).slice().reverse();
+ const my=(s.holidays||[]).filter(h=>h.profileId?h.profileId===currentSession?.user?.id:h.name===name).slice().reverse();
  return `<div class="driverSectionTitle"><h3 style="margin:0">Holiday Requests</h3></div>
  <div class="driverHolidayCard">
   <div class="form">

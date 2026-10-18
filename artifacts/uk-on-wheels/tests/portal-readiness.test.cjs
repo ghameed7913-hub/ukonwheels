@@ -138,14 +138,15 @@ test("Private Client bookings send Private customer type to Supabase", async () 
   const values = { veh: "Ford Focus", reg: "AB12CDE", pickup: "Leeds", dest: "York", receiver: "Receiver", mobile: "07000000000" };
   const c = sandbox(part("async function submitBooking(", "function drawBusinesses("), {
     getStore: () => ({ bookings: [] }), role: "client", currentUser: { accountType: "private", name: "Client" },
+    crypto: require("node:crypto").webcrypto,
     currentSession: { user: { id: "client-1" } }, SUPABASE_CONFIGURED: true,
     document: { getElementById: id => id in values ? { value: values[id] } : null },
     sb: { rpc: async (name, input) => { request = input; return { data: { id: "new-id" } }; } },
     loadNormalizedPortalData: async () => {}, render() {}, alert() {},
   });
   await c.submitBooking();
-  assert.equal(request.p_customer_type, "Private");
-  assert.equal(request.p_business_id, null);
+  assert.equal(request.p_booking.customerType, "Private");
+  assert.equal(request.p_booking._businessId, null);
 });
 
 test("Rapid repeated clicks cannot submit duplicate bookings", async () => {
