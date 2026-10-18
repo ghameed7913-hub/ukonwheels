@@ -25,6 +25,7 @@ function setup(rows = []) {
   const calls = [];
   const overlays = [];
   const context = {
+    window:{},
     console,
     SUPABASE_CONFIGURED: true,
     currentSession: { user: { id: "driver-1" } },
@@ -65,6 +66,7 @@ function setup(rows = []) {
         },
       },
       from(table) {
+        if(table==="booking_inspections")return {select(){return this},eq(){return this},async maybeSingle(){return {data:context.__inspection||null}}};
         assert.equal(table, "booking_evidence");
         return {
           async insert(row) { calls.push({ type: "insert", row }); return {}; },
@@ -80,6 +82,7 @@ function setup(rows = []) {
     },
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/pickup-checklist.js"),"utf8"),context);
   vm.runInContext(code, context);
   return { context, booking, calls, overlays };
 }
@@ -98,6 +101,20 @@ test("Driver upload stores bytes and booking-linked metadata, without overwritin
   assert.equal(metadata.evidence_type, "pickup");
   assert.equal("image" in metadata, false);
 });
+
+for(const viewer of ["admin-1","linked-client-1"]){
+ test(`${viewer} reloads the saved pickup checklist and safely renders document answers and damage comments`,async()=>{
+  const {context,booking,overlays}=setup([{id:"damage",evidence_type:"pickup",storage_path:"booking-1/damage.jpg",label:"Damage photo 20"}]);
+  context.currentSession={user:{id:viewer}};
+  context.__inspection={condition:"Damage Present",odometer_mileage:1200,fuel_level:"Half",notes:"<script>bad</script>",checklist:{version:1,electricVehicle:"yes",chargingCable:"no",chargingCableReason:"Not supplied",spareTyre:"no",logBook:"yes",serviceHistory:"no",damagePresent:"yes",damageComments:"<img onerror=bad>Rear bumper scratch"}};
+  await context.showEvidence(booking.ref);
+  const rendered=overlays[0].firstElementChild.innerHTML;
+  assert.match(rendered,/Not supplied/);assert.match(rendered,/Rear bumper scratch/);
+  assert.match(rendered,/Damage photo 20/);assert.match(rendered,/&lt;script&gt;/);
+  assert.doesNotMatch(rendered,/<script>|<img onerror=bad>/);
+  assert.equal(booking.pickupInspection.checklist.logBook,"yes");
+ });
+}
 
 for (const viewer of ["admin-1", "linked-client-1"]) {
   test(`${viewer} reloads all saved pickup, delivery and retake photos from server, not phone cache`, async () => {
