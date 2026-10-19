@@ -18,6 +18,9 @@
 <link rel="stylesheet" href="./expense-bulk.css">
 <script src="./expense-bulk-ui.js"></script>
 <script src="./expense-bulk.js"></script>
+<link rel="stylesheet" href="./expense-monthly.css">
+<script src="./expense-monthly-ui.js"></script>
+<script src="./expense-monthly.js"></script>
 <link rel="stylesheet" href="./vehicle-trading.css">
 <script src="./vehicle-trading-ui.js"></script>
 <script src="./vehicle-trading.js"></script>
@@ -1355,6 +1358,7 @@ function applyAuthenticatedProfile(profile,session){
   window.DriverIdentityUI?.reset();
   window.DriverPayments?.reset();
   window.ExpenseBulk?.reset();
+  window.ExpenseMonth?.reset();
   window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
@@ -1431,6 +1435,7 @@ async function logoutNow(){
  window.DriverIdentityUI?.reset();
  window.DriverPayments?.reset();
  window.ExpenseBulk?.reset();
+ window.ExpenseMonth?.reset();
  window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
@@ -3598,28 +3603,27 @@ function drawAdminAccounts(c,loaded=false){
 }
 
 function expenseRegisterHtml(s){
- return `<h3>Expense Register</h3><div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
- ${s.expenses.slice().reverse().map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":x.source==="expense-batch"?" · Bulk expense":""}</td></tr>`).join("")}
+ const view=ExpenseMonth.state(s.expenses),rows=ExpenseMonth.filter(s.expenses,view.month,view.day).slice().sort((a,b)=>b.date.localeCompare(a.date));
+ return `<h3>Expense Register — ${escapeHtml(view.day||view.title)}</h3><p class="muted">${rows.length} expense${rows.length===1?"":"s"} · Total ${money(view.visibleTotal)}${view.day?' · <button type="button" class="btn small secondary" onclick="ExpenseMonth.allDays()">Show whole month</button>':""}</p>${!rows.length?'<p>No saved expenses for '+escapeHtml(view.day||view.title)+'. Other months are kept separately; select a month to view them.</p>':""}<div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
+ ${rows.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":x.source==="expense-batch"?" · Saved expense":""}</td></tr>`).join("")}
  </table></div>`;
 }
 function drawExpenses(c,loaded=false){
  if(loadPayrollView(c,drawExpenses,loaded))return;
  const s=ensureAccountsData(), cats=["Wages","Salary","Fuel","Rent","Office","Entertainment","Utility Bills","Rider Fuel","Staff Fuel","Hotel Expense","Vehicle Recovery Expenses","Insurance","Other Expenses"];
- c.innerHTML=`<div class="panel"><h2>Add Expenses</h2><div class="form">
- <input id="exDate" type="date"><select id="exCat"><option value="">Expense Type *</option>${cats.map(x=>`<option>${x}</option>`).join("")}</select>
- <input id="exAmount" type="number" step="0.01" placeholder="Amount (£) *"><select id="exMethod"><option>Cash</option><option>Bank Transfer</option><option>Card</option></select>
- <input id="exRef" placeholder="Receipt / Reference"><input id="exPayee" placeholder="Supplier / Paid To"><textarea id="exNotes" class="full" placeholder="Notes"></textarea>
- </div><div class="actions"><button class="btn primary" data-single-expense-save onclick="saveExpense()">Add Expense</button></div></div>
+ c.innerHTML=`<div id="expenseMonthPanel"></div><div class="panel"><h2>Add Expense</h2><div class="form" id="expenseSingleForm">
+ <label>Date *<input id="exDate" type="date" aria-label="Expense date" onchange="ExpenseMonth.selectDay(this.value)"></label><label>Expense Type *<select id="exCat"><option value="">Select expense type</option>${cats.map(x=>`<option>${x}</option>`).join("")}</select></label>
+ <label>Amount (£) *<input id="exAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Amount (£)"></label><label>Payment method<select id="exMethod"><option>Cash</option><option>Bank Transfer</option><option>Card</option></select></label>
+ <label>Receipt / Reference<input id="exRef"></label><label>Supplier / Paid To<input id="exPayee"></label><label class="full">Notes<textarea id="exNotes"></textarea></label>
+ </div><p id="expenseEntryStatus" aria-live="polite"></p><div class="actions"><button type="button" class="btn primary" id="singleExpenseSave" data-single-expense-save onclick="saveExpense()">Add Expense</button><button type="button" class="btn secondary" id="singleExpenseClear" onclick="ExpenseMonth.clearSingle()">Clear entry</button></div></div>
  <div id="expenseBulkPanel">${ExpenseBulkUI.render(ExpenseBulk.state())}</div>
  <div class="panel" style="margin-top:12px" id="expenseRegister">${expenseRegisterHtml(s)}</div>`;
  ExpenseBulk.paint();
+ ExpenseMonth.paint();
 }
 
 function saveExpense(){
- let s=ensureAccountsData();
- if(!exCat.value||!exAmount.value)return alert("Expense type and amount are required.");
- s.expenses.push({date:exDate.value||new Date().toISOString().slice(0,10),category:exCat.value,amount:Number(exAmount.value),method:exMethod.value,reference:exRef.value.trim(),payee:exPayee.value.trim(),notes:exNotes.value.trim()});
- saveStore(s);drawExpenses(document.getElementById("content"));
+ return ExpenseMonth.saveSingle();
 }
 
 function drawInvoices(c,settingsLoaded=false){

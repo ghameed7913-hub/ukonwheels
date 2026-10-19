@@ -14,7 +14,13 @@ window.ExpenseBulk=(()=>{
   function sync(){if(owner!==uid()){reset();owner=uid();}}
   function uuid(){return crypto.randomUUID();}
   function today(){return new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/London"}).format(new Date());}
-  function row(){return {key:uuid(),date:today(),category:"",amount:"",method:"Cash",reference:"",payee:"",notes:""};}
+  function row(){return {key:uuid(),date:window.ExpenseMonth?.defaultDate()||today(),category:"",amount:"",method:"Cash",reference:"",payee:"",notes:""};}
+  function externalLock(){return window.ExpenseMonth?.singleLocked()===true;}
+  function setDefaultDate(date){
+    sync();if(draft.saving||draft.uncertain||externalLock())return;
+    for(const r of draft.rows)if(!r.category&&!r.amount&&!r.reference&&!r.payee&&!r.notes)r.date=date;
+    paint();
+  }
   function cents(value){
     const m=/^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value).trim());
     if(!m)throw Error("Enter a positive amount with up to two decimal places.");
@@ -41,15 +47,16 @@ window.ExpenseBulk=(()=>{
     });
     return {errors,payload,total:Number(sum)/100,problem:sum>BigInt(Number.MAX_SAFE_INTEGER)?"Batch total is too large.":""};
   }
-  function state(){sync();return {...draft,rows:draft.rows.map(r=>({...r})),categories:categories.slice(),methods:methods.slice(),canManage:canManage(),total:total()};}
+  function state(){sync();return {...draft,externalLocked:externalLock(),rows:draft.rows.map(r=>({...r})),categories:categories.slice(),methods:methods.slice(),canManage:canManage(),total:total()};}
   function paint(){
     const root=document.getElementById("expenseBulkPanel");if(root&&window.ExpenseBulkUI)root.innerHTML=ExpenseBulkUI.render(state());
     const single=document.querySelector("[data-single-expense-save]");
-    if(single)single.disabled=draft.saving||draft.uncertain||!canManage();
+    if(single)single.disabled=draft.saving||draft.uncertain||!canManage()||window.ExpenseMonth?.singleSaving()===true;
+    window.ExpenseMonth?.paint();
   }
-  function open(){sync();if(!canManage())return;if(!draft.rows.length)draft.rows=[row(),row()];draft.open=true;draft.success="";paint();}
+  function open(){sync();if(!canManage()||externalLock())return;if(!draft.rows.length)draft.rows=[row(),row()];draft.open=true;draft.success="";paint();}
   async function close(){
-    sync();if(draft.saving||draft.uncertain)return;
+    sync();if(draft.saving||draft.uncertain||externalLock())return;
     const id=owner,gen=generation;
     const dirty=draft.rows.some(r=>r.category||r.amount||r.reference||r.payee||r.notes);
     if(dirty){
@@ -58,10 +65,10 @@ window.ExpenseBulk=(()=>{
     }
     draft=empty();pending=null;paint();
   }
-  function addRow(){sync();if(!canManage()||draft.saving||draft.uncertain||draft.rows.length>=200)return;draft.rows.push(row());paint();}
-  function removeRow(key){sync();if(!canManage()||draft.saving||draft.uncertain||draft.rows.length<=1)return;draft.rows=draft.rows.filter(r=>r.key!==key);delete draft.errors[key];paint();}
+  function addRow(){sync();if(!canManage()||draft.saving||draft.uncertain||externalLock()||draft.rows.length>=200)return;draft.rows.push(row());paint();}
+  function removeRow(key){sync();if(!canManage()||draft.saving||draft.uncertain||externalLock()||draft.rows.length<=1)return;draft.rows=draft.rows.filter(r=>r.key!==key);delete draft.errors[key];paint();}
   function update(key,field,value){
-    sync();if(!canManage()||draft.saving||draft.uncertain||!fields.includes(field))return;
+    sync();if(!canManage()||draft.saving||draft.uncertain||externalLock()||!fields.includes(field))return;
     const r=draft.rows.find(r=>r.key===key);if(!r)return;r[field]=String(value);
     const target=document.querySelector("#expenseBulkPanel [data-bulk-total]");
     if(target)target.textContent=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(total());
@@ -93,10 +100,10 @@ window.ExpenseBulk=(()=>{
     return r.data;
   }
   async function save(){
-    sync();if(!canManage()||draft.saving)return;
+    sync();if(!canManage()||draft.saving||externalLock())return;
     if(!draft.uncertain){
-      capture();const checked=validate(draft.rows);draft.errors=checked.errors;draft.error=checked.problem;
-      if(checked.problem||Object.keys(checked.errors).length){paint();return;}
+      capture();const checked=validate(draft.rows);draft.errors=checked.errors;draft.error=checked.problem||window.ExpenseMonth?.validateRows(checked.payload)||"";
+      if(draft.error||Object.keys(checked.errors).length){paint();return;}
       pending={id:uuid(),rows:checked.payload,total:checked.total};
     }
     if(!pending){draft.error="Reopen Bulk Expense before saving.";paint();return;}
@@ -105,18 +112,20 @@ window.ExpenseBulk=(()=>{
     try{
       if(!isLocalPreview()&&typeof flushSharedStore==="function"&&!await flushSharedStore())
         throw Object.assign(Error("Other portal changes could not be saved. Retry them before saving this batch."),{definiteFailure:true});
+      if(id!==uid()||gen!==generation)return;
       const result=await submit(batch.id,batch.rows);
       if(id!==uid()||gen!==generation)return;
       const s=getStore();s.expenses=result.expenses;STORE_CACHE=s;
       draft=empty();draft.success="Saved "+result.saved_count+" expense"+(result.saved_count===1?"":"s")+" — £"+batch.total.toFixed(2)+".";
       pending=null;paint();
       const register=document.getElementById("expenseRegister");
-      if(register&&typeof expenseRegisterHtml==="function")register.innerHTML=expenseRegisterHtml(s);
+      if(window.ExpenseMonth)ExpenseMonth.afterSave();
+      else if(register&&typeof expenseRegisterHtml==="function")register.innerHTML=expenseRegisterHtml(s);
     }catch(e){
       if(id!==uid()||gen!==generation)return;
       draft.error=e.message||"Expenses could not be saved.";draft.uncertain=!e.definiteFailure;
       if(e.definiteFailure)pending=null;
     }finally{if(id===uid()&&gen===generation){draft.saving=false;paint();}}
   }
-  return {state,open,close,addRow,removeRow,update,save,reset,paint,submit,validate,cents,isLocalPreview};
+  return {state,open,close,addRow,removeRow,update,save,reset,paint,submit,validate,cents,isLocalPreview,setDefaultDate};
 })();

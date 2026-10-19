@@ -33,9 +33,9 @@ function render(s){
   if(!s.open){
     return '<div class="expenseBulk ebClosed panel"><div><strong>Several receipts to enter?</strong><span class="muted"> Add multiple expenses and save them together.</span></div>'+
     (s.success?'<div class="ebOk" role="status">'+esc(s.success)+'</div>':"")+
-    '<button type="button" class="btn secondary" onclick="ExpenseBulk.open()">Bulk Expense</button></div>';
+    '<button type="button" class="btn secondary" onclick="ExpenseBulk.open()"'+(s.externalLocked?' disabled':'')+'>Bulk Expense</button></div>';
   }
-  var locked=!!(s.saving||s.uncertain),n=rows.length,atMax=n>=MAX;
+  var locked=!!(s.saving||s.uncertain||s.externalLocked),n=rows.length,atMax=n>=MAX;
   var h='<div class="expenseBulk panel" aria-busy="'+(s.saving?"true":"false")+'">'+
   '<div class="ebHead"><div><h3>Bulk Expense</h3><p class="muted">Enter up to '+MAX+' expenses. Fields marked * are required.</p></div>'+
   '<button type="button" class="btn secondary" onclick="ExpenseBulk.close()"'+(locked?" disabled":"")+'>Close</button></div>';
@@ -46,8 +46,8 @@ function render(s){
   h+='<div class="ebFoot"><button type="button" class="btn secondary" onclick="ExpenseBulk.addRow()"'+(locked||atMax?" disabled":"")+'>Add row</button>'+
   (atMax?'<span class="muted ebLimit">Maximum of '+MAX+' rows reached.</span>':"")+
   '<div class="ebSum" aria-live="polite"><span>'+n+' expense'+(n===1?"":"s")+'</span><span>Total <strong data-bulk-total>'+gbp(s.total)+'</strong></span></div>'+
-  (s.uncertain?'<button type="button" class="btn warn" onclick="ExpenseBulk.save()"'+(s.saving?" disabled":"")+'>'+(s.saving?"Retrying…":"Retry save")+'</button>':
-  '<button type="button" class="btn primary" onclick="ExpenseBulk.save()"'+(s.saving||!n?" disabled":"")+'>'+(s.saving?"Saving…":"Save All")+'</button>')+
+  (s.uncertain?'<button type="button" class="btn warn" onclick="ExpenseBulk.save()"'+(s.saving||s.externalLocked?" disabled":"")+'>'+(s.saving?"Retrying…":"Retry save")+'</button>':
+  '<button type="button" class="btn primary" onclick="ExpenseBulk.save()"'+(s.saving||s.externalLocked||!n?" disabled":"")+'>'+(s.saving?"Saving…":"Save All")+'</button>')+
   '</div></div>';
   return h;
 }
