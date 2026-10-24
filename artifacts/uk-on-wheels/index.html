@@ -55,7 +55,7 @@ button,input,select,textarea{font:inherit}.hidden{display:none!important}.btn{bo
 .autoFieldLabel{display:block;color:#536176;font-size:11px;font-weight:700;margin:4px 0 -4px}.clickableBookingRow{cursor:pointer;transition:background .15s}.clickableBookingRow:hover{background:#f0f6ff!important;box-shadow:inset 3px 0 #e2131f}.portalUsersTable select{min-width:130px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .shell{display:flex;min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:255px;background:var(--navy);color:#fff;padding:16px 13px;overflow:auto}.brand{font-weight:800;font-size:17px;padding:10px 8px 18px;border-bottom:1px solid #ffffff18}.brand .brandLogo{display:block;width:34px;height:34px;object-fit:cover;border-radius:9px;margin-bottom:8px}.brand span{color:var(--brand-red)}
 .nav{display:grid;gap:2px;margin-top:14px}
-.nav button{background:transparent;color:#c3cee0;text-align:left;font-size:13.5px;font-weight:500;border-radius:8px;padding:9px 10px;width:100%;display:flex;align-items:center;gap:10px}
+.nav :is(button,a.portalPageLink){background:transparent;color:#c3cee0;text-align:left;font-size:13.5px;font-weight:500;border-radius:8px;padding:9px 10px;width:100%;display:flex;align-items:center;gap:10px}
 .navItem:hover,.navParent:hover{background:var(--navy2);color:#fff}
 .navItem.active,.navParent.active{background:var(--brand-red);color:#fff;font-weight:600}
 .navIco{display:flex;flex:none;width:17px;align-items:center;justify-content:center;opacity:.9}
@@ -330,7 +330,7 @@ body { background: var(--shell-bg); }
  letter-spacing: 0.1em;
  text-transform: uppercase;
 }
-.nav button {
+.nav :is(button,a.portalPageLink) {
  width: 100%;
  display: flex;
  align-items: center;
@@ -346,7 +346,7 @@ body { background: var(--shell-bg); }
  transition: background 0.15s, color 0.15s;
  text-align: left;
 }
-.nav button:hover {
+.nav :is(button,a.portalPageLink):hover {
  background: var(--shell-nav-hover);
  border-color: rgba(148,163,184,0.38);
  color: #fff;
@@ -626,7 +626,7 @@ body { color: #152238; }
  color: #71829d;
  letter-spacing: .14em;
 }
-.nav button {
+.nav :is(button,a.portalPageLink) {
  min-height: 44px;
  padding: 7px 9px;
  border: 0;
@@ -635,7 +635,7 @@ body { color: #152238; }
  font-weight: 500;
  transition: color .18s ease,background .18s ease,transform .18s ease;
 }
-.nav button:hover {
+.nav :is(button,a.portalPageLink):hover {
  border: 0;
  background: rgba(255,255,255,.065);
  color: #fff;
@@ -648,7 +648,9 @@ body { color: #152238; }
  background: rgba(255,255,255,.055);
  transition: background .18s ease,color .18s ease;
 }
-.nav button:hover .navIco { background: rgba(255,255,255,.1); }
+.nav :is(button,a.portalPageLink):hover .navIco { background: rgba(255,255,255,.1); }
+a.portalPageLink{text-decoration:none;font-family:inherit;cursor:pointer}
+a.portalPageLink:focus-visible{outline:2px solid var(--shell-accent);outline-offset:2px}
 .navItem.active,.navParent.active {
  border: 0;
  color: #fff !important;
@@ -1392,6 +1394,7 @@ function showAuthenticatedPortal(){
  window.DriverCompliance?.start();
   const localPreviewPage=(location.hostname==="localhost"||location.hostname==="127.0.0.1")?new URLSearchParams(location.search).get("ui-page"):null;
   page=role==="driver"?"driver":(localPreviewPage||"desktop");
+ if(role==="admin")page=adminPageFromUrl()||page;
  render();
 }
 
@@ -1670,6 +1673,7 @@ async function loginNow(){
  appEl.classList.remove("hidden");
  if(role!=="driver")document.body.classList.remove("driver-mode");
  page=role==="driver"?"driver":"desktop";
+ if(role==="admin")page=adminPageFromUrl()||page;
  render();
 }
 
@@ -1878,6 +1882,7 @@ function hasPermission(key){
  return (currentStaffUser?.permissions||[]).includes(key);
 }
 function render(){
+ if(role==="admin")syncAdminPageUrl();
  document.body.classList.toggle("client-mode",role==="client");
  document.body.classList.toggle("driver-mode",role==="driver");
  document.body.classList.toggle("trading-mode",["buying","selling"].includes(page)&&(role==="admin"||(role==="staff"&&hasPermission("accounts"))));
@@ -1926,6 +1931,7 @@ function render(){
    </main>
   </div>`;
  draw();
+ enhanceAdminPageLinks();
  setTimeout(enhancePortalUsability,0);
 }
 
@@ -1936,7 +1942,50 @@ function openProfileSettings(){
  go(role==="client"?"clientSettings":"settings");
 }
 
+// URLs keep the current mount path and never contain account/session information.
+function adminPageKeys(){
+ return new Set(nav().flatMap(entry=>[entry.key,...(entry.items||[]).map(item=>item.key)]).filter(key=>key!=="logout"));
+}
+function adminPageFromUrl(){
+ const requested=new URL(location.href).searchParams.get("page");
+ return adminPageKeys().has(requested)?requested:null;
+}
+function adminPageUrl(key){
+ const url=new URL(location.href);
+ url.searchParams.set("page",key);
+ return url.pathname+url.search+url.hash;
+}
+function syncAdminPageUrl(){
+ if(adminPageKeys().has(page))history.replaceState(null,"",adminPageUrl(page));
+}
+function adminPageLinkClick(event,key){
+ if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+ event.preventDefault();
+ history.pushState(null,"",adminPageUrl(key));
+ go(key);
+}
+function enhanceAdminPageLinks(){
+ if(role!=="admin")return;
+ const keys=adminPageKeys();
+ document.querySelectorAll('#app button[onclick]').forEach(button=>{
+  const match=button.getAttribute("onclick").trim().match(/^go\(['"]([A-Za-z]+)['"]\);?$/);
+  if(!match||!keys.has(match[1]))return; // Never turn Save, Delete or Logout into a link.
+  const key=match[1],link=document.createElement("a");
+  for(const attr of button.attributes)if(attr.name!=="onclick"&&attr.name!=="type")link.setAttribute(attr.name,attr.value);
+  link.classList.add("portalPageLink");
+  link.href=adminPageUrl(key);
+  link.innerHTML=button.innerHTML;
+  link.addEventListener("click",event=>adminPageLinkClick(event,key));
+  // A group chevron expands its children rather than following its parent's link.
+  link.querySelector(".navChevron")?.addEventListener("click",event=>event.preventDefault());
+  button.replaceWith(link);
+ });
+}
+window.addEventListener("popstate",()=>{
+ if(role==="admin"&&currentUser)go(adminPageFromUrl()||"desktop");
+});
 function enhancePortalUsability(){
+ enhanceAdminPageLinks();
  const labels={
   bdate:"Booking date",ddate:"Requested delivery date",clientReportFrom:"Report from date",clientReportTo:"Report to date",
   exDate:"Expense date",invDate:"Invoice date",invDue:"Invoice due date",invoicePaidDate:"Payment date",pDate:"Transaction date",
