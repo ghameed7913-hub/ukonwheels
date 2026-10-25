@@ -69,7 +69,7 @@ test("Business template omits private-customer columns and retains every vehicle
     const sheet=book.getWorksheet("Bookings"),head=sheet.getRow(1).values.slice(1);
     assert.ok(!head.includes("Customer type"));
     const unrelated=format==="Business"?["privateCustomerName","privateCustomerMobile","privateCustomerEmail"]:["biz"];
-    for (const [key,label] of columns) assert.equal(head.includes(label),key!=="customerType"&&!unrelated.includes(key),key);
+    for (const [key,label] of columns) assert.equal(head.includes(label),key!=="customerType"&&key!=="service"&&!unrelated.includes(key),key);
     assert.equal(!!book.getWorksheet("Businesses"),format==="Business");
     assert.throws(()=>recordsFromSheet(sheet),/no vehicle rows/);
     const values={...sample,privateCustomerName:"Private Example",privateCustomerMobile:"07000000001",privateCustomerEmail:"private@example.invalid"};
@@ -79,6 +79,7 @@ test("Business template omits private-customer columns and retains every vehicle
     assert.equal(row.values.customerType,format);
     assert.equal(row.values.reg,sample.reg);
     assert.equal(row.values.notes,sample.notes);
+    assert.equal(row.values.service,"Vehicle Delivery");
     if(format==="Private")assert.equal(row.values.privateCustomerMobile,"07000000001");
     assert.match(templateFilename(format),format==="Private"?/Private-Customer-Bookings\.xlsx$/:/Business-Bookings\.xlsx$/);
     // Numeric safeguards follow field positions in both narrower templates.

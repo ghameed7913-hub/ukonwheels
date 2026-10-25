@@ -65,13 +65,12 @@ function renderRows(rows,busy,shared,businesses,linkedOnly,context){
   var details='<details class="bulk-details"'+(st==="failed"||(r.message&&st==="editing")?' open':'')+'><summary>Full details</summary>'+toggle+
    '<div class="bulk-detail-grid">'+identity+
    detail("pickup","Collection address","text",true)+detail("dest","Delivery address","text",true)+
-   detail("service","Service type","select",false,[{value:"Vehicle Delivery",label:"Vehicle Delivery"},{value:"Vehicle Collection & Delivery",label:"Vehicle Collection & Delivery"},{value:"Recovery / AA",label:"Recovery / AA"}])+
    detail("bdate","Booking date","date",false)+detail("ddate","Requested delivery date","date",false)+
    detail("receiver","Person receiving vehicle","text",true)+detail("mobile","Receiver mobile number","tel",true)+
    detail("dropoff","Latest drop-off time","time",false)+detail("notes","Special instructions","textarea",false)+
    '</div></details>';
   var msg=r.message?esc(r.message):(st==="uncertain"?"Server result unknown. Retry to reconcile before editing.":"");
-  var overview='<div class="bulk-overview"><span><em>Customer</em>'+esc(who)+'</span><span><em>Route</em>'+esc(v.pickup||"-")+' to '+esc(v.dest||"-")+'</span><span><em>Receiver</em>'+esc(v.receiver||"-")+(v.mobile?' / '+esc(v.mobile):'')+'</span><span><em>Delivery</em>'+esc(v.ddate||"-")+(v.dropoff?' by '+esc(v.dropoff):'')+'</span><span><em>Service</em>'+esc(v.service||"Vehicle Delivery")+'</span></div>';
+  var overview='<div class="bulk-overview"><span><em>Customer</em>'+esc(who)+'</span><span><em>Route</em>'+esc(v.pickup||"-")+' to '+esc(v.dest||"-")+'</span><span><em>Receiver</em>'+esc(v.receiver||"-")+(v.mobile?' / '+esc(v.mobile):'')+'</span><span><em>Delivery</em>'+esc(v.ddate||"-")+(v.dropoff?' by '+esc(v.dropoff):'')+'</span></div>';
   return '<div class="bulk-row bulk-'+st+'" role="group" aria-label="Vehicle '+n+'">'+
    '<div class="bulk-num" aria-hidden="true">'+n+'</div>'+
    (r.excelRow!=null?'<div class="bulk-src">Excel row '+esc(r.excelRow)+'</div>':'')+

@@ -23,8 +23,8 @@ export const columns = [
   ["notes","Special instructions",48,"Optional collection, delivery or vehicle instructions."],
 ];
 export function templateColumns(format) {
-  if (format === "Business") return columns.filter(([key])=>!["customerType","privateCustomerName","privateCustomerMobile","privateCustomerEmail"].includes(key));
-  if (format === "Private") return columns.filter(([key])=>!["customerType","biz"].includes(key));
+  if (format === "Business") return columns.filter(([key])=>!["customerType","privateCustomerName","privateCustomerMobile","privateCustomerEmail","service"].includes(key));
+  if (format === "Private") return columns.filter(([key])=>!["customerType","biz","service"].includes(key));
   if (format === "legacy") return columns;
   throw new Error("Choose the Business or Private Customer booking template.");
 }
@@ -91,14 +91,15 @@ export function recordsFromSheet(sheet,date1904=false) {
   const format = has("customerType") || (has("biz") && ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"].some(has))
     ? "legacy" : has("biz") ? "Business" : ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"].some(has) ? "Private" : "legacy";
   const expected = templateColumns(format);
-  for (const [,label] of expected) if (!headers.has(normal(label))) throw new Error('Missing column "'+label+'". Download the complete '+(format==="legacy"?"booking":format==="Private"?"Private Customer":"Business")+' template; do not remove its headings.');
-  for (const name of headers.keys()) if (!expected.some(([,label])=>normal(label)===name)) throw new Error('Do not mix Business and Private Customer template columns.');
+  for (const [key,label] of expected) if (key!=="service"&&!headers.has(normal(label))) throw new Error('Missing column "'+label+'". Download the complete '+(format==="legacy"?"booking":format==="Private"?"Private Customer":"Business")+' template; do not remove its headings.');
+  // Previously downloaded workbooks may still include Service type.
+  for (const name of headers.keys()) if (name!==normal("Service type")&&!expected.some(([,label])=>normal(label)===name)) throw new Error('Do not mix Business and Private Customer template columns.');
   const records=[];
   for (let number=2;number<=sheet.rowCount;number++) {
     const row=sheet.getRow(number),values={},errors={},warnings={};
     let populated=false;
     for (const [field,label] of columns) {
-      if (!headers.has(normal(label))) { values[field]=""; continue; }
+      if (!headers.has(normal(label))) { values[field]=field==="service"?"Vehicle Delivery":""; continue; }
       const cell=row.getCell(headers.get(normal(label)));
       try {
         let value=scalar(cell.value);
