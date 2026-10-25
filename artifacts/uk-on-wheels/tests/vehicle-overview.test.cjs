@@ -36,6 +36,7 @@ function setup(records=statuses.map(fixture),scope=records){
     document:{querySelectorAll:()=>nodes,getElementById:id=>fields[id]},
     render:()=>renderCount++,
   });
+  vm.runInContext(part("function bookingApprovalRecords(","function normalizedBookingToPortal("),c);
   vm.runInContext(part("function openStatusPage(","function viewStatusBooking("),c);
   vm.runInContext(part("function drawAdminDashboard(","function adminStatus("),c);
   return {c,target,fields,rows:()=>nodes,renderCount:()=>renderCount};
