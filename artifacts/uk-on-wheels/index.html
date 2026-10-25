@@ -5623,7 +5623,8 @@ function canAssignBookedVehicle(b){
 }
 function bookingDriverAssignmentButton(b){
  if(!canAssignBookedVehicle(b))return "";
- return `<div style="margin-top:8px"><button type="button" class="btn primary" aria-label="${escapeHtml("Assign Driver for "+b.ref+" — "+(b.reg||b.vehicle||"vehicle"))}" onclick="openDriverAssignment(${escapeHtml(JSON.stringify(b.ref))})">Assign Driver</button></div>`;
+ const drivers=SUPABASE_CONFIGURED?portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active").map(x=>({id:x.id,name:x.full_name||x.name||x.email})):getStore().drivers.map(x=>({id:x.name,name:x.name}));
+ return `<div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button type="button" class="btn primary" aria-label="${escapeHtml("Assign Driver for "+b.ref+" — "+(b.reg||b.vehicle||"vehicle"))}" onclick="openDriverAssignment(${escapeHtml(JSON.stringify(b.ref))})">Assign Driver</button><select style="min-width:180px;width:auto" aria-label="${escapeHtml("Select Driver for "+b.ref)}" onchange="this.parentElement.querySelector('[data-confirm-driver]').disabled=!this.value" ${drivers.length?"":"disabled"}><option value="">${drivers.length?"Select Driver":"No active Drivers available"}</option>${drivers.map(d=>`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`).join("")}</select><button type="button" class="btn primary" data-confirm-driver data-booking-ref="${escapeHtml(b.ref)}" disabled onclick="assignSpecificDriver(this.dataset.bookingRef,this)">Confirm</button></div>`;
 }
 function openDriverAssignment(ref){
  if(!hasPermission("assign"))return alert("Driver assignment permission is required.");
@@ -5713,13 +5714,14 @@ function drawAssign(c,bookingRef=null){
   </div>`).join(""):`<div class="panel"><p class="muted">No undelivered bookings are available for driver assignment.</p></div>`}`;
 }
 const driverAssignmentSaves=new Set();
-async function assignSpecificDriver(ref){
+async function assignSpecificDriver(ref,inlineControl=null){
  if(!hasPermission("assign"))return alert("Driver assignment permission is required.");
  if(driverAssignmentSaves.has(ref))return;
  const b=getStore().bookings.find(x=>x.ref===ref);
  if(!b)return alert("Booking not found.");
  if(isDeliveredBooking(b))return alert("Delivered jobs are locked and cannot be reassigned.");
- const driverId=document.getElementById("driver_"+ref)?.value;
+ if(inlineControl&&!canAssignBookedVehicle(b))return alert("This vehicle is no longer waiting for assignment. Refresh the vehicle list.");
+ const driverId=inlineControl?inlineControl.parentElement.querySelector("select")?.value:document.getElementById("driver_"+ref)?.value;
  if(!b||!driverId)return alert("Please select a driver for this booking.");
  const dp=SUPABASE_CONFIGURED?portalProfiles.find(x=>x.id===driverId&&String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active"):getStore().drivers.find(x=>x.name===driverId);
  if(!dp)return alert("Choose an active Driver account.");
@@ -5728,9 +5730,10 @@ async function assignSpecificDriver(ref){
  const previousDriver=b.driver,expectedDriver=b._driverId||null;
  const driverName=dp.full_name||dp.name;
  const reassignment=Boolean(b._driverId||b.driver);
- const values={assignmentDate:document.getElementById("assignDate_"+ref)?.value||b.assignmentDate||"",assignmentTime:document.getElementById("assignTime_"+ref)?.value||b.assignmentTime||"",collectionTime:document.getElementById("collectionTime_"+ref)?.value||b.collectionTime||"",driverNotes:document.getElementById("driverNotes_"+ref)?.value.trim()||""};
+ const values={assignmentDate:document.getElementById("assignDate_"+ref)?.value||b.assignmentDate||"",assignmentTime:document.getElementById("assignTime_"+ref)?.value||b.assignmentTime||"",collectionTime:document.getElementById("collectionTime_"+ref)?.value||b.collectionTime||"",driverNotes:document.getElementById("driverNotes_"+ref)?.value.trim()??b.driverNotes??""};
  driverAssignmentSaves.add(ref);
- const button=document.getElementById("assignDriverBtn_"+ref);if(button)button.disabled=true;
+ const button=inlineControl||document.getElementById("assignDriverBtn_"+ref);if(button)button.disabled=true;
+ const inlineSelect=inlineControl?.parentElement.querySelector("select");if(inlineSelect)inlineSelect.disabled=true;
  try{
   if(reassignment&&!await crmConfirm(`Change ${ref} from ${previousDriver||"the current driver"} to ${driverName}? Pickup progress and pictures will be kept.`,"Reassign Driver","Reassign"))return;
   if(isDeliveredBooking(b))throw new Error("Delivered jobs are locked and cannot be reassigned.");
@@ -5761,10 +5764,15 @@ async function assignSpecificDriver(ref){
   if(SUPABASE_CONFIGURED)await loadNormalizedPortalData();
   alert(synced?`${driverName} ${reassignment?"reassigned":"assigned"} successfully to ${ref}.`:"Driver saved in Supabase, but the shared directory sync is pending. Use Retry save.");
   if(page==="assign")drawAssign(document.getElementById("content"));
+  else if(inlineControl){
+   if(page==="statusPage")drawStatusPage(document.getElementById("content"));
+   else if(page==="desktop")showTab("New Booked Vehicle");
+   else render();
+  }
  }catch(e){
   const missing=e.code==="PGRST202"||/could not find.*function|does not exist/i.test(e.message||"");
   alert(missing?"Driver assignment needs the Supabase SQL patch: supabase/driver_reassignment_patch.sql. No reassignment was saved.":"Driver assignment failed: "+(e.message||"Connection unavailable."));
- }finally{driverAssignmentSaves.delete(ref);if(button?.isConnected)button.disabled=false}
+ }finally{driverAssignmentSaves.delete(ref);if(button?.isConnected)button.disabled=false;if(inlineSelect?.isConnected)inlineSelect.disabled=false}
 }
 async function linkExistingDriverBooking(ref){
  const s=getStore(),b=s.bookings.find(x=>x.ref===ref);
