@@ -1,0 +1,49 @@
+.lw-host{padding:22px 22px 0}
+@media (max-width:800px){.lw-host{padding:14px 14px 0}}
+.lw-root{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;font-size:13px;color:#101833;line-height:1.4}
+.lw-root .lw-head{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center}
+.lw-root .lw-title{display:flex;flex-direction:column;min-width:0}
+.lw-root .lw-title strong{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60vw}
+.lw-root .lw-eyebrow{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#65758a;font-weight:700}
+.lw-root .lw-actions{display:flex;flex-wrap:wrap;gap:6px}
+.lw-root .lw-btn{font:inherit;font-size:12px;font-weight:600;padding:6px 10px;min-height:32px;border-radius:7px;border:1px solid #d6dde6;background:#f3f5f8;color:#0b2039;cursor:pointer}
+.lw-root .lw-btn:hover:not(:disabled){border-color:#0b2039}
+.lw-root .lw-btn:disabled{opacity:.55;cursor:default}
+.lw-root .lw-primary{background:#e2131f;border-color:#e2131f;color:#fff}
+.lw-root .lw-btn:focus-visible,.lw-root .lw-link:focus-visible,.lw-root a:focus-visible,.lw-root input:focus-visible,.lw-root .lw-results button:focus-visible{outline:2px solid #e2131f;outline-offset:2px}
+.lw-root .lw-link{font:inherit;font-size:12px;font-weight:600;background:none;border:0;padding:4px 0;color:#0b2039;text-decoration:underline;cursor:pointer}
+.lw-root a{color:#0b2039}
+.lw-root .lw-status{font-size:12px;color:#65758a;min-height:0}
+.lw-root .lw-status:not(:empty){margin-top:6px}
+.lw-root .lw-now{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin-top:8px}
+.lw-root .lw-stale{opacity:.6}
+.lw-root .lw-temp{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.lw-root .lw-cond{font-weight:600;text-transform:capitalize}
+.lw-root .lw-wind{color:#65758a}
+.lw-root .lw-meta,.lw-root .lw-hint{margin:4px 0 0;color:#65758a;font-size:12px}
+.lw-root .lw-err{margin:6px 0 0;color:#a50e17;font-size:12px}
+.lw-root .lw-skel{display:grid;gap:6px;margin-top:8px}
+.lw-root .lw-skel i{display:block;height:14px;border-radius:5px;background:#e1e8f0;animation:lwPulse 1.2s ease-in-out infinite}
+.lw-root .lw-skel i:first-child{height:26px;width:40%}
+@keyframes lwPulse{50%{opacity:.45}}
+.lw-root .lw-warn{margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px}
+.lw-root .lw-warn p{margin:3px 0 0;font-size:12px}
+.lw-root .lw-wh{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#65758a}
+.lw-root .lw-warn-unknown p{color:#7a4a00}
+.lw-root .lw-warn ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
+.lw-root .lw-wi{display:flex;gap:8px;padding:7px 8px;border-radius:7px;border-left:4px solid #e8c100;background:#fffbe6}
+.lw-root .lw-wi.lw-amber{border-left-color:#e07b00;background:#fff3e3}
+.lw-root .lw-wi.lw-red{border-left-color:#c40d17;background:#fdecee}
+.lw-root .lw-lvl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;min-width:44px}
+.lw-root .lw-wi p{margin:2px 0;color:#33405a}
+.lw-root .lw-search{display:flex;gap:6px;margin-top:8px}
+.lw-root .lw-search input{flex:1;min-width:0;font:inherit;font-size:14px;padding:6px 10px;min-height:34px;border:1px solid #d6dde6;border-radius:7px;background:#fff;color:#101833}
+.lw-root .lw-results{list-style:none;margin:6px 0 0;padding:0;border:1px solid #e5e7eb;border-radius:7px;overflow:hidden}
+.lw-root .lw-results li+li{border-top:1px solid #e5e7eb}
+.lw-root .lw-results button{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;font:inherit;background:#fff;border:0;padding:8px 10px;cursor:pointer;color:#101833}
+.lw-root .lw-results button:hover{background:#f3f5f8}
+.lw-root .lw-results small{color:#65758a}
+.lw-root .lw-attr{margin:8px 0 0;font-size:11px;color:#65758a}
+.lw-root .lw-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:640px){.lw-root{padding:10px}.lw-root .lw-actions{width:100%}.lw-root .lw-btn{flex:1}}
+@media (prefers-reduced-motion:reduce){.lw-root .lw-skel i{animation:none}}

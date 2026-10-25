@@ -1,7 +1,10 @@
 import path from 'path';
+import { createRequire } from 'node:module';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
+
+const weatherHandler = createRequire(import.meta.url)('../../api/weather.js');
 
 const port = Number(process.env.PORT ?? 5173);
 
@@ -12,7 +15,14 @@ if (Number.isNaN(port) || port <= 0) {
 const basePath = process.env.BASE_PATH ?? '/';
 
 export default defineConfig(async ({ command }) => {
-  const plugins = [react(), tailwindcss()];
+  const plugins = [react(), tailwindcss(), {
+    name: 'local-weather-api',
+    configureServer(server: import('vite').ViteDevServer) {
+      server.middlewares.use(`${basePath.replace(/\/$/, '')}/weather-api`, (req, res) => {
+        void weatherHandler(req, res);
+      });
+    },
+  }];
 
   if (command === 'serve' && process.env.REPL_ID !== undefined) {
     const [{ default: runtimeErrorOverlay }, { cartographer }, { devBanner }] =
