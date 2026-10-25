@@ -1,0 +1,8 @@
+.pa-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0}
+.pa-toolbar label{display:flex;align-items:center;gap:8px}
+.pa-toolbar input[type=checkbox],.pa-table input[type=checkbox]{width:20px!important;height:20px!important;min-width:20px;padding:0!important;margin:0;accent-color:#dd1025}
+.pa-table{min-width:1100px}
+.pa-table td{vertical-align:top}
+.pa-table small{display:block;margin-top:5px;color:var(--muted,#64748b)}
+.pa-message{margin:10px 0;white-space:pre-line}
+.pa-error{color:#b91c1c}
