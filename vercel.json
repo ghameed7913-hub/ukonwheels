@@ -4,6 +4,7 @@
   "outputDirectory": "artifacts/uk-on-wheels/dist/public",
   "framework": null,
   "rewrites": [
-    { "source": "/:path*", "destination": "/index.html" }
+    { "source": "/weather-api", "destination": "/api/weather" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
