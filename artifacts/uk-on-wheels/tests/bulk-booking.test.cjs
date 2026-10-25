@@ -340,9 +340,12 @@ test("Every single booking field is available on each bulk vehicle, with safe bu
   const id=s.state().rows[0].id;
   s.api.setOwnDetails(id,true);
   let content=s.fields.bulkVehicleRows.innerHTML;
-  for(const field of ["vehicle","reg","customerType","biz","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"]){
+  for(const field of ["vehicle","reg","customerType","biz","pickup","dest","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"]){
     assert.equal((content.match(new RegExp('id="bulk-'+id+'-'+field+'"',"g"))||[]).length,1,field);
   }
+  assert.doesNotMatch(content,/Service type|<em>Service<\/em>/);
+  assert.match(html,/<input id="service" type="hidden" value="Vehicle Delivery">/);
+  assert.doesNotMatch(html.slice(html.indexOf("function drawBooking(c){"),html.indexOf("async function createLinkedBooking(")),/<select id="service"/);
   s.api.updateDetail(id,"customerType","Private");
   content=s.fields.bulkVehicleRows.innerHTML;
   for(const field of ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"])
