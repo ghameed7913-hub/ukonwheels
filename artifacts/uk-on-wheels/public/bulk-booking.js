@@ -8,6 +8,23 @@
   const allowed = () => (role === "client" && currentUser?.accountType === "business") || ((role === "admin" || role === "staff") && hasPermission("booking"));
   const key = id => "ukow-bulk-booking:" + id;
   const normalReg = value => String(value || "").replace(/[\s-]/g,"").toUpperCase();
+  function customerKey(booking) {
+    const text = value => String(value || "").trim().toLowerCase();
+    if (booking.customerType === "Private") {
+      const email = text(booking.privateCustomerEmail);
+      return email ? "private:"+email : booking._clientId ? "client:"+booking._clientId : "";
+    }
+    return booking._businessId ? "business:"+booking._businessId : text(booking.business) ? "legacy-business:"+text(booking.business) : "";
+  }
+  function registrationKey(booking) {
+    const customer = customerKey(booking), reg = normalReg(booking.reg);
+    return customer && reg ? JSON.stringify([customer,reg]) : "";
+  }
+  function duplicateMessage(booking,existing = getStore().bookings || []) {
+    const key = registrationKey(booking);
+    const found = key && existing.find(b=>b.ref !== booking.ref && registrationKey(b) === key);
+    return found ? "Registration "+normalReg(booking.reg)+" was already booked for this customer/branch ("+found.ref+"). Use a different registration or select a different saved customer/branch." : "";
+  }
   const watchedFields = new WeakSet();
   const newRow = () => {
     const id = crypto.randomUUID();
@@ -245,17 +262,34 @@
   }
   function validateRows(shared) {
     let valid = true;
+    const rowKey = row => {
+      const values = role === "client" ? ownClientDetails(row.details || shared) : row.details || shared;
+      return registrationKey({
+        customerType:values.customerType || "Business",
+        _businessId:values.biz,business:values.biz,
+        privateCustomerEmail:values.privateCustomerEmail,reg:row.reg
+      });
+    };
     const registrations = new Map();
     for (const row of rows) {
-      const reg = normalReg(row.reg);
-      if (reg) registrations.set(reg,(registrations.get(reg) || 0)+1);
+      try {
+        const key = rowKey(row);
+        if (key) registrations.set(key,(registrations.get(key) || 0)+1);
+      } catch (_) { /* The row-specific validation below explains incomplete details. */ }
     }
     rows.forEach((row,index)=>{
       if (row.status === "saved") return;
       const errors = Object.values(row.importErrors || {});
-      try { prepare(shared,[row]); }
+      try {
+        const key = rowKey(row);
+        if (key && registrations.get(key)>1) errors.push("Registration "+normalReg(row.reg)+" appears more than once for this customer/branch in this batch.");
+      } catch (_) { /* Account errors are reported by prepare. */ }
+      try {
+        const booking = prepare(shared,[row])[0];
+        const duplicate = duplicateMessage(booking);
+        if (duplicate) errors.push(duplicate);
+      }
       catch (error) { errors.push(error.message.replace(/^Vehicle 1:\s*/,"")); }
-      if (normalReg(row.reg) && registrations.get(normalReg(row.reg))>1) errors.push("Registration "+normalReg(row.reg)+" appears more than once in this batch.");
       if (errors.length) {
         valid = false;
         row.message = (row.excelRow ? "Excel row "+row.excelRow : "Vehicle "+(index+1))+": "+errors.join(" ");
@@ -347,8 +381,9 @@
     const defaultAmount = row.details ? 0 : number(values.amount,"Shared charge");
       const reg = normalReg(row.reg), vehicle = String(row.vehicle || "").trim();
       if (!vehicle || !reg) throw new Error("Vehicle "+(index+1)+": enter make/model and registration.");
-      if (seen.has(reg)) throw new Error("Registration "+reg+" appears more than once in this batch.");
-      seen.add(reg);
+      const key = registrationKey({customerType:type,_businessId:businessId,business,privateCustomerEmail:values.privateCustomerEmail,reg});
+      if (key && seen.has(key)) throw new Error("Registration "+reg+" appears more than once for this customer/branch in this batch.");
+      if (key) seen.add(key);
        const notes = [values.notes?.trim(),values.dropoff ? "Latest drop-off time: "+values.dropoff : ""].filter(Boolean).join("\n");
        const service = values.service || "Vehicle Delivery";
        if (!["Vehicle Delivery","Vehicle Collection & Delivery","Recovery / AA"].includes(service)) throw new Error(label+"Choose a valid service type.");
@@ -478,5 +513,5 @@
     generation++;
     owner = null; mode = "single"; rows = []; common = null; busy = false; sourceName = "";
   }
-  window.BulkBooking = {mount,setMode,setVehicleCount,needsVehicleCount,addRow,updateRow,setOwnDetails,updateDetail,refresh,downloadTemplate,uploadFile,removeRow,newBatch,submit,clearSession,isActive:()=>mode !== "single" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode !== "single" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode !== "single" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
+  window.BulkBooking = {mount,setMode,setVehicleCount,needsVehicleCount,addRow,updateRow,setOwnDetails,updateDetail,refresh,downloadTemplate,uploadFile,removeRow,newBatch,submit,clearSession,isActive:()=>mode !== "single" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode !== "single" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode !== "single" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg,customerKey,registrationKey,duplicateMessage};
 })();

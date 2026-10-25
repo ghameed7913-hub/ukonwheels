@@ -1337,7 +1337,8 @@ function bookingApprovalDetails(b){
 }
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
- return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",dropoffTill:b.dropoff_deadline||"",notes:b.client_notes||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+ const privateCustomerEmail=pm[b.client_id]?.email||"";
+ return {privateCustomerEmail,_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",dropoffTill:b.dropoff_deadline||"",notes:b.client_notes||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
 }
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
@@ -5242,7 +5243,7 @@ function drawBooking(c){
 
   <div id="singleVehicleFields" class="full"><div class="form booking-fields">
    <label class="booking-field" for="veh"><span>Vehicle make and model</span><input id="veh" placeholder="e.g. Ford Transit"></label>
-   <label class="booking-field" for="reg"><span>Registration number</span><input id="reg" placeholder="e.g. AB12 CDE"></label>
+   <label class="booking-field" for="reg"><span>Registration number</span><input id="reg" placeholder="e.g. AB12 CDE" aria-describedby="registrationRule"><small id="registrationRule" class="muted">Cannot repeat a registration previously booked for this customer/branch. A different saved customer/branch may book it.</small></label>
   </div></div>
   <label class="booking-field" for="pickup"><span>Collection address</span><input id="pickup" placeholder="Street, town and postcode"></label>
   <label class="booking-field" for="dest"><span>Delivery address</span><input id="dest" placeholder="Street, town and postcode"></label>
@@ -5403,6 +5404,13 @@ async function submitBooking(){
   timeline:[{title:"Booking Created",text:"Booking created at "+new Date().toLocaleString()+" by "+(role==="client"?(currentUser?.userName||currentUser?.name||"Client"):(currentUser?.name||"Admin"))}]
  };
 
+  if(role==="client"){
+   booking._businessId=currentUser?.businessId||null;
+   booking.privateCustomerEmail=type==="Private"?(currentSession?.user?.email||currentUser?.email||""):booking.privateCustomerEmail;
+   booking._clientId=currentSession?.user?.id||null;
+  }
+  const duplicate=window.BulkBooking?.duplicateMessage(booking);
+  if(duplicate)return alert(duplicate);
   if(SUPABASE_CONFIGURED&&currentSession&&role==="client"){
    booking._businessId=currentUser?.businessId||null;
    const fingerprint=JSON.stringify({...booking,ref:null,createdAt:null,timeline:null});

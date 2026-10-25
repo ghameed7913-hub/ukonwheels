@@ -70,6 +70,46 @@ function setup(options = {}) {
     blockStorage:()=>{writesBlocked=true;},failRefresh:()=>{refreshFails=true;},cancel:()=>{confirmation=false;}};
 }
 
+test("registration repeats are scoped to saved customer/branch, not globally or by status",async()=>{
+  const s=setup();
+  s.store.businesses.push({id:"business-2",name:"Test Motors",status:"Active"});
+  s.fill(0,{reg:"ab-10 cde"});s.fill(1,{reg:"AB10CDE"});
+  const second=s.state().rows[1];
+  s.api.setOwnDetails(second.id,true);
+  s.api.updateDetail(second.id,"biz","business-2");
+  await s.api.submit();
+  assert.equal(s.saved.size,2,"Another saved branch may book the same vehicle");
+  assert.notEqual(s.calls[0].booking._businessId,s.calls[1].booking._businessId);
+  const candidate={customerType:"Business",_businessId:"business-1",reg:"ab 10-cde",ref:"NEW"};
+  s.store.bookings.push({...candidate,ref:"OLD",status:"Delivered"});
+  assert.match(s.api.duplicateMessage(candidate),/already booked.*OLD/);
+  assert.equal(s.api.duplicateMessage({...candidate,_businessId:"business-2"}),"");
+  assert.equal(s.api.duplicateMessage({...candidate,ref:"OLD"}),"","Recovery of same reference is not a new booking");
+  const privateBooking={customerType:"Private",privateCustomerEmail:"One@example.test",reg:"AB10CDE",ref:"P1"};
+  assert.match(s.api.duplicateMessage({...privateBooking,privateCustomerEmail:" one@EXAMPLE.test ",ref:"P2"},[privateBooking]),/already booked/);
+  assert.equal(s.api.duplicateMessage({...privateBooking,privateCustomerEmail:"two@example.test",ref:"P2"},[privateBooking]),"");
+});
+
+test("historical duplicate stops bulk writes and keeps the editable draft",async()=>{
+  const s=setup();
+  s.fill(0);s.fill(1);
+  s.store.bookings.push({ref:"DELIVERED-1",customerType:"Business",_businessId:"business-1",reg:"ab10-cde",status:"Delivered"});
+  await s.api.submit();
+  assert.equal(s.calls.length,0);
+  assert.match(s.state().rows[0].message,/already booked.*DELIVERED-1/);
+  assert.equal(s.state().rows.length,2);
+  s.fill(0,{reg:"XY99ABC"});
+  await s.api.submit();
+  assert.equal(s.saved.size,2);
+});
+
+test("single booking uses the same historical customer-scoped check before either RPC",()=>{
+  const submit=html.slice(html.indexOf("async function submitBooking()"),html.indexOf("function drawBusinesses("));
+  assert.ok(submit.indexOf("duplicateMessage(booking)") < submit.indexOf('sb.rpc("client_create_bulk_booking"'));
+  assert.ok(submit.indexOf("duplicateMessage(booking)") < submit.indexOf("await createLinkedBooking(booking)"));
+  assert.match(submit,/if\(duplicate\)return alert\(duplicate\)/);
+});
+
 test("vehicle count opens manual rows, keeps initial vehicle and saves separate references and charges",async()=>{
   const s=setup({empty:true});
   s.api.setMode("single");

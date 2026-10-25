@@ -9,7 +9,7 @@ export const columns = [
   ["privateCustomerMobile","Private customer mobile number",27,"Optional. Keep as text, including the leading zero or +."],
   ["privateCustomerEmail","Private Client portal email",30,"For Admin Private bookings: must match an active Client portal account."],
   ["vehicle","Vehicle make and model",28,"Required. For example Ford Transit."],
-  ["reg","Registration number",23,"Required. One vehicle registration per row; no duplicates in the file."],
+  ["reg","Registration number",23,"Required. Cannot repeat a registration previously booked for the same customer/branch. A different saved customer/branch may book it."],
   ["pickup","Collection address",40,"Required. Include street, town and postcode."],
   ["dest","Delivery address",40,"Required. Include street, town and postcode."],
   ["service","Service type",31,"Vehicle Delivery, Vehicle Collection & Delivery, or Recovery / AA. Blank means Vehicle Delivery."],
