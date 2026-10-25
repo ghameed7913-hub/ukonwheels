@@ -210,6 +210,7 @@ test("Admin status and dashboard lists place the shortcut beside each vehicle", 
   s.c.bookingEvidenceButton = () => "";
   s.c.document.querySelectorAll = () => [];
   s.c.tabarea = { innerHTML: "" };
+  vm.runInContext(part("function bookingApprovalRecords(", "function normalizedBookingToPortal("), s.c);
   vm.runInContext(part("function drawStatusPage(", "function viewStatusBooking("), s.c);
   vm.runInContext(part("function showTab(", "function mergeSavedBusinesses("), s.c);
   s.c.drawStatusPage(s.fields.content);

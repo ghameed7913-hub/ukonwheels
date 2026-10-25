@@ -1295,6 +1295,46 @@ function flushSharedStore(){
 }
 function currency(v){return "£"+Number(v||0).toFixed(2)}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function bookingApprovalRecords(b){
+ const records=[],keys=new Set();
+ const add=entry=>{
+  if(!entry.approvedBy&&!entry.approvedAt)return;
+  const key=JSON.stringify([entry.approvedBy||"",entry.approvedAt||""]);
+  if(keys.has(key))return;
+  keys.add(key);records.push(entry);
+ };
+ for(const h of b.approvalHistory||[])if(h.action==="Update Approved")add(h);
+ for(const r of getStore().updateRequests||[])if(r.bookingRef===b.ref&&r.status==="Approved"){
+  const changes=r.changes||{};
+  add({...r,summary:r.summary||[
+   changes.status!=null?`Status: ${changes.status}`:"",
+   changes.miles!=null?`Miles: ${changes.miles}`:"",
+   changes.amount!=null?`Amount: ${currency(changes.amount)}`:"",
+   changes.destination!=null?`Delivery: ${changes.destination}`:""
+  ].filter(Boolean).join(" · ")});
+ }
+ if(b.lastApprovedBy||b.lastApprovedAt)add({approvedBy:b.lastApprovedBy,approvedAt:b.lastApprovedAt});
+ return records;
+}
+function bookingApprovalLatest(b){
+ // Explicit latest metadata remains authoritative when old dates use ambiguous formats.
+ const records=bookingApprovalRecords(b);
+ return b.lastApprovedBy||b.lastApprovedAt?
+  {...records.find(h=>h.approvedBy===b.lastApprovedBy&&h.approvedAt===b.lastApprovedAt),approvedBy:b.lastApprovedBy,approvedAt:b.lastApprovedAt}:records.at(-1)||{};
+}
+function bookingApprovalTime(value){
+ if(!value)return "Time not recorded";
+ // Do not reinterpret historical DD/MM or MM/DD dates using the browser's locale.
+ if(/^\d{4}-\d{2}-\d{2}T/.test(value)&&Number.isFinite(Date.parse(value))){
+  return new Date(value).toLocaleString("en-GB",{timeZone:"Europe/London",dateStyle:"medium",timeStyle:"medium"})+" (UK time)";
+ }
+ return String(value);
+}
+function bookingApprovalDetails(b){
+ const records=bookingApprovalRecords(b),latest=bookingApprovalLatest(b);
+ const entry=h=>`<div class="event"><div><b>Approved by:</b> ${escapeHtml(h.approvedBy||"Name not recorded")}${h.approvedRole?` (${escapeHtml(h.approvedRole)})`:""}</div><div><b>Approved at:</b> ${escapeHtml(bookingApprovalTime(h.approvedAt))}</div>${h.summary?`<p>${escapeHtml(h.summary)}</p>`:""}</div>`;
+ return `<section class="booking-approval-details" aria-label="Booking change approvals"><h4>Booking Change Approvals</h4>${records.length?`<div><b>Latest approval</b>${entry(latest)}</div><details><summary>Approval history (${records.length})</summary>${records.slice().reverse().map(entry).join("")}</details>`:"<p class='muted'>No recorded approval of booking changes.</p>"}</section>`;
+}
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
  return {_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",dropoffTill:b.dropoff_deadline||"",notes:b.client_notes||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
@@ -2307,6 +2347,7 @@ function clientViewBooking(ref){
    <div><b>Amount</b><p>${currency(b.amount)}</p></div>
    <div><b>Payment</b><p>${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</p></div>
   </div>
+  ${bookingApprovalDetails(b)}
   <h4>Journey Timeline</h4>
   ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
  </div>`;
@@ -4932,7 +4973,7 @@ function drawStatusPage(c){
       <th>Action</th>
     </tr>
     ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}">
-      <td><b>${b.ref}</b></td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${b.lastApprovedBy||"—"}</td><td>${b.lastApprovedAt||"—"}</td>
+      <td><b>${b.ref}</b></td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${escapeHtml(bookingApprovalLatest(b).approvedBy||"—")}</td><td>${bookingApprovalLatest(b).approvedAt?escapeHtml(bookingApprovalTime(bookingApprovalLatest(b).approvedAt)):"—"}</td>
       <td>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</td>
       <td>${b.vehicle||"—"}${bookingDriverAssignmentButton(b)}</td>
       <td>${b.reg||"—"}</td>
@@ -4987,6 +5028,7 @@ function viewStatusBooking(ref){
     <div><b>Payment Date</b><p>${b.paidDate||"—"}</p></div>
     <div><b>Pickup Photos Loaded</b><p>${b._evidenceLoadError?"Unavailable — open evidence to retry":bookingEvidenceCount(b)}</p></div>
   </div>
+  ${bookingApprovalDetails(b)}
   <h4>Journey Timeline</h4>
   ${(b.timeline||[]).map(e=>`<div class="event"><b>${e.title}</b><div class="muted">${e.text}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
  </div>`;
@@ -5860,6 +5902,7 @@ function findSingleBookingUpdate(){
    <div class="actions"><button class="btn primary" onclick="submitSingleBookingUpdate('${b.ref}')">Submit Update for Approval</button></div>
   </div>
 
+  ${bookingApprovalDetails(b)}
   <h4>Update / Approval History</h4>
   ${(b.approvalHistory||[]).slice().reverse().map(h=>`<div class="event"><b>${h.action}</b><div class="muted">Requested by ${h.requestedBy||"—"} at ${h.requestedAt||"—"} · Approved by ${h.approvedBy||"Pending"} ${h.approvedAt?"at "+h.approvedAt:""}</div><div>${h.summary||""}</div></div>`).join("")||"<p class='muted'>No approval history yet.</p>"}
  </div>`;
@@ -5941,7 +5984,8 @@ async function approveUpdateRequest(id){
    if(!await persistNormalizedStatus(b,r.changes.status,"Approved update: "+(r.reason||"Admin approval")))return;
   }
  const approvedBy=currentUser?.name||currentStaffUser?.name||"Approver";
- const approvedAt=new Date().toLocaleString();
+ const approvedAt=new Date().toISOString();
+ const approvedRole=currentApproverRole();
  b.status=r.changes.status;
  b.miles=r.changes.miles;
  b.amount=r.changes.amount;
@@ -5952,8 +5996,8 @@ async function approveUpdateRequest(id){
  b.timeline.unshift({title:"Approved Booking Update",text:`Approved by ${approvedBy} at ${approvedAt}`});
  b.approvalHistory=b.approvalHistory||[];
  const hist=b.approvalHistory.find(h=>h.action==="Update Requested"&&h.requestedAt===r.requestedAt);
- if(hist){hist.approvedBy=approvedBy;hist.approvedAt=approvedAt;hist.action="Update Approved";}
- r.status="Approved";r.approvedBy=approvedBy;r.approvedAt=approvedAt;
+ if(hist){hist.approvedBy=approvedBy;hist.approvedAt=approvedAt;hist.approvedRole=approvedRole;hist.action="Update Approved";}
+ r.status="Approved";r.approvedBy=approvedBy;r.approvedAt=approvedAt;r.approvedRole=approvedRole;
  s.notifications.unshift({title:"Booking Update Approved",text:`${b.ref} update approved by ${approvedBy}.`});
   if(!await saveStore(s))return;
   alert("Update approved and applied.");
