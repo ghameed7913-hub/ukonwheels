@@ -36,7 +36,7 @@ window.ExpenseBulk=(()=>{
       try{
         if(!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||!Number.isFinite(Date.parse(r.date+"T00:00:00Z"))||
           new Date(r.date+"T00:00:00Z").toISOString().slice(0,10)!==r.date)throw Error("Choose a valid expense date.");
-        if(!categories.includes(r.category))throw Error("Choose an expense type.");
+        if(!(window.ExpenseTypes?.list()||categories).includes(r.category))throw Error("Choose an expense type.");
         if(!methods.includes(r.method))throw Error("Choose a payment method.");
         const p=cents(r.amount);sum+=p;
         for(const [key,max] of [["reference",120],["payee",500],["notes",2000]])
@@ -47,7 +47,7 @@ window.ExpenseBulk=(()=>{
     });
     return {errors,payload,total:Number(sum)/100,problem:sum>BigInt(Number.MAX_SAFE_INTEGER)?"Batch total is too large.":""};
   }
-  function state(){sync();return {...draft,externalLocked:externalLock(),rows:draft.rows.map(r=>({...r})),categories:categories.slice(),methods:methods.slice(),canManage:canManage(),total:total()};}
+  function state(){sync();return {...draft,externalLocked:externalLock(),rows:draft.rows.map(r=>({...r})),categories:window.ExpenseTypes?.list()||categories.slice(),methods:methods.slice(),canManage:canManage(),total:total()};}
   function paint(){
     const root=document.getElementById("expenseBulkPanel");if(root&&window.ExpenseBulkUI)root.innerHTML=ExpenseBulkUI.render(state());
     const single=document.querySelector("[data-single-expense-save]");
