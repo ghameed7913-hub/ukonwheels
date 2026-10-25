@@ -29,7 +29,7 @@ function setup(records=statuses.map(fixture),scope=records){
     }
   };
   const c=vm.createContext({
-    selectedStatusPage:"All",statusVehicleSearch:"",page:"desktop",portalProfiles:[],
+    selectedStatusPage:"All",statusVehicleSearch:"",page:"desktop",role:"admin",portalProfiles:[],
     visibleBookings:()=>scope,getStore:()=>store,escapeHtml:escape,
     bookingDriverAssignmentButton:()=>"",bookingEvidenceButton:()=>"",
     ensureAdminDemoData(){},LOGO_IMG:"",ico:()=>"",currency:value=>"£"+value,

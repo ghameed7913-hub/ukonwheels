@@ -19,6 +19,8 @@
 <script src="./expense-bulk-ui.js"></script>
 <script src="./expense-bulk.js"></script>
 <script src="./expense-types.js"></script>
+<script src="./pending-approvals.js"></script>
+<link rel="stylesheet" href="./pending-approvals.css">
 <link rel="stylesheet" href="./expense-monthly.css">
 <script src="./expense-monthly-ui.js"></script>
 <script src="./expense-monthly.js"></script>
@@ -1141,6 +1143,10 @@ let sharedSavePending=null,sharedSaveInFlight=null,sharedSaveError="",sharedRead
 function refreshPortalSafely(){
  const appEl=document.getElementById("app"),content=document.getElementById("content");
  if(!appEl||appEl.classList.contains("hidden")||!content)return;
+ if(page==="approvals"&&role==="admin"){
+  if(!window.PendingApprovals?.busy())drawUpdateApprovals(content);
+  return;
+ }
  // Keep inputs, dialogs and active Driver cameras mounted during background updates.
  if(content.querySelector("input,select,textarea,video")||document.querySelector(".crmModalBackdrop,#evidenceOverlay"))return;
  draw();
@@ -2742,9 +2748,10 @@ function drawAdminDashboard(c){
  const stats=[
   [ico("car"),"New Booked Vehicles","New Booked Vehicle"],[ico("user"),"Driver Assigned","Driver Assigned"],[ico("truck"),"Picked Up Vehicles","Picked Up"],
   [ico("route"),"On Route","On Route"],[ico("clock"),"Delayed","Delayed"],[ico("alertTriangle"),"Accidents","Accident"],[ico("clipboard"),"Claims","Claims"],
-  [ico("check"),"Delivered","Delivered"],[ico("alertCircle"),"Faults On The Route","Fault On Route"],["AA","Assigned AA On Route","Assigned AA on Route"],[ico("flag"),"Total vehicle","All"]
+  [ico("check"),"Delivered","Delivered"],[ico("alertCircle"),"Faults On The Route","Fault On Route"],["AA","Assigned AA On Route","Assigned AA on Route"],[ico("flag"),"Total vehicle","All"],
+  ...(role==="admin"?[[ico("clipboard"),"Pending Approval","Pending Approval"]]:[])
  ];
- const count=t=>t==="All"?rows.length:rows.filter(b=>b.status===t).length;
+ const count=t=>t==="Pending Approval"?(s.updateRequests||[]).filter(r=>r.status==="Pending Approval").length:t==="All"?rows.length:rows.filter(b=>b.status===t).length;
  const delivered=count("Delivered"), delayed=count("Delayed"), accidents=count("Accident"), claims=count("Claims"), onroute=count("On Route");
  const total=rows.length;
  const bookedValue=rows.reduce((a,b)=>a+Number(b.amount||0),0);
@@ -4842,6 +4849,7 @@ function queueCustomerStatusMessage(b,eventKey){
 }
 
 function openStatusPage(status){
+ if(status==="Pending Approval"){go("approvals");return;}
  selectedStatusPage=status;
  statusVehicleSearch="";
  page="statusPage";
@@ -5890,6 +5898,11 @@ function submitSingleBookingUpdate(ref){
  findSingleBookingUpdate();
 }
 function drawUpdateApprovals(c){
+ if(role==="admin")return PendingApprovals.render(c,{
+  store:getStore(),approve:approvePendingBookingUpdates,reject:rejectUpdateRequest,
+  confirm:(message)=>crmConfirm(message,"Approve selected booking updates","Approve All"),
+  canApprove:true
+ });
  const s=ensureApprovalData(),rows=s.updateRequests.filter(r=>r.status==="Pending Approval");
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -5918,6 +5931,7 @@ function drawUpdateApprovals(c){
  }).join(""):`<div class="panel" style="margin-top:12px"><p class="muted">No pending update approvals.</p></div>`}`;
 }
 async function approveUpdateRequest(id){
+ if(role==="admin")return PendingApprovals.approveIds([id]);
  if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can approve updates.");
  let s=ensureApprovalData(),r=s.updateRequests.find(x=>x.id===id),b=s.bookings.find(x=>x.ref===r?.bookingRef);
  if(!r||!b)return;
@@ -5944,6 +5958,22 @@ async function approveUpdateRequest(id){
   if(!await saveStore(s))return;
   alert("Update approved and applied.");
  drawUpdateApprovals(document.getElementById("content"));
+}
+async function approvePendingBookingUpdates(ids){
+ if(role!=="admin"||!currentSession||!storeReady)throw new Error("Sign in as Admin before approving bookings.");
+ const userId=currentSession.user.id;
+ if((sharedSavePending||sharedSaveInFlight)&&!await flushSharedStore())throw new Error("Save the pending portal changes before approving bookings.");
+ const result=await sb.rpc("approve_booking_updates",{p_request_ids:ids});
+ if(result.error)throw new Error(result.error.code==="PGRST202"?"Run supabase/pending-booking-approvals.sql before using bulk approval.":result.error.message);
+ if(currentSession?.user?.id!==userId)throw new Error("Your session changed. Sign in and reload to check the approval result.");
+ const data=result.data;
+ if(!Array.isArray(data?.requests)||!Array.isArray(data?.bookings)||!Number.isInteger(data?.approved_count))throw new Error("The server did not confirm the approval result. Refresh before retrying.");
+ const s=getStore(),requests=new Map(data.requests.map(r=>[r.id,r])),bookings=new Map(data.bookings.map(b=>[b.ref,b]));
+ STORE_CACHE={...s,updateRequests:(s.updateRequests||[]).map(r=>requests.get(r.id)||r),
+  bookings:(s.bookings||[]).map(b=>bookings.has(b.ref)?{...b,...bookings.get(b.ref)}:b),
+  notifications:[...(data.notifications||[]),...(s.notifications||[])]};
+ await loadNormalizedPortalData();
+ return data;
 }
 function rejectUpdateRequest(id){
  if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can reject updates.");
