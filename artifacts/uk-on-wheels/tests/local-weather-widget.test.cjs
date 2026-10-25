@@ -41,7 +41,9 @@ test('weather is a compact collapsed widget by default, including when warnings 
   const w = await widget();
   assert.match(w.root.innerHTML, /lw-summary-city[^>]*>Glasgow/);
   assert.match(w.root.innerHTML, /lw-summary-temp">9°C/);
-  assert.match(w.root.innerHTML, /lw-badge-amber">3 alerts/);
+  assert.match(w.root.innerHTML, /lw-alert-banner lw-alert-amber/);
+  assert.match(w.root.innerHTML, /View 3 alerts/);
+  assert.match(w.root.innerHTML, /lw-summary-condition">fair/);
   assert.match(w.root.innerHTML, /id="lw-details"[^>]* hidden/);
   assert.match(w.root.innerHTML, /aria-expanded="false" aria-controls="lw-details"/);
 });
@@ -79,4 +81,21 @@ test('unknown and stale checks never display a reassuring no-alert badge', async
   const stale = await widget();
   stale.fail(); stale.click('refresh'); await stale.settle();
   assert.match(stale.root.innerHTML, /lw-badge-unknown">Alerts may be outdated/);
+  assert.doesNotMatch(stale.root.innerHTML, /class="lw-alert-banner/);
+});
+test('reference-style banner only uses actual warnings and opens full details', async () => {
+  const w = await widget();
+  w.click('details');
+  assert.match(w.root.innerHTML, /aria-expanded="true" aria-controls="lw-details"/);
+  const quiet = fixture(); quiet.warnings.items = [];
+  const noWarnings = await widget({ data: quiet });
+  assert.doesNotMatch(noWarnings.root.innerHTML, /class="lw-alert-banner/);
+  assert.match(noWarnings.root.innerHTML, /No regional alerts/);
+});
+test('weather icon follows actual conditions rather than copying the example drizzle', async () => {
+  const data = fixture(); data.weather.condition = 'light drizzle';
+  const rainy = await widget({ data });
+  assert.match(rainy.root.innerHTML, /m8 19-1 3m6-3-1 3m6-3-1 3/);
+  assert.match(rainy.root.innerHTML, /light drizzle/);
+  assert.doesNotMatch(rainy.root.innerHTML, /100 km|GIFFNOCK/);
 });

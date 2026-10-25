@@ -136,6 +136,17 @@
     return '<div class="lw-warn">' + head + '<p class="lw-count">' + items.length + ' current or upcoming warning' + (items.length === 1 ? "" : "s") + (w.checkedAt ? ', checked ' + esc(fmt(w.checkedAt)) : '') + '</p><p>' + esc(w.message || "") + '</p><ul>' + list + '</ul>' + more + '</div>';
   }
 
+  function weatherIcon(condition){
+    var value = String(condition || "").toLowerCase(), drawing;
+    var cloud = '<path d="M7 16a5 5 0 1 1 1-9.9A6 6 0 0 1 20 9a3.5 3.5 0 0 1-1.5 7Z"/>';
+    if(/thunder/.test(value)) drawing = cloud + '<path d="m13 13-3 5h4l-3 5"/>';
+    else if(/snow/.test(value)) drawing = cloud + '<path d="M7 20h.01M12 22h.01M17 20h.01"/>';
+    else if(/rain|drizzle|sleet/.test(value)) drawing = cloud + '<path d="m8 19-1 3m6-3-1 3m6-3-1 3"/>';
+    else if(/clear|fair/.test(value)) drawing = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>';
+    else drawing = cloud + (/fog/.test(value) ? '<path d="M4 20h16M7 23h10"/>' : '');
+    return '<svg class="lw-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + drawing + '</svg>';
+  }
+
   function html(){
     var d = S.data, wx = d && d.weather, place = d && d.place;
     var warnings = d && d.warnings, items = warnings && Array.isArray(warnings.items) ? warnings.items : [];
@@ -143,12 +154,17 @@
     var alertText = warnings ? warnings.status !== "ok" ? "Alerts unchecked" : items.length ? items.length + " alert" + (items.length === 1 ? "" : "s") : "No regional alerts" : "";
     if(S.stale) alertText = "Alerts may be outdated";
     var summary = '<button type="button" id="lw-summary" class="lw-summary" data-lw="details" aria-expanded="' + S.detailsOpen + '" aria-controls="lw-details">' +
-      '<svg class="lw-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 20 11a3.5 3.5 0 0 1-1.5 7Z"/></svg>' +
-      '<span class="lw-summary-city" title="' + esc(place ? place.label : "Local weather") + '">' + esc(place ? place.name : "Weather") + '</span>' +
-      (wx ? '<strong class="lw-summary-temp">' + Math.round(wx.temperatureC) + '\u00B0C</strong><span class="lw-summary-condition">' + esc(wx.condition) + '</span>' :
-        '<span class="lw-summary-state">' + (S.geoBusy ? "Locating\u2026" : S.loading ? "Loading\u2026" : S.error ? "Unavailable" : d ? "Weather unavailable" : "Choose city") + '</span>') +
-      (alertText ? '<span class="lw-badge lw-badge-' + (S.stale || warnings.status !== "ok" ? "unknown" : items.length ? severity : "clear") + '">' + esc(alertText) + '</span>' : '') +
+      weatherIcon(wx && wx.condition) +
+      (wx ? '<strong class="lw-summary-temp">' + Math.round(wx.temperatureC) + '\u00B0C</strong>' : '') +
+      '<span class="lw-summary-location"><span class="lw-summary-city" title="' + esc(place ? place.label : "Local weather") + '">' + esc(place ? place.name : "Weather") + '</span>' +
+      (wx ? '<span class="lw-summary-condition">' + esc(wx.condition) + '</span>' :
+        '<span class="lw-summary-state">' + (S.geoBusy ? "Locating\u2026" : S.loading ? "Loading\u2026" : S.error ? "Unavailable" : d ? "Weather unavailable" : "Choose city") + '</span>') + '</span>' +
+      (alertText && (!items.length || S.stale || warnings.status !== "ok") ? '<span class="lw-badge lw-badge-' + (S.stale || warnings.status !== "ok" ? "unknown" : "clear") + '">' + esc(alertText) + '</span>' : '') +
       '<span class="lw-summary-chevron" aria-hidden="true">' + (S.detailsOpen ? '\u2303' : '\u2304') + '</span><span class="lw-sr">Weather details</span></button>';
+    var lead = items.find(function(item){ return item.level === severity; });
+    var banner = lead && !S.stale && warnings.status === "ok" ? '<button type="button" class="lw-alert-banner lw-alert-' + severity + '" data-lw="details" aria-expanded="' + S.detailsOpen + '" aria-controls="lw-details">' +
+      '<span class="lw-alert-label">' + severity + ' warning</span><span class="lw-alert-copy"><strong>' + esc(lead.title.split(/\s+affecting\s+/i)[0]) + '</strong>' +
+      '<span>Regional routes may be affected. <u>View ' + items.length + ' alert' + (items.length === 1 ? '' : 's') + '</u></span></span></button>' : '';
     var status = S.loading ? (d ? "Refreshing\u2026" : "Loading weather\u2026") : S.geoBusy ? "Finding your location\u2026" : "";
     var top = '<div class="lw-head"><div class="lw-title"><span class="lw-eyebrow">Local weather' + (S.mode === "gps" ? " \u00B7 your location" : S.mode === "manual" ? " \u00B7 chosen place" : "") + '</span>' +
       (place ? '<strong title="' + esc(place.label) + '">' + esc(place.label || place.name) + '</strong>' : '<strong>Choose a location</strong>') + '</div>' +
@@ -178,7 +194,7 @@
       }).join("") + '</ul>';
     }
     var attr = '<p class="lw-attr">Weather <a href="https://www.met.no/en" target="_blank" rel="noopener noreferrer">MET Norway</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>, values rounded and wind converted) \u00B7 Places \u00A9 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a> \u00B7 Warnings <a href="https://www.metoffice.gov.uk/" target="_blank" rel="noopener noreferrer">Met Office</a></p>';
-    return summary + '<div id="lw-details" class="lw-popover" role="region" aria-label="Weather details"' + (S.detailsOpen ? '' : ' hidden') + '>' +
+    return '<div class="lw-pill-row">' + summary + '</div>' + banner + '<div id="lw-details" class="lw-popover" role="region" aria-label="Weather details"' + (S.detailsOpen ? '' : ' hidden') + '>' +
       '<div class="lw-detail-heading"><strong>Local weather &amp; alerts</strong><button type="button" class="lw-btn" data-lw="close" aria-label="Close weather details">Close</button></div>' +
       top + '<div class="lw-status" aria-live="polite" role="status">' + esc(status) + '</div>' + form + '<div class="lw-body" aria-busy="' + S.loading + '">' + body + '</div>' + attr + '</div>';
   }
