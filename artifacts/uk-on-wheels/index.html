@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="./expense-bulk.css">
 <script src="./expense-bulk-ui.js"></script>
 <script src="./expense-bulk.js"></script>
+<script src="./expense-types.js"></script>
 <link rel="stylesheet" href="./expense-monthly.css">
 <script src="./expense-monthly-ui.js"></script>
 <script src="./expense-monthly.js"></script>
@@ -1361,6 +1362,7 @@ function applyAuthenticatedProfile(profile,session){
   window.DriverPayments?.reset();
   window.ExpenseBulk?.reset();
   window.ExpenseMonth?.reset();
+  window.ExpenseTypes?.reset();
   window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
@@ -1439,6 +1441,7 @@ async function logoutNow(){
  window.DriverPayments?.reset();
  window.ExpenseBulk?.reset();
  window.ExpenseMonth?.reset();
+ window.ExpenseTypes?.reset();
  window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
@@ -3659,16 +3662,18 @@ function expenseRegisterHtml(s){
 }
 function drawExpenses(c,loaded=false){
  if(loadPayrollView(c,drawExpenses,loaded))return;
- const s=ensureAccountsData(), cats=["Wages","Salary","Fuel","Rent","Office","Entertainment","Utility Bills","Rider Fuel","Staff Fuel","Hotel Expense","Vehicle Recovery Expenses","Insurance","Other Expenses"];
+ const s=ensureAccountsData(), cats=window.ExpenseTypes?.list()||ExpenseBulk.state().categories;
  c.innerHTML=`<div id="expenseMonthPanel"></div><div class="panel"><h2>Add Expense</h2><div class="form" id="expenseSingleForm">
- <label>Date *<input id="exDate" type="date" aria-label="Expense date" onchange="ExpenseMonth.selectDay(this.value)"></label><label>Expense Type *<select id="exCat"><option value="">Select expense type</option>${cats.map(x=>`<option>${x}</option>`).join("")}</select></label>
+ <label>Date *<input id="exDate" type="date" aria-label="Expense date" onchange="ExpenseMonth.selectDay(this.value)"></label><label>Expense Type *<select id="exCat"><option value="">Select expense type</option>${cats.map(x=>`<option>${escapeHtml(x)}</option>`).join("")}</select></label>
  <label>Amount (£) *<input id="exAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Amount (£)"></label><label>Payment method<select id="exMethod"><option>Cash</option><option>Bank Transfer</option><option>Card</option></select></label>
  <label>Receipt / Reference<input id="exRef"></label><label>Supplier / Paid To<input id="exPayee"></label><label class="full">Notes<textarea id="exNotes"></textarea></label>
  </div><p id="expenseEntryStatus" aria-live="polite"></p><div class="actions"><button type="button" class="btn primary" id="singleExpenseSave" data-single-expense-save onclick="saveExpense()">Add Expense</button><button type="button" class="btn secondary" id="singleExpenseClear" onclick="ExpenseMonth.clearSingle()">Clear entry</button></div></div>
+ <div class="panel" style="margin-top:12px"><h3>Create expense type</h3><p class="muted">Save a new type once to use it in single and bulk expenses.</p><div class="form"><label>New expense type<input id="expenseTypeName" maxlength="80" placeholder="For example: Parking charges" autocomplete="off"></label></div><div class="actions"><button type="button" id="expenseTypeSave" class="btn secondary" onclick="ExpenseTypes.save()">Save expense type</button><button type="button" class="btn secondary" onclick="ExpenseTypes.read()">Refresh types</button></div><p id="expenseTypeStatus" aria-live="polite"></p></div>
  <div id="expenseBulkPanel">${ExpenseBulkUI.render(ExpenseBulk.state())}</div>
  <div class="panel" style="margin-top:12px" id="expenseRegister">${expenseRegisterHtml(s)}</div>`;
  ExpenseBulk.paint();
  ExpenseMonth.paint();
+ window.ExpenseTypes?.read();
 }
 
 function saveExpense(){
