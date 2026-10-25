@@ -22,3 +22,8 @@ This setup depends on the existing Client bulk-booking function. If that functio
 is replaced by rerunning `client-bulk-booking-patch.sql`, rerun this setup last to
 restore retry-key lookup. The customer/registration duplicate protection remains
 in force.
+
+Both the original Client setup and the later portal-safety setup are supported.
+Only the reference lookup is extended; the existing ownership, permissions,
+charge validation and active-account checks are preserved. An unknown definition
+still stops the transaction instead of replacing the function wholesale.

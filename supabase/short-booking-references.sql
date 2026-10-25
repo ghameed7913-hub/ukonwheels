@@ -77,6 +77,11 @@ begin
     execute replace(definition,
       'where reference = p_reference;',
       'where reference = p_reference or booking_request_reference = p_reference;');
+  elsif position('where reference=p_reference;' in definition) > 0 then
+    -- The portal safety setup uses the same lookup without spaces.
+    execute replace(definition,
+      'where reference=p_reference;',
+      'where reference = p_reference or booking_request_reference = p_reference;');
   else
     raise exception 'Client booking function differs from the expected setup. No changes applied; ask Admin to check it.';
   end if;

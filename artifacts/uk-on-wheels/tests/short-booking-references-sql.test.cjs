@@ -62,6 +62,29 @@ test("short references cover Admin, Client and private bookings without breaking
     assert.equal(sql(actor(1)+admin("PRIVATE1","null","Private")),"UKOW00008");
     assert.equal(sql(actor(1)+admin("BULK1",`'${key(2)}'`)),"UKOW00009");
     assert.equal(sql(`select booking_request_reference from bookings where reference='UKOW00009';`),key(2));
+    // The deployed portal-safety version has reference=p_reference (no spaces).
+    // Preserve its security logic exactly while extending only that lookup.
+    const safetySource=fs.readFileSync(path.join(root,"portal-safety-fixes.sql"),"utf8");
+    const safetyStart=safetySource.indexOf("create or replace function public.client_create_bulk_booking(");
+    sql(safetySource.slice(safetyStart,safetySource.indexOf("$$;",safetyStart)+3));
+    const originalSafety=sql("select pg_get_functiondef('public.client_create_bulk_booking(text,jsonb)'::regprocedure);");
+    assert.match(originalSafety,/where reference=p_reference;/);
+    sql(patch);sql(patch);
+    const patchedSafety=sql("select pg_get_functiondef('public.client_create_bulk_booking(text,jsonb)'::regprocedure);");
+    assert.equal(patchedSafety,originalSafety.replace(
+      "where reference=p_reference;",
+      "where reference = p_reference or booking_request_reference = p_reference;"
+    ),"No security checks or other function statements may be replaced");
+    assert.equal(sql(actor(2)+client(1,"CLIENT1")),"UKOW00007","Safety-version retries recover the existing reference");
+    denied(actor(3)+client(1,"CLIENT1"),/A Private Client cannot book for a business/);
+    const unknownSafety=patchedSafety.replace(
+      "where reference = p_reference or booking_request_reference = p_reference;",
+      "where reference /* unexpected variation */ = p_reference;"
+    );
+    sql(unknownSafety);
+    denied(patch,/differs from the expected setup/);
+    assert.equal(sql("select pg_get_functiondef('public.client_create_bulk_booking(text,jsonb)'::regprocedure);"),unknownSafety,"Unknown setup is left unchanged");
+    sql(patchedSafety);
     assert.equal(sql("select count(*) from bookings where reference in ('UKOW00005','UKOW-2026-001000');"),"2");
     denied(actor(1)+admin("legacy-1"),/already booked for this customer\/branch/);
     denied(`update bookings set booking_request_reference='${key(999)}' where reference='UKOW00007';`,/cannot be changed/);
