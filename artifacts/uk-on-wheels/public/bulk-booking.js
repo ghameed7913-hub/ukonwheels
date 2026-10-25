@@ -8,6 +8,7 @@
   const allowed = () => (role === "client" && currentUser?.accountType === "business") || ((role === "admin" || role === "staff") && hasPermission("booking"));
   const key = id => "ukow-bulk-booking:" + id;
   const normalReg = value => String(value || "").replace(/[\s-]/g,"").toUpperCase();
+  const watchedFields = new WeakSet();
   const newRow = () => {
     const id = crypto.randomUUID();
     return {id, vehicle:"", reg:"", miles:"", amount:"", status:"editing", message:"", reference:"UKOW-"+new Date().getFullYear()+"-"+id.replace(/-/g,"").toUpperCase()};
@@ -44,7 +45,7 @@
           row.status = "uncertain"; row.message = "Interrupted save. Retry to check the saved booking before sending again.";
         }
         common = saved.common; sourceName = typeof saved.sourceName === "string" ? saved.sourceName : "";
-        mode = saved.mode === "bulk" ? "bulk" : "single";
+        mode = ["bulk","multiple"].includes(saved.mode) ? saved.mode : "single";
       }
     } catch (_) { status("The saved bulk draft could not be restored. Check existing bookings before starting again."); }
   }
@@ -58,6 +59,7 @@
     if (el("bookingSharedFields")) {el("bookingSharedFields").hidden=false;el("bookingSharedFields").disabled=false;}
     if (el("bulkSharedNotice")) el("bulkSharedNotice").hidden=true;
     if (el("bookingMode")) {el("bookingMode").value="single";el("bookingMode").disabled=true;}
+    if (el("bookingVehicleCountControls")) el("bookingVehicleCountControls").hidden=true;
     if (el("tariffInfo")) el("tariffInfo").hidden=false;
     const button=document.querySelector('button[onclick="createBooking()"]');
     if (button) {button.textContent="Create Booking";button.disabled=busy;}
@@ -65,21 +67,27 @@
   function draw() {
     if (!allowed()) return singleOnly();
     if (!el("bulkBookingPanel")) return;
-    el("bulkBookingPanel").hidden = mode !== "bulk";
-    el("singleVehicleFields").hidden = mode === "bulk";
+    el("bulkBookingPanel").hidden = mode === "single";
+    el("singleVehicleFields").hidden = mode !== "single";
     // An Excel row carries a complete booking, not a large duplicated shared form.
     el("bookingSharedFields").hidden = mode === "bulk";
     if (el("tariffInfo")) el("tariffInfo").hidden = mode === "bulk";
     if (el("bulkSharedNotice")) el("bulkSharedNotice").hidden = mode !== "bulk";
     if (el("bookingMode")) { el("bookingMode").value = mode; el("bookingMode").disabled = busy; }
-    el("bookingSharedFields").disabled = busy || (mode === "bulk" && hasCommittedRows());
+    el("bookingSharedFields").disabled = busy || (mode !== "single" && hasCommittedRows());
+    if (el("bookingVehicleCountControls")) el("bookingVehicleCountControls").hidden = mode === "bulk";
+    if (el("bookingVehicleCount")) {
+      el("bookingVehicleCount").value = mode === "multiple" ? rows.length || 1 : 1;
+      el("bookingVehicleCount").disabled = busy || hasCommittedRows();
+    }
+    if (el("applyVehicleCount")) el("applyVehicleCount").disabled = busy || hasCommittedRows();
     el("bulkBookingEditor").disabled = busy;
     el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy,common || snapshot(),getStore().businesses || [],SUPABASE_CONFIGURED,{client:role === "client",sourceName});
     el("bulkBookingResults").innerHTML = BulkBookingUI.summary(rows,busy);
     const button = document.querySelector('button[onclick="createBooking()"]');
     if (button) {
-      button.textContent = mode === "bulk" ? busy ? "Creating vehicle bookings…" : rows.length && rows.every(r=>r.status === "saved") ? "All vehicles booked" : rows.some(r=>r.status !== "editing") ? "Retry remaining vehicles" : "Create all vehicle bookings" : "Create Booking";
-      button.disabled = busy || (mode === "bulk" && (!rows.length || rows.every(r=>r.status === "saved")));
+      button.textContent = mode !== "single" ? busy ? "Creating vehicle bookings…" : rows.length && rows.every(r=>r.status === "saved") ? "All vehicles booked" : rows.some(r=>r.status !== "editing") ? "Retry remaining vehicles" : "Create all vehicle bookings" : "Create Booking";
+      button.disabled = busy || (mode !== "single" && (!rows.length || rows.every(r=>r.status === "saved")));
     }
     if (el("bulkNewBatch")) el("bulkNewBatch").disabled = busy;
     if (el("bulkExcelFile")) el("bulkExcelFile").disabled = busy || hasCommittedRows();
@@ -91,24 +99,27 @@
     if (!allowed()) return singleOnly();
     if (!el("bulkBookingPanel")) return;
     load();
-    el("bulkBookingPanel").innerHTML = BulkBookingUI.shell({client:role === "client",accountType:currentUser?.accountType}) + '<div class="actions"><button id="bulkNewBatch" type="button" class="btn secondary" onclick="BulkBooking.newBatch()">Start a new batch</button></div>';
-    if (common && mode === "bulk") {
+    el("bulkBookingPanel").innerHTML = BulkBookingUI.shell({client:role === "client",accountType:currentUser?.accountType,manual:mode === "multiple"}) + '<div class="actions"><button id="bulkNewBatch" type="button" class="btn secondary" onclick="BulkBooking.newBatch()">Start a new batch</button></div>';
+    if (common && mode !== "single") {
       for (const id of fieldIds) if (el(id)) el(id).value = common[id] ?? "";
       toggleCustomerTypeFields();
     }
     for (const id of fieldIds) {
+      const field=el(id);
+      if (!field || watchedFields.has(field)) continue;
+      watchedFields.add(field);
       const changed = () => {
-        if (mode !== "bulk" || busy || hasCommittedRows()) return;
+        if (mode === "single" || busy || hasCommittedRows()) return;
         common = snapshot(); persist(); draw();
       };
-      el(id)?.addEventListener("input",changed);
-      el(id)?.addEventListener("change",changed);
+      field.addEventListener("input",changed);
+      field.addEventListener("change",changed);
     }
     draw();
   }
   function refresh() {
     if (!allowed()) return singleOnly();
-    if (mode === "bulk" && !busy && !hasCommittedRows()) {
+    if (mode !== "single" && !busy && !hasCommittedRows()) {
       common = snapshot(); persist();
     }
     draw();
@@ -117,12 +128,41 @@
     if (!allowed()) return singleOnly();
     if (busy) return;
     load();
-    if (value !== "bulk" && hasCommittedRows() && rows.some(r=>r.status !== "saved")) {
+    if (value !== mode && hasCommittedRows() && rows.some(r=>r.status !== "saved")) {
       status("Finish or reconcile this batch first, or use Start a new batch. Saved bookings will not be deleted.");
       draw(); return;
     }
+    if (value === "multiple") return setVehicleCount(rows.length || 2);
     mode = value === "bulk" ? "bulk" : "single";
-    common = snapshot(); persist(); draw();
+    common = snapshot(); persist(); mount();
+  }
+  function needsVehicleCount() {
+    return allowed() && mode !== "bulk" && Number(el("bookingVehicleCount")?.value ?? 1) !== (mode === "multiple" ? rows.length : 1);
+  }
+  async function setVehicleCount(value = el("bookingVehicleCount")?.value) {
+    if (!allowed() || busy) return false;
+    load();
+    const count=Number(value), id=owner;
+    if (!Number.isInteger(count) || count<1 || count>100) {
+      status("Enter a whole number of vehicles from 1 to 100.");
+      if (typeof alert === "function") alert("Enter a whole number of vehicles from 1 to 100.");
+      return false;
+    }
+    if (hasCommittedRows()) {status("Finish this batch, then start a new batch to change the vehicle count.");draw();return false;}
+    if (rows.length>count && rows.slice(count).some(hasRowInput) &&
+      !await crmConfirm("Reducing the vehicle count will discard details for the last "+(rows.length-count)+" unsaved vehicles.","Change vehicle count","Discard those vehicle details")) {draw();return false;}
+    if (busy || owner!==id || userId()!==id) return false;
+    const previous={rows,mode,common,sourceName};
+    rows=rows.slice(0,count);
+    while(rows.length<count)rows.push(newRow());
+    if (previous.mode==="single" && !hasRowInput(rows[0])) {
+      rows[0].vehicle=el("veh")?.value.trim()||"";
+      rows[0].reg=el("reg")?.value.trim()||"";
+    }
+    mode="multiple"; common=snapshot();sourceName="";
+    if (!persist()) {({rows,mode,common,sourceName}=previous);return false;}
+    mount();status("Enter and review all "+count+" vehicles, then create their bookings. Nothing has been saved yet.");
+    return true;
   }
   function addRow() {
     if (!allowed() || busy || mode !== "bulk") return;
@@ -178,8 +218,9 @@
     if (rows.some(r=>r.status !== "saved" && hasRowInput(r)) &&
       !await crmConfirm("Discard the remaining unsaved vehicle rows? Any bookings already saved will remain.","Start a new batch","Discard unsaved rows")) return;
     if (busy) return;
-    rows = []; sourceName = ""; common = snapshot(); mode = "bulk";
-    persist(); draw(); status("New batch ready. Saved bookings from previous batches are unchanged.");
+    rows = []; sourceName = ""; common = snapshot();
+    if (mode === "multiple") rows.push(newRow()); else mode = "bulk";
+    persist(); mount(); status("New batch ready. Saved bookings from previous batches are unchanged.");
   }
   function number(value,label) {
     const n = Number(value || 0);
@@ -360,7 +401,7 @@
     return booking;
   }
   async function submit() {
-    if (busy || !allowed() || mode !== "bulk") return;
+    if (busy || !allowed() || mode === "single") return;
     load();
     const id = owner;
     const runGeneration = generation;
@@ -437,5 +478,5 @@
     generation++;
     owner = null; mode = "single"; rows = []; common = null; busy = false; sourceName = "";
   }
-  window.BulkBooking = {mount,setMode,addRow,updateRow,setOwnDetails,updateDetail,refresh,downloadTemplate,uploadFile,removeRow,newBatch,submit,clearSession,isActive:()=>mode === "bulk" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode === "bulk" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode === "bulk" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
+  window.BulkBooking = {mount,setMode,setVehicleCount,needsVehicleCount,addRow,updateRow,setOwnDetails,updateDetail,refresh,downloadTemplate,uploadFile,removeRow,newBatch,submit,clearSession,isActive:()=>mode !== "single" && allowed(),isBusy:()=>busy,hasUnsaved:()=>mode !== "single" && rows.some(r=>r.status!=="saved" && hasRowInput(r)),isComplete:()=>mode !== "single" && rows.length>0 && rows.every(r=>r.status==="saved"),prepare,normalReg};
 })();

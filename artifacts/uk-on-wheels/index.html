@@ -5225,7 +5225,8 @@ function drawBooking(c){
  const s=getStore();
  const bulkAvailable=role==="admin"||role==="staff"||(role==="client"&&currentUser?.accountType==="business");
  c.innerHTML=`<div class="panel booking-form"><h3>Create Booking</h3>
- ${bulkAvailable?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="bulk">Bulk vehicles (Excel)</option></select></label>`:""}
+ ${bulkAvailable?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="multiple">Multiple vehicles (enter details)</option><option value="bulk">Bulk vehicles (Excel)</option></select></label>
+ <div id="bookingVehicleCountControls" class="actions"><label class="booking-field" for="bookingVehicleCount"><span>Number of vehicles</span><input id="bookingVehicleCount" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></label><button type="button" id="applyVehicleCount" class="btn secondary" onclick="BulkBooking.setVehicleCount()">Apply vehicle count</button><span class="muted">Each vehicle gets its own booking reference. Charges are per vehicle.</span></div>`:""}
  ${bulkAvailable?`<p id="bulkSharedNotice" class="muted" hidden>Download the Business Excel template, enter one vehicle per row, upload and review, then save. Each vehicle receives its own booking reference and appears as a New Booked Vehicle.</p>`:""}
  <fieldset id="bookingSharedFields" class="form booking-fields">
   <legend class="booking-sr-only">Customer, vehicle and journey details</legend>
@@ -5320,6 +5321,7 @@ async function createBooking(){
  const button=document.querySelector('button[onclick="createBooking()"]');
  if(button)button.disabled=true;
  try{
+  if(window.BulkBooking?.needsVehicleCount())return await BulkBooking.setVehicleCount();
   if(typeof BulkBooking!=="undefined"&&BulkBooking.isActive())return await BulkBooking.submit();
   return await submitBooking();
  }
