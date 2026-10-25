@@ -7,7 +7,7 @@
     coords: null,            // {lat, lon}
     data: null, error: "", loading: false, stale: false,
     searching: false, results: null, searchError: "", query: "",
-    showSearch: false, expanded: false, geoMsg: "", geoBusy: false,
+    showSearch: false, expanded: false, detailsOpen: false, geoMsg: "", geoBusy: false,
     started: false, reqId: 0, searchId: 0, geoId: 0, ctrl: null, sctrl: null, timer: null
   };
   var root = null;
@@ -138,6 +138,17 @@
 
   function html(){
     var d = S.data, wx = d && d.weather, place = d && d.place;
+    var warnings = d && d.warnings, items = warnings && Array.isArray(warnings.items) ? warnings.items : [];
+    var severity = items.some(function(i){ return i.level === "red"; }) ? "red" : items.some(function(i){ return i.level === "amber"; }) ? "amber" : "yellow";
+    var alertText = warnings ? warnings.status !== "ok" ? "Alerts unchecked" : items.length ? items.length + " alert" + (items.length === 1 ? "" : "s") : "No regional alerts" : "";
+    if(S.stale) alertText = "Alerts may be outdated";
+    var summary = '<button type="button" id="lw-summary" class="lw-summary" data-lw="details" aria-expanded="' + S.detailsOpen + '" aria-controls="lw-details">' +
+      '<svg class="lw-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 20 11a3.5 3.5 0 0 1-1.5 7Z"/></svg>' +
+      '<span class="lw-summary-city" title="' + esc(place ? place.label : "Local weather") + '">' + esc(place ? place.name : "Weather") + '</span>' +
+      (wx ? '<strong class="lw-summary-temp">' + Math.round(wx.temperatureC) + '\u00B0C</strong><span class="lw-summary-condition">' + esc(wx.condition) + '</span>' :
+        '<span class="lw-summary-state">' + (S.geoBusy ? "Locating\u2026" : S.loading ? "Loading\u2026" : S.error ? "Unavailable" : d ? "Weather unavailable" : "Choose city") + '</span>') +
+      (alertText ? '<span class="lw-badge lw-badge-' + (S.stale || warnings.status !== "ok" ? "unknown" : items.length ? severity : "clear") + '">' + esc(alertText) + '</span>' : '') +
+      '<span class="lw-summary-chevron" aria-hidden="true">' + (S.detailsOpen ? '\u2303' : '\u2304') + '</span><span class="lw-sr">Weather details</span></button>';
     var status = S.loading ? (d ? "Refreshing\u2026" : "Loading weather\u2026") : S.geoBusy ? "Finding your location\u2026" : "";
     var top = '<div class="lw-head"><div class="lw-title"><span class="lw-eyebrow">Local weather' + (S.mode === "gps" ? " \u00B7 your location" : S.mode === "manual" ? " \u00B7 chosen place" : "") + '</span>' +
       (place ? '<strong title="' + esc(place.label) + '">' + esc(place.label || place.name) + '</strong>' : '<strong>Choose a location</strong>') + '</div>' +
@@ -167,7 +178,9 @@
       }).join("") + '</ul>';
     }
     var attr = '<p class="lw-attr">Weather <a href="https://www.met.no/en" target="_blank" rel="noopener noreferrer">MET Norway</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>, values rounded and wind converted) \u00B7 Places \u00A9 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a> \u00B7 Warnings <a href="https://www.metoffice.gov.uk/" target="_blank" rel="noopener noreferrer">Met Office</a></p>';
-    return top + '<div class="lw-status" aria-live="polite" role="status">' + esc(status) + '</div>' + form + '<div class="lw-body" aria-busy="' + S.loading + '">' + body + '</div>' + attr;
+    return summary + '<div id="lw-details" class="lw-popover" role="region" aria-label="Weather details"' + (S.detailsOpen ? '' : ' hidden') + '>' +
+      '<div class="lw-detail-heading"><strong>Local weather &amp; alerts</strong><button type="button" class="lw-btn" data-lw="close" aria-label="Close weather details">Close</button></div>' +
+      top + '<div class="lw-status" aria-live="polite" role="status">' + esc(status) + '</div>' + form + '<div class="lw-body" aria-busy="' + S.loading + '">' + body + '</div>' + attr + '</div>';
   }
 
   function paint(){
@@ -183,7 +196,9 @@
     root.addEventListener("click", function(e){
       var b = e.target.closest("[data-lw]"); if(!b || b.tagName === "FORM") return;
       var a = b.getAttribute("data-lw");
-      if(a === "locate") geolocate(true);
+      if(a === "details"){ S.detailsOpen = !S.detailsOpen; paint(); }
+      else if(a === "close"){ S.detailsOpen = false; paint(); root.querySelector("#lw-summary")?.focus(); }
+      else if(a === "locate") geolocate(true);
       else if(a === "toggle"){ S.showSearch = !S.showSearch; paint(); if(S.showSearch){ var i = root.querySelector("#lw-q"); if(i) i.focus(); } }
       else if(a === "refresh"){ if(S.mode === "gps") geolocate(false); else load(); }
       else if(a === "expand"){ S.expanded = !S.expanded; paint(); }
@@ -191,6 +206,8 @@
     });
     root.addEventListener("submit", function(e){ e.preventDefault(); var i = root.querySelector("#lw-q"); search(i ? i.value : ""); });
     root.addEventListener("input", function(e){ if(e.target.id === "lw-q") S.query = e.target.value; });
+    document.addEventListener("click", function(e){ if(S.detailsOpen && root && !root.contains(e.target)){ S.detailsOpen = false; paint(); } });
+    document.addEventListener("keydown", function(e){ if(e.key === "Escape" && S.detailsOpen){ S.detailsOpen = false; paint(); root.querySelector("#lw-summary")?.focus(); } });
   }
 
   window.LocalWeather = {
