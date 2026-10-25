@@ -407,7 +407,12 @@
   async function lookup(booking,id) {
     assertOwner(id);
     if (!SUPABASE_CONFIGURED) return getStore().bookings.find(b=>b.ref === booking.ref) || null;
-    const {data,error} = await sb.from("bookings").select("id,reference,vehicle_registration,created_by").eq("reference",booking.ref).maybeSingle();
+    const query = sb.from("bookings").select("id,reference,booking_request_reference,vehicle_registration,created_by");
+    // Only interpolate generated, strictly validated UUID draft keys into OR.
+    const byReference = /^UKOW-[0-9]{4}-[A-F0-9]{32}$/.test(booking.ref)
+      ? query.or("reference.eq."+booking.ref+",booking_request_reference.eq."+booking.ref)
+      : query.eq("reference",booking.ref);
+    const {data,error} = await byReference.maybeSingle();
     assertOwner(id);
     if (error) throw new Error("Could not verify whether this vehicle is already saved: "+error.message);
     if (data && (data.created_by !== id || normalReg(data.vehicle_registration) !== normalReg(booking.reg))) throw new Error("This reference belongs to a different booking. Contact Admin; do not submit this row again.");
@@ -426,7 +431,7 @@
         saved = result.data;
       } else saved = await createLinkedBooking(booking,booking.ref);
       assertOwner(id);
-      if (!saved?.id || saved.reference !== booking.ref) throw new Error("The server did not confirm this vehicle's booking reference.");
+      if (!saved?.id || (saved.reference !== booking.ref && saved.booking_request_reference !== booking.ref)) throw new Error("The server did not confirm this vehicle's booking reference.");
       return saved;
     }
     const s = getStore();
@@ -462,6 +467,7 @@
           const existing = await lookup(booking,id);
           if (existing) {
             row.status = "saved"; row.message = "Previously saved booking recovered.";
+            row.reference = existing.reference || existing.ref;
             row.bookingId = existing.id; persist(); draw(); continue;
           }
         } catch (e) {
@@ -473,12 +479,14 @@
         draw();
         try {
           const saved = await saveOne(booking,id);
+          row.reference = saved.reference || saved.ref;
           row.status = "saved"; row.bookingId = saved.id; row.message = "Booking saved.";
         } catch (e) {
           assertOwner(id);
           try {
             const recovered = await lookup(booking,id);
             row.status = recovered ? "saved" : "failed";
+            if (recovered) row.reference = recovered.reference || recovered.ref;
             row.bookingId = recovered?.id;
             row.message = recovered ? "Booking saved; confirmation recovered." : e.message;
           } catch (checkError) {

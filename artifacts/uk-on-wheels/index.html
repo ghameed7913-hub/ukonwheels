@@ -5419,7 +5419,7 @@ async function submitBooking(){
    if(error)return alert("Booking could not be shared with the operations team: "+error.message);
    submitBooking.clientDraft=null;
    await loadNormalizedPortalData();
-   alert("Booking created successfully. Admin and authorised Staff can now see it.");
+   alert("Booking created successfully: "+data.reference+". Admin and authorised Staff can now see it.");
    page="clientBookings";render();return;
   }
    if(SUPABASE_CONFIGURED&&currentSession){

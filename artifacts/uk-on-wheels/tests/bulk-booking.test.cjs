@@ -34,16 +34,20 @@ function setup(options = {}) {
     },
     sb:{from:table=>{
       assert.equal(table,"bookings");
+      const result=ref=>({maybeSingle:async()=>lookupFails ? {error:{message:"Lookup offline"}} : {data:saved.get(ref)||[...saved.values()].find(b=>b.reference===ref)||null}});
       return {select:()=>({eq:(field,ref)=>{
         assert.equal(field,"reference");
-        return {maybeSingle:async()=>lookupFails ? {error:{message:"Lookup offline"}} : {data:saved.get(ref)||null}};
+        return result(ref);
+      },or:expression=>{
+        assert.match(expression,/^reference\.eq\.(UKOW-[0-9]{4}-[A-F0-9]{32}),booking_request_reference\.eq\.\1$/);
+        return result(expression.split(",")[0].slice("reference.eq.".length));
       }})};
     }},
     createLinkedBooking:async(booking,ref)=>{
       calls.push({booking:JSON.parse(JSON.stringify(booking)),ref});
       if (calls.length===failRow) throw new Error("RPC rejected this vehicle");
       assert.equal(saved.has(ref),false,"must not try to create an existing booking");
-      const record={id:"id-"+saved.size,reference:ref,vehicle_registration:booking.reg,created_by:"admin-test"};
+      const record={id:"id-"+saved.size,reference:options.shortReferences?"UKOW"+String(saved.size+1).padStart(5,"0"):ref,...(options.shortReferences?{booking_request_reference:ref}:{}),vehicle_registration:booking.reg,created_by:"admin-test"};
       saved.set(ref,record);
       if(loseResponse){loseResponse=false;throw new Error("Response was lost");}
       return record;
@@ -69,6 +73,35 @@ function setup(options = {}) {
     failAt:n=>{failRow=n;},loseNext:()=>{loseResponse=true;},lookupFail:value=>{lookupFails=value;},
     blockStorage:()=>{writesBlocked=true;},failRefresh:()=>{refreshFails=true;},cancel:()=>{confirmation=false;}};
 }
+
+test("bulk shows canonical short references and recovers a lost response with the internal draft key",async()=>{
+  const s=setup({shortReferences:true});
+  s.fill(0);s.fill(1);
+  const keys=s.state().rows.map(r=>r.reference);
+  s.loseNext();
+  await s.api.submit();
+  assert.equal(s.state().rows[0].reference,"UKOW00001");
+  await s.api.submit(); // The existing safety rule stops after a recovered response.
+  assert.equal(s.calls.length,2);
+  assert.deepEqual(s.state().rows.map(r=>r.reference),["UKOW00001","UKOW00002"]);
+  assert.ok(s.state().rows.every(r=>r.status==="saved"));
+  assert.equal(s.saved.get(keys[0]).reference,"UKOW00001");
+  assert.match(s.fields.bulkBookingResults.innerHTML,/UKOW00001/);
+  assert.doesNotMatch(s.fields.bulkBookingResults.innerHTML,/UKOW-\d{4}-[A-F0-9]{32}/);
+  await s.api.submit();
+  assert.equal(s.calls.length,2,"Saved canonical references are never resubmitted");
+});
+
+test("short-reference recovery survives a refreshed draft after partial save",async()=>{
+  const s=setup({shortReferences:true});
+  s.fill(0);s.fill(1);s.failAt(2);
+  await s.api.submit();
+  assert.equal(s.state().rows[0].reference,"UKOW00001");
+  const restored=setup({shortReferences:true,stored:s.stored,saved:s.saved,restore:true});
+  await restored.api.submit();
+  assert.equal(restored.calls.length,1);
+  assert.deepEqual(restored.state().rows.map(r=>r.reference),["UKOW00001","UKOW00002"]);
+});
 
 test("registration repeats are scoped to saved customer/branch, not globally or by status",async()=>{
   const s=setup();
