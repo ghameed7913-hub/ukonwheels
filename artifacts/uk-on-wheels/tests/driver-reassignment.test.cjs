@@ -213,9 +213,66 @@ test("Admin status and dashboard lists place the shortcut beside each vehicle", 
   vm.runInContext(part("function drawStatusPage(", "function viewStatusBooking("), s.c);
   vm.runInContext(part("function showTab(", "function mergeSavedBusinesses("), s.c);
   s.c.drawStatusPage(s.fields.content);
-  assert.match(s.fields.content.innerHTML, /<td>Ready car<div[^>]*><button[^>]*>Assign Driver<\/button><\/div><\/td>/);
+  assert.match(s.fields.content.innerHTML, /<td>Ready car<div[^>]*><button[^>]*>Assign Driver<\/button><select/);
   s.c.showTab("New Booked Vehicle");
-  assert.match(s.c.tabarea.innerHTML, /<td>Ready car<div[^>]*><button[^>]*>Assign Driver<\/button><\/div><\/td>/);
+  assert.match(s.c.tabarea.innerHTML, /<td>Ready car<div[^>]*><button[^>]*>Assign Driver<\/button><select/);
+});
+
+function inlineButton(s, value = "driver-new") {
+  const select = { value, disabled: false, isConnected: true };
+  const button = { disabled: false, isConnected: true, parentElement: { querySelector: () => select } };
+  s.c.showTab = status => { s.refreshedStatus = status; };
+  return { button, select };
+}
+
+test("Ready vehicle has an active Driver dropdown and initially disabled Confirm", () => {
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null });
+  const output = s.c.bookingDriverAssignmentButton(s.booking);
+  assert.match(output, /aria-label="Select Driver for TEST-ASSIGN"/);
+  assert.match(output, /value="driver-new"/);
+  assert.doesNotMatch(output, /value="driver-inactive"/);
+  assert.match(output, /data-confirm-driver[^>]*disabled[^>]*>Confirm/);
+  assert.match(output, /disabled=!this.value/);
+  s.profiles.splice(0);
+  assert.match(s.c.bookingDriverAssignmentButton(s.booking), /No active Drivers available/);
+});
+
+test("Inline Confirm saves its own selected Driver and refreshes the New Booked list", async () => {
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null, driverNotes: "Keep these instructions" });
+  delete s.fields["driverNotes_TEST-ASSIGN"];
+  s.fields["driver_TEST-ASSIGN"].value = "driver-inactive";
+  const { button, select } = inlineButton(s);
+  await s.c.assignSpecificDriver("TEST-ASSIGN", button);
+  assert.equal(s.calls[0].args.p_driver_id, "driver-new");
+  assert.equal(s.calls[0].args.p_notes, "Keep these instructions");
+  assert.equal(s.booking.status, "Driver Assigned");
+  assert.equal(s.booking.driver, "Next Driver");
+  assert.equal(s.refreshedStatus, "New Booked Vehicle");
+  assert.equal(select.disabled, false);
+});
+
+test("Inline failure keeps selection and does not claim assignment was saved", async () => {
+  const s = setup("New Booked Vehicle", { driver: "", _driverId: null });
+  s.fail({ message: "Connection lost" });
+  const { button, select } = inlineButton(s);
+  await s.c.assignSpecificDriver("TEST-ASSIGN", button);
+  assert.equal(s.booking.status, "New Booked Vehicle");
+  assert.equal(s.booking.driver, "");
+  assert.equal(select.value, "driver-new");
+  assert.equal(button.disabled, false);
+  assert.match(s.alerts.at(-1), /failed.*Connection lost/);
+});
+
+test("Inline Confirm rejects missing selection, inactive Driver, and stale assigned booking", async () => {
+  for (const value of ["", "driver-inactive"]) {
+    const s = setup("New Booked Vehicle", { driver: "", _driverId: null });
+    await s.c.assignSpecificDriver("TEST-ASSIGN", inlineButton(s, value).button);
+    assert.equal(s.calls.length, 0);
+  }
+  const s = setup("Picked Up");
+  await s.c.assignSpecificDriver("TEST-ASSIGN", inlineButton(s).button);
+  assert.equal(s.calls.length, 0);
+  assert.match(s.alerts.at(-1), /no longer waiting/);
 });
 
 test("SQL protects Delivered jobs under a row lock, preserves status, and never deletes evidence", () => {
