@@ -7,6 +7,7 @@ var CLS={editing:"",saving:"amber",saved:"green",failed:"red",uncertain:"amber"}
 function shell(context){
  var client=!!(context&&context.client);
  if(client&&context.accountType!=="business")return "";
+ if(context&&context.manual)return '<div class="bulk-wrap"><div class="bulk-intro"><b>Vehicle details</b><p class="muted">Enter every vehicle below. Customer and journey details above apply to all vehicles unless you select separate details for a vehicle. Each has its own charge, booking reference and Driver assignment.</p></div><fieldset id="bulkBookingEditor" class="bulk-editor"><legend class="bulk-sr">Vehicles to book</legend><div id="bulkVehicleRows" class="bulk-rows"></div></fieldset><p id="bulkBookingStatus" class="bulk-status muted" role="status" aria-live="polite"></p><div id="bulkBookingResults" class="bulk-results"></div></div>';
  var downloads='<button type="button" class="btn secondary bulk-dl" onclick="BulkBooking.downloadTemplate(\'Business\')">Download Business Excel</button>';
  return '<div class="bulk-wrap">'+
  '<div class="bulk-intro"><b>Bulk booking from Excel</b><p class="muted">One spreadsheet row per vehicle. Each vehicle is saved as its own booking with its own reference in New Booked Vehicle.'+(client?' Bookings are made for your own account; Operations sets charges.':'')+'</p></div>'+

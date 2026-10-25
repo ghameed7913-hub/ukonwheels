@@ -11,7 +11,7 @@ const html = fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
 function setup(options = {}) {
   const stored = options.stored || new Map(), saved = options.saved || new Map(), calls = [], rpcCalls=[];
   const fields = {};
-  for (const id of ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
+  for (const id of ["bookingVehicleCount","bookingVehicleCountControls","applyVehicleCount","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
     fields[id] = {value:"",innerHTML:"",textContent:"",disabled:false,isConnected:true,addEventListener() {}};
   }
   const shared = {customerType:"Business",biz:"business-1",pickup:"Collection A",dest:"Delivery B",service:"Vehicle Delivery",miles:"40",amount:"100",receiver:"Test Receiver",mobile:"07000000000",notes:"Handle carefully",dropoff:"18:00"};
@@ -58,7 +58,7 @@ function setup(options = {}) {
     if(options.rpcMissing)return {error:{code:"PGRST202",message:"Function missing"}};
     return {data:await context.createLinkedBooking(payload.p_booking,payload.p_reference)};
   };
-  api.mount(); api.setMode("bulk");
+  api.mount(); if(!options.restore)api.setMode("bulk");
   if(!options.empty && JSON.parse(stored.get("ukow-bulk-booking:admin-test")||"{}").rows?.length===0){api.addRow();api.addRow();}
   const state=()=>JSON.parse(stored.get("ukow-bulk-booking:admin-test")||"null");
   const fill=(index,values={})=>{
@@ -69,6 +69,76 @@ function setup(options = {}) {
     failAt:n=>{failRow=n;},loseNext:()=>{loseResponse=true;},lookupFail:value=>{lookupFails=value;},
     blockStorage:()=>{writesBlocked=true;},failRefresh:()=>{refreshFails=true;},cancel:()=>{confirmation=false;}};
 }
+
+test("vehicle count opens manual rows, keeps initial vehicle and saves separate references and charges",async()=>{
+  const s=setup({empty:true});
+  s.api.setMode("single");
+  s.fields.veh.value="Ford Focus";s.fields.reg.value="AB10 CDE";
+  s.fields.bookingVehicleCount.value="3";
+  assert.equal(s.api.needsVehicleCount(),true);
+  assert.equal(await s.api.setVehicleCount(),true);
+  assert.equal(s.state().mode,"multiple");
+  assert.equal(s.state().rows.length,3);
+  assert.equal(s.state().rows[0].vehicle,"Ford Focus");
+  assert.equal(s.fields.bookingSharedFields.hidden,false);
+  assert.equal(s.fields.singleVehicleFields.hidden,true);
+  assert.match(s.fields.bulkBookingPanel.innerHTML,/Vehicle details/);
+  assert.doesNotMatch(s.fields.bulkBookingPanel.innerHTML,/Choose Excel file/);
+  assert.equal(s.api.needsVehicleCount(),false);
+  s.fill(1,{amount:"175"});s.fill(2);
+  const row=s.state().rows[2];
+  s.api.setOwnDetails(row.id,true);
+  s.api.updateDetail(row.id,"dest","Separate destination");
+  await s.api.submit();
+  assert.equal(s.saved.size,3);
+  assert.equal(new Set(s.calls.map(c=>c.ref)).size,3);
+  assert.deepEqual(s.calls.map(c=>c.booking.amount),[100,175,100]);
+  assert.equal(s.calls[2].booking.destination,"Separate destination");
+  assert.ok(s.calls.every(c=>c.booking.status==="New Booked Vehicle"));
+  assert.equal(s.fields.bookingVehicleCount.disabled,true);
+  await s.api.submit();
+  assert.equal(s.calls.length,3,"Saved vehicles must not be created twice");
+});
+
+test("manual vehicle count validates bounds and protects entered and committed rows",async()=>{
+  const s=setup({empty:true});
+  for(const n of ["",0,-1,1.5,101,"no"])assert.equal(await s.api.setVehicleCount(n),false);
+  await s.api.setVehicleCount(3);
+  s.fill(0);s.fill(1);s.fill(2);
+  s.cancel();
+  assert.equal(await s.api.setVehicleCount(2),false);
+  assert.equal(s.state().rows.length,3);
+  s.failAt(2);
+  await s.api.submit();
+  assert.equal(s.saved.size,1);
+  assert.equal(await s.api.setVehicleCount(4),false);
+  assert.equal(s.state().rows.length,3);
+  s.failAt(0);
+  await s.api.submit();
+  assert.equal(s.saved.size,3);
+});
+
+test("manual vehicle drafts restore after refresh and private Clients stay single-only",async()=>{
+  const s=setup({empty:true});
+  await s.api.setVehicleCount(2);s.fill(0);s.fill(1);
+  const fresh=setup({empty:true,stored:s.stored,saved:s.saved,restore:true});
+  assert.equal(fresh.state().mode,"multiple");
+  assert.equal(fresh.fields.bookingSharedFields.hidden,false);
+  assert.match(fresh.fields.bulkVehicleRows.innerHTML,/Ford Focus/);
+  const p=setup({empty:true,role:"client",user:{name:"Private",accountType:"private"}});
+  assert.equal(await p.api.setVehicleCount(2),false);
+  assert.equal(p.api.isActive(),false);
+});
+
+test("Business Clients can enter multiple vehicles but cannot set charges or change ownership",async()=>{
+  const s=setup({empty:true,role:"client",user:{name:"Test Motors",businessId:"business-1",accountType:"business"}});
+  s.fields.amount.value="";
+  await s.api.setVehicleCount(2);s.fill(0);s.fill(1);
+  await s.api.submit();
+  assert.equal(s.rpcCalls.length,2);
+  assert.ok(s.rpcCalls.every(c=>c.name==="client_create_bulk_booking"&&c.payload.p_booking._businessId==="business-1"&&c.payload.p_booking.amount===0));
+  assert.equal(s.saved.size,2);
+});
 
 test("Excel correction badges and repaired phone warnings stay visible and editable before saving",async()=>{
   const s=setup({empty:true});
