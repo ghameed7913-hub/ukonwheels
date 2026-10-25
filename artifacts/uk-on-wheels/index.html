@@ -2093,7 +2093,7 @@ function openBookingFromRow(ref){
 }
 async function editBooking(ref){
  const s=getStore(),b=s.bookings.find(x=>x.ref===ref);if(!b)return;
- const values=await crmDialog({title:`Edit Booking · ${b.ref}`,message:"Update the transport record. Changes are recorded in the activity timeline.",confirmText:"Save booking",fields:[
+ const values=await crmDialog({title:`Edit Booking · ${b.ref}`,message:"Amount and destination changes require Admin approval. If you change either, only those proposals will be submitted; save other edits separately. Other booking edits are recorded in the activity timeline.",confirmText:"Save / request approval",fields:[
   {name:"vehicle",label:"Vehicle",value:b.vehicle||""},{name:"reg",label:"Registration",value:b.reg||""},
   {name:"pickup",label:"Collection Address",value:b.pickup||"",full:true},{name:"destination",label:"Delivery Address",value:b.destination||"",full:true},
   {name:"service",label:"Service",value:b.service||"Vehicle Delivery"},{name:"miles",label:"Miles",type:"number",value:b.miles||0},
@@ -2103,6 +2103,12 @@ async function editBooking(ref){
  ]});
  if(!values)return;
  if(!values.vehicle.trim()||!values.reg.trim()||!values.pickup.trim()||!values.destination.trim())return alert("Vehicle, registration, collection and delivery are required.");
+ if(Number(values.amount)!==Number(b.amount||0)||values.destination.trim()!==(b.destination||"")){
+  if(await requestBookingChange(b,{amount:Number(values.amount),destination:values.destination.trim()},"Amount / destination change from Edit Booking")){
+   alert("Amount / destination changes submitted for Admin approval. The current booking is unchanged. Other edits in this dialog were not saved; reopen Edit Booking to save them separately.");
+  }
+  return;
+ }
  if(SUPABASE_CONFIGURED&&b._normalizedId){
   const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_vehicle_make:values.vehicle.trim(),p_vehicle_registration:values.reg.trim().toUpperCase(),p_pickup_address:values.pickup.trim(),p_destination_address:values.destination.trim(),p_service_type:values.service.trim(),p_miles:Number(values.miles||0),p_booking_date:values.bookingDate||null,p_requested_delivery_date:values.deliveryDate||null,p_receiver_name:values.receiver.trim(),p_receiver_mobile:values.receiverMobile.trim(),p_amount:Number(values.amount||0),p_payment_status:values.paymentStatus});
   if(error)return alert("Booking could not be updated: "+error.message);
@@ -3585,7 +3591,8 @@ function lookupBookingForUpdate(field,title){
   <div style="margin-top:16px;padding:15px;border:1px solid var(--line);border-radius:10px;background:#f9fbfe">
    <h4 style="margin-top:0">${title}</h4>
    <div class="form"><div><label><b>Current Value</b></label><input value="${currentValue}" disabled></div><div><label><b>${label}</b></label><input id="manualNewValue" type="${inputType}" ${step} value="${currentValue}"></div></div>
-   <div class="actions"><button class="btn primary" id="manualSaveBtn">Save Update</button><button class="btn secondary" id="manualCancelBtn">Cancel</button></div>
+   <p class="muted">${field==="amount"||field==="destination"?"Amount and destination changes require Admin approval. The current booking stays unchanged until approved.":""}</p>
+   <div class="actions"><button class="btn primary" id="manualSaveBtn">${field==="amount"||field==="destination"?"Submit for Approval":"Save Update"}</button><button class="btn secondary" id="manualCancelBtn">Cancel</button></div>
   </div></div>`;
  const saveBtn=document.getElementById("manualSaveBtn");
  const cancelBtn=document.getElementById("manualCancelBtn");
@@ -3603,6 +3610,13 @@ async function confirmManualUpdate(ref,field,title){
  const oldValue=field==="miles"?(b.miles||0):field==="amount"?(b.amount||0):(b.destination||"");
  const newValue=(field==="miles"||field==="amount")?Number(raw):raw.trim();
  if((field==="miles"||field==="amount")&&!Number.isFinite(newValue))return alert("Please enter a valid number.");
+ if(field==="amount"||field==="destination"){
+  if(await requestBookingChange(b,{[field]:newValue},title)){
+   alert("Change submitted for Admin approval. The current booking has not changed.");
+   lookupBookingForUpdate(field,title);
+  }
+  return;
+ }
  if(!await crmConfirm(`Current: ${oldValue}\nNew: ${newValue}`,`${title} · ${ref}`,"Save change"))return;
  if(b._normalizedId&&SUPABASE_CONFIGURED){
   const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_miles:field==="miles"?newValue:null,p_amount:field==="amount"?newValue:null,p_destination_address:field==="destination"?newValue:null});
@@ -5049,7 +5063,7 @@ function bookingSummaryTable(b){
 
 function drawAmountUpdate(c){
  c.innerHTML=`<div class="panel"><h2>Update Amount</h2>
- <p class="muted">Enter the Booking Reference and press Enter or Find Booking.</p>
+ <p class="muted">Enter the Booking Reference and press Enter or Find Booking. Proposed amounts require Admin approval; the saved booking charge stays unchanged until approved.</p>
  <input id="amountRef" placeholder="Example: BK00129" style="width:100%;padding:13px;border:1px solid var(--line);border-radius:8px;text-transform:uppercase">
  <div class="actions"><button class="btn primary" onclick="lookupAmountBooking()">Find Booking</button></div></div>
  <div id="amountResult"></div>`;
@@ -5066,31 +5080,25 @@ function lookupAmountBooking(){
  <div style="margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f9fbfe">
  <div class="form"><div><label><b>Current Amount</b></label><input value="£${Number(b.amount||0).toFixed(2)}" disabled></div>
  <div><label><b>New Amount (£)</b></label><input id="newAmountValue" type="number" min="0" step="0.01" value="${Number(b.amount||0).toFixed(2)}"></div></div>
- <div class="actions"><button class="btn primary" onclick="saveAmountUpdate('${b.ref}')">Save New Amount</button></div></div></div>`;
+ <p class="muted">The booking charge remains £${Number(b.amount||0).toFixed(2)} until Admin approves your proposed amount.</p>
+ <div class="actions"><button class="btn primary" onclick="saveAmountUpdate('${b.ref}')">Submit Amount for Approval</button></div></div></div>`;
 }
 
 async function saveAmountUpdate(ref){
  let s=getStore(), b=s.bookings.find(x=>String(x.ref).toUpperCase()===String(ref).toUpperCase());
  const el=document.getElementById("newAmountValue");
  if(!b||!el)return alert("Unable to update amount.");
- const value=Number(el.value);
+ const value=el.value.trim()===""?NaN:Number(el.value);
  if(!Number.isFinite(value)||value<0)return alert("Please enter a valid amount.");
- const old=Number(b.amount||0);
- if(!await crmConfirm(`Current: £${old.toFixed(2)}\nNew: £${value.toFixed(2)}`,`Update amount · ${b.ref}`,"Save amount"))return;
- if(b._normalizedId&&SUPABASE_CONFIGURED){const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_amount:value});if(error)return alert("Amount could not be updated in Supabase: "+error.message)}
- b.amount=value;
- b.timeline=b.timeline||[];
- b.timeline.unshift({title:"Amount Updated",text:`Amount changed from £${old.toFixed(2)} to £${value.toFixed(2)} at ${new Date().toLocaleString()}`});
- s.notifications=s.notifications||[];
- s.notifications.unshift({title:"Amount Updated",text:`${b.ref} amount changed to £${value.toFixed(2)}.`});
- saveStore(s);
- alert("Amount updated successfully.");
- lookupAmountBooking();
+ if(await requestBookingChange(b,{amount:value},"Update Amount")){
+  alert("Amount submitted for Admin approval. The current charge has not changed.");
+  lookupAmountBooking();
+ }
 }
 
 function drawDestinationUpdate(c){
  c.innerHTML=`<div class="panel"><h2>Update Destination</h2>
- <p class="muted">Enter the Booking Reference and press Enter or Find Booking.</p>
+ <p class="muted">Enter the Booking Reference and press Enter or Find Booking. Proposed destinations require Admin approval; the saved delivery address stays unchanged until approved.</p>
  <input id="destinationRef" placeholder="Example: BK00129" style="width:100%;padding:13px;border:1px solid var(--line);border-radius:8px;text-transform:uppercase">
  <div class="actions"><button class="btn primary" onclick="lookupDestinationBooking()">Find Booking</button></div></div>
  <div id="destinationResult"></div>`;
@@ -5107,7 +5115,8 @@ function lookupDestinationBooking(){
  <div style="margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f9fbfe">
  <div class="form"><div><label><b>Current Destination</b></label><input value="${b.destination||""}" disabled></div>
  <div><label><b>New Destination</b></label><input id="newDestinationValue" type="text" value="${b.destination||""}" placeholder="Enter new delivery address"></div></div>
- <div class="actions"><button class="btn primary" onclick="saveDestinationUpdate('${b.ref}')">Save New Destination</button></div></div></div>`;
+ <p class="muted">The current destination stays in use until Admin approves your proposed address.</p>
+ <div class="actions"><button class="btn primary" onclick="saveDestinationUpdate('${b.ref}')">Submit Destination for Approval</button></div></div></div>`;
 }
 
 async function saveDestinationUpdate(ref){
@@ -5116,17 +5125,10 @@ async function saveDestinationUpdate(ref){
  if(!b||!el)return alert("Unable to update destination.");
  const value=el.value.trim();
  if(!value)return alert("Please enter the new destination.");
- const old=b.destination||"";
- if(!await crmConfirm(`Current: ${old}\nNew: ${value}`,`Update destination · ${b.ref}`,"Save destination"))return;
- if(b._normalizedId&&SUPABASE_CONFIGURED){const {error}=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_destination_address:value});if(error)return alert("Destination could not be updated in Supabase: "+error.message)}
- b.destination=value;
- b.timeline=b.timeline||[];
- b.timeline.unshift({title:"Destination Updated",text:`Destination changed from "${old}" to "${value}" at ${new Date().toLocaleString()}`});
- s.notifications=s.notifications||[];
- s.notifications.unshift({title:"Destination Updated",text:`${b.ref} destination changed to ${value}.`});
- saveStore(s);
- alert("Destination updated successfully.");
- lookupDestinationBooking();
+ if(await requestBookingChange(b,{destination:value},"Update Destination")){
+  alert("Destination submitted for Admin approval. The current address has not changed.");
+  lookupDestinationBooking();
+ }
 }
 
 
@@ -5854,7 +5856,7 @@ function currentApproverRole(){
  return role;
 }
 function canApproveUpdates(){
- return role==="admin"||(role==="staff"&&hasPermission("status"));
+ return role==="admin";
 }
 function drawSingleBookingUpdate(c){
  const s=ensureApprovalData();
@@ -5907,11 +5909,9 @@ function findSingleBookingUpdate(){
   ${(b.approvalHistory||[]).slice().reverse().map(h=>`<div class="event"><b>${h.action}</b><div class="muted">Requested by ${h.requestedBy||"—"} at ${h.requestedAt||"—"} · Approved by ${h.approvedBy||"Pending"} ${h.approvedAt?"at "+h.approvedAt:""}</div><div>${h.summary||""}</div></div>`).join("")||"<p class='muted'>No approval history yet.</p>"}
  </div>`;
 }
-function submitSingleBookingUpdate(ref){
+async function submitSingleBookingUpdate(ref){
  let s=ensureApprovalData(),b=s.bookings.find(x=>x.ref===ref);
  if(!b)return;
- const requestedBy=currentUser?.name||currentStaffUser?.name||"User";
- const requestedRole=currentApproverRole();
  const changes={
   status:document.getElementById("suStatus").value,
   miles:Number(document.getElementById("suMiles").value||0),
@@ -5919,26 +5919,39 @@ function submitSingleBookingUpdate(ref){
   destination:document.getElementById("suDestination").value.trim()
  };
  const reason=document.getElementById("suReason").value.trim();
- const req={
-  id:"UPD-"+Date.now(),
-  bookingRef:ref,
-  requestedBy,
-  requestedRole,
-  requestedAt:new Date().toLocaleString(),
-  changes,
-  previous:{status:b.status,miles:b.miles||0,amount:b.amount||0,destination:b.destination||""},
-  reason,
-  status:"Pending Approval"
- };
- s.updateRequests.push(req);
- b.lastUpdatedBy=requestedBy;
- b.lastUpdatedAt=req.requestedAt;
- b.approvalHistory=b.approvalHistory||[];
- b.approvalHistory.push({action:"Update Requested",requestedBy,requestedAt:req.requestedAt,summary:`Status ${b.status} → ${changes.status}; Miles ${b.miles||0} → ${changes.miles}; Amount £${Number(b.amount||0).toFixed(2)} → £${changes.amount.toFixed(2)}; Destination ${b.destination||""} → ${changes.destination}`});
- s.notifications.unshift({title:"Update Approval Required",text:`${ref} update requested by ${requestedBy}.`});
- saveStore(s);
- alert("Update submitted for approval.");
- findSingleBookingUpdate();
+ if(await requestBookingChange(b,changes,reason)){
+  alert("Changes submitted for Admin approval. The current booking has not changed.");
+  findSingleBookingUpdate();
+ }
+}
+const bookingChangeSubmissions=new Set();
+async function requestBookingChange(b,changes,reason=""){
+ if(bookingChangeSubmissions.has(b.ref))return false;
+ const proposed=Object.entries(changes).filter(([key,value])=>String(value)!==String(b[key]??""));
+ if(!currentSession||!storeReady||!sb||!(role==="admin"||(role==="staff"&&proposed.every(([field])=>hasPermission(field))))){
+  alert("Sign in with booking management permission to request a booking change.");return false;
+ }
+ if(("amount" in changes&&(!Number.isFinite(changes.amount)||changes.amount<0))||
+  ("destination" in changes&&!String(changes.destination||"").trim())){
+  alert("Enter a valid non-negative amount and a non-empty destination.");return false;
+ }
+ if(!proposed.length){alert("No booking changes entered.");return false;}
+ bookingChangeSubmissions.add(b.ref);
+ const userId=currentSession.user.id;
+ try{
+  if(!await crmConfirm(proposed.map(([key,value])=>`${key}: ${b[key]??"—"} → ${value}`).join("\n")+"\n\nThe current booking will not change until Admin approves.",`Request changes · ${b.ref}`,"Submit for Approval"))return false;
+  if((sharedSavePending||sharedSaveInFlight)&&!await flushSharedStore())throw new Error("Save pending portal changes before requesting approval.");
+  const {data,error}=await sb.rpc("request_booking_change",{p_reference:b.ref,p_changes:Object.fromEntries(proposed),p_reason:reason});
+  if(error)throw new Error(error.code==="PGRST202"?"Run supabase/booking-change-security.sql before requesting changes.":error.message);
+  if(currentSession?.user?.id!==userId)throw new Error("Your sign-in changed. Sign in again to check the request.");
+  if(!data?.request?.id||data.request.status!=="Pending Approval")throw new Error("No saved pending request was confirmed.");
+  const s=getStore();s.updateRequests=s.updateRequests||[];
+  const index=s.updateRequests.findIndex(r=>r.id===data.request.id);
+  if(index<0)s.updateRequests.push(data.request);else s.updateRequests[index]=data.request;
+  STORE_CACHE=s;
+  return true;
+ }catch(e){alert("No booking changes applied: "+e.message);return false}
+ finally{bookingChangeSubmissions.delete(b.ref)}
 }
 function drawUpdateApprovals(c){
  if(role==="admin")return PendingApprovals.render(c,{
@@ -5949,7 +5962,7 @@ function drawUpdateApprovals(c){
  const s=ensureApprovalData(),rows=s.updateRequests.filter(r=>r.status==="Pending Approval");
  c.innerHTML=`<div class="panel">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-  <div><h2 style="margin:0">Update Approvals</h2><p class="muted" style="margin:6px 0 0">Admin and Staff with Status Update permission can approve or reject booking changes.</p></div>
+  <div><h2 style="margin:0">Update Approvals</h2><p class="muted" style="margin:6px 0 0">Booking changes remain pending until an Admin approves them.</p></div>
    <span class="badge">${rows.length} pending</span>
   </div>
  </div>
@@ -5975,33 +5988,7 @@ function drawUpdateApprovals(c){
 }
 async function approveUpdateRequest(id){
  if(role==="admin")return PendingApprovals.approveIds([id]);
- if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can approve updates.");
- let s=ensureApprovalData(),r=s.updateRequests.find(x=>x.id===id),b=s.bookings.find(x=>x.ref===r?.bookingRef);
- if(!r||!b)return;
-  if(b._normalizedId&&SUPABASE_CONFIGURED){
-   const result=await sb.rpc("admin_update_booking_details",{p_booking_id:b._normalizedId,p_miles:Number(r.changes.miles||0),p_amount:Number(r.changes.amount||0),p_destination_address:r.changes.destination});
-   if(result.error)return alert("Booking details could not be approved: "+result.error.message);
-   if(!await persistNormalizedStatus(b,r.changes.status,"Approved update: "+(r.reason||"Admin approval")))return;
-  }
- const approvedBy=currentUser?.name||currentStaffUser?.name||"Approver";
- const approvedAt=new Date().toISOString();
- const approvedRole=currentApproverRole();
- b.status=r.changes.status;
- b.miles=r.changes.miles;
- b.amount=r.changes.amount;
- b.destination=r.changes.destination;
- b.lastApprovedBy=approvedBy;
- b.lastApprovedAt=approvedAt;
- b.timeline=b.timeline||[];
- b.timeline.unshift({title:"Approved Booking Update",text:`Approved by ${approvedBy} at ${approvedAt}`});
- b.approvalHistory=b.approvalHistory||[];
- const hist=b.approvalHistory.find(h=>h.action==="Update Requested"&&h.requestedAt===r.requestedAt);
- if(hist){hist.approvedBy=approvedBy;hist.approvedAt=approvedAt;hist.approvedRole=approvedRole;hist.action="Update Approved";}
- r.status="Approved";r.approvedBy=approvedBy;r.approvedAt=approvedAt;r.approvedRole=approvedRole;
- s.notifications.unshift({title:"Booking Update Approved",text:`${b.ref} update approved by ${approvedBy}.`});
-  if(!await saveStore(s))return;
-  alert("Update approved and applied.");
- drawUpdateApprovals(document.getElementById("content"));
+ alert("Only Admin can approve booking changes. Your request stays pending.");
 }
 async function approvePendingBookingUpdates(ids){
  if(role!=="admin"||!currentSession||!storeReady)throw new Error("Sign in as Admin before approving bookings.");
@@ -6020,7 +6007,7 @@ async function approvePendingBookingUpdates(ids){
  return data;
 }
 function rejectUpdateRequest(id){
- if(!canApproveUpdates())return alert("Only Admin or Staff with Status Update permission can reject updates.");
+ if(!canApproveUpdates())return alert("Only Admin can reject booking changes.");
  let s=ensureApprovalData(),r=s.updateRequests.find(x=>x.id===id),b=s.bookings.find(x=>x.ref===r?.bookingRef);
  if(!r||!b)return;
  const rejectedBy=currentUser?.name||currentStaffUser?.name||"Approver";
