@@ -170,31 +170,34 @@ test("A completed request cannot replace another page after navigation",async()=
  s.resolve({approved_count:1});await work;
  assert.equal(s.host.innerHTML,"<h2>Other page</h2>");
 });
-test("Admin main page includes Pending Approval with live count and routes to approval queue",()=>{
+test("Admin main page and navigation no longer expose booking approvals",()=>{
  const store={bookings:[],notifications:[],updateRequests:[{status:"Pending Approval"},{status:"Approved"}]};
  const ctx=vm.createContext({role:"admin",getStore:()=>store,visibleBookings:()=>[],
   ensureAdminDemoData(){},LOGO_IMG:"",ico:()=>"",currency:()=>"£0",go:p=>ctx.destination=p});
  vm.runInContext(part("function drawAdminDashboard(","function adminStatus("),ctx);
  const target={innerHTML:""};ctx.drawAdminDashboard(target);
- assert.match(target.innerHTML,/openStatusPage\('Pending Approval'\)/);
- assert.match(target.innerHTML,/<b>Pending Approval<\/b><strong>1<\/strong>/);
- vm.runInContext(part("function openStatusPage(","function vehicleMatchesSearch("),ctx);
- ctx.openStatusPage("Pending Approval");assert.equal(ctx.destination,"approvals");
+ assert.doesNotMatch(target.innerHTML,/Pending Approval/);
+ assert.doesNotMatch(html,/label:"Update Approvals"/);
+ assert.doesNotMatch(html,/<script src="\.\/pending-approvals.js"/);
+ assert.doesNotMatch(html,/sb\.rpc\("(request_booking_change|approve_booking_updates|resubmit_booking_update|review_booking_update)"/);
 });
-test("Admin approval bridge validates server confirmation and merges only saved approval data",async()=>{
+test("Direct save bridge merges confirmed booking values and never alters old requests",async()=>{
  const store={bookings:[{ref:"B1",pickupPhotos:{front:"keep"},status:"Picked Up"}],updateRequests:[{id:"R1",status:"Pending Approval"}],notifications:[],other:"keep"};
  const calls=[];
  const ctx=vm.createContext({role:"admin",currentSession:{user:{id:"a"}},storeReady:true,
   sharedSavePending:null,sharedSaveInFlight:null,getStore:()=>store,STORE_CACHE:store,
-  loadNormalizedPortalData:async()=>{},sb:{rpc:async(name,args)=>{
-   calls.push({name,args});return {data:{approved_count:1,requests:[{id:"R1",status:"Approved"}],bookings:[{ref:"B1",status:"On Route"}],notifications:[]}};
+  crmConfirm:async()=>true,alert:message=>calls.push({alert:message}),sb:{rpc:async(name,args)=>{
+   calls.push({name,args});return {data:{saved:true,booking:{ref:"B1",status:"On Route",amount:150}}};
   }}});
- vm.runInContext(part("async function approvePendingBookingUpdates(","function rejectUpdateRequest("),ctx);
- const result=await ctx.approvePendingBookingUpdates(["R1"]);
- assert.equal(result.approved_count,1);assert.equal(calls[0].name,"approve_booking_updates");
+ vm.runInContext(part("const bookingChangeSubmissions=new Set();","function drawStatus("),ctx);
+ const result=await ctx.saveBookingChanges(store.bookings[0],{amount:150},"Update Amount");
+ assert.equal(result,true);assert.equal(calls[0].name,"save_booking_changes");
+ assert.equal(calls[0].args.p_changes.amount,150);
+ assert.equal(calls[0].args.p_expected.amount,0);
  assert.equal(ctx.STORE_CACHE.bookings[0].pickupPhotos.front,"keep");
- assert.equal(ctx.STORE_CACHE.other,"keep");assert.equal(ctx.STORE_CACHE.updateRequests[0].status,"Approved");
+ assert.equal(ctx.STORE_CACHE.other,"keep");assert.equal(ctx.STORE_CACHE.updateRequests[0].status,"Pending Approval");
  ctx.sb.rpc=async()=>({error:{code:"PGRST202"}});
- await assert.rejects(ctx.approvePendingBookingUpdates(["R1"]),/pending-booking-approvals.sql/);
- ctx.role="driver";await assert.rejects(ctx.approvePendingBookingUpdates(["R1"]),/Admin/);
+ assert.equal(await ctx.saveBookingChanges(store.bookings[0],{amount:200},"Update Amount"),false);
+ assert.match(calls.at(-1).alert,/booking-direct-updates.sql/);
+ ctx.role="driver";assert.equal(await ctx.saveBookingChanges(store.bookings[0],{amount:200},"Update Amount"),false);
 });
