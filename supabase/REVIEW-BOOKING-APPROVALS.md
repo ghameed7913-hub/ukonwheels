@@ -20,3 +20,8 @@ during review, submission is rejected and the comparison must be refreshed.
 Only an active Admin may review or resubmit. Deleted bookings cannot be restored,
 and Delivered bookings cannot be moved backwards. If no requested changes remain,
 close the comparison and reject the outdated request.
+
+If submission fails with “Amount and destination must match the approved booking”,
+rerun the current complete SQL file. The corrected function refreshes stale shared
+charge/address copies from the approved booking records before saving the new
+request. It does not apply proposed charges/addresses or change booking records.

@@ -78,6 +78,16 @@ begin
  end if;
  stamp:=to_char(now(),'YYYY-MM-DD"T"HH24:MI:SSOF');
  select data into source from public.app_store where id='main';
+ -- Refresh only the approved amount/address projection. A stale shared cache
+ -- must not prevent request-only writes, and proposed values must never enter it.
+ -- Preserve every other booking field, photo, event and approval-history item.
+ source:=jsonb_set(source,'{bookings}',coalesce((
+  select jsonb_agg(case when b.id is not null then
+   x||jsonb_build_object('amount',coalesce(b.amount,0),'destination',b.destination_address)
+   else x end order by ord)
+  from jsonb_array_elements(coalesce(source->'bookings','[]')) with ordinality items(x,ord)
+  left join public.bookings b on b.reference=x->>'ref'
+ ),'[]'::jsonb));
  -- Retain the old request and its original author. Do not approve or reject it.
  source:=jsonb_set(source,'{updateRequests}',(
   select jsonb_agg(case when x->>'id'=p_request_id then
