@@ -6,3 +6,8 @@
 .pa-table small{display:block;margin-top:5px;color:var(--muted,#64748b)}
 .pa-message{margin:10px 0;white-space:pre-line}
 .pa-error{color:#b91c1c}
+.pa-review{margin-top:20px;padding:18px;border:1px solid var(--line,#cbd5e1);border-radius:12px;background:var(--panel,#fff)}
+.pa-review-table{min-width:820px}
+.pa-review-table td,.pa-review-table th{vertical-align:top;white-space:normal;overflow-wrap:anywhere}
+.pa-review-table label{display:flex;align-items:center;gap:8px}
+.pa-review input[type=checkbox]{width:20px!important;height:20px!important;min-width:20px;padding:0!important;margin:0;accent-color:#dd1025}

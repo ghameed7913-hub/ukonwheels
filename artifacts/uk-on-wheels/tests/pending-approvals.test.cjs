@@ -9,8 +9,11 @@ function fixture(){
    {id:"R2",bookingRef:"B2",status:"Pending Approval",changes:{status:"On Route"}},
    {id:"MISSING",bookingRef:"GONE",status:"Pending Approval",changes:{}},
    {id:"DONE",bookingRef:"B1",status:"Approved",changes:{}}]};
- const nodes={},calls=[];let rows=[],singles=[],rejects=[],markup="",confirmed=true,failure=null;
- const host={isConnected:true,querySelector:s=>nodes[s]||null,querySelectorAll:s=>s==="[data-pa-id]"?rows:s==="[data-pa-single]"?singles:rejects};
+ const nodes={},calls=[];let rows=[],singles=[],rejects=[],reviews=[],keeps=[],markup="",confirmed=true,failure=null;
+ const host={isConnected:true,querySelector:s=>nodes[s]||null,querySelectorAll:s=>({
+  "[data-pa-id]":rows,"[data-pa-single]":singles,"[data-pa-reject]":rejects,
+  "[data-pa-review]":reviews,"[data-pa-keep]":keeps
+ }[s]||[])};
  Object.defineProperty(host,"innerHTML",{get:()=>markup,set:value=>{
   markup=value;
   for(const k of ["all","count","approve","back","message"])nodes[`[data-pa-${k}]`]={disabled:false,textContent:"",checked:false,indeterminate:false};
@@ -18,6 +21,9 @@ function fixture(){
   rows=inputs.map(m=>({dataset:{paId:m[1]},checked:/\schecked/.test(m[0]),disabled:/\sdisabled/.test(m[0])}));
   singles=store.updateRequests.filter(r=>r.status==="Pending Approval").map(r=>({dataset:{paSingle:r.id}}));
   rejects=store.updateRequests.filter(r=>r.status==="Pending Approval").map(r=>({dataset:{paReject:r.id}}));
+  reviews=store.updateRequests.filter(r=>r.status==="Pending Approval").map(r=>({dataset:{paReview:r.id}}));
+  keeps=[...value.matchAll(/<input[^>]*data-pa-keep="([^"]*)"[^>]*>/g)].map(m=>({dataset:{paKeep:m[1]},checked:/\schecked/.test(m[0])}));
+  for(const k of ["resubmit","reload","close"])nodes[`[data-pa-${k}]`]=value.includes(`data-pa-${k}`)?{disabled:false}:null;
  }});
  const context=vm.createContext({window:{},getStore:()=>store,go:()=>{}});
  vm.runInContext(js,context);
@@ -36,6 +42,78 @@ test("Pending view lists only pending requests, escapes content, and disables mi
  assert.match(s.host.innerHTML,/3 pending/);
  assert.equal(s.rows().find(r=>r.dataset.paId==="MISSING").disabled,true);
  assert.equal(s.nodes["[data-pa-approve]"].disabled,true);
+});
+test("review compares all values but resubmits only selected actual requested changes",async()=>{
+ const s=fixture();
+ const request=s.store.updateRequests[0];
+ request.previous={status:"Driver Assigned",miles:10,amount:100,destination:"Old address"};
+ request.changes={status:"Driver Assigned",miles:10,amount:150,destination:"Requested address"};
+ s.config.review=async()=>({request,current:{status:"On Route",miles:30,amount:100,destination:"Current address"},expected:{token:"snapshot"}});
+ s.config.resubmit=async(id,expected,changes)=>{
+  s.calls.push({id,expected,changes});
+  request.status="Superseded";
+  const replacement={...request,id:"REPLACEMENT",status:"Pending Approval"};
+  s.store.updateRequests.push(replacement);
+  return {request:replacement,superseded_request_id:id};
+ };
+ await s.api.reviewId("R1");
+ assert.match(s.host.innerHTML,/Latest saved/);
+ assert.match(s.host.innerHTML,/On Route/);
+ assert.match(s.host.innerHTML,/data-pa-keep="amount"/);
+ assert.doesNotMatch(s.host.innerHTML,/data-pa-keep="status"|data-pa-keep="miles"/);
+ const destination=s.host.querySelectorAll("[data-pa-keep]").find(e=>e.dataset.paKeep==="destination");
+ destination.checked=false;destination.onchange();
+ await s.api.submitReview();
+ const call=s.calls.find(x=>x.changes);
+ assert.equal(call.id,"R1");
+ assert.equal(JSON.stringify(call.changes),'{"amount":150}');
+ assert.equal(JSON.stringify(call.expected),'{"token":"snapshot"}');
+ assert.equal(request.status,"Superseded");
+ assert.match(s.host.innerHTML,/Replacement request saved as Pending Approval/);
+ assert.equal(s.api.busy(),false);
+});
+test("review retains the comparison and selection on server conflict; closing changes nothing",async()=>{
+ const s=fixture(),request=s.store.updateRequests[0];
+ request.previous={status:"Picked Up",amount:100};
+ request.changes={status:"Picked Up",amount:150};
+ s.config.review=async()=>({request,current:{status:"On Route",amount:100},expected:{current:100}});
+ s.config.resubmit=async()=>{throw Error("The booking changed while you were reviewing");};
+ await s.api.reviewId("R1");await s.api.submitReview();
+ assert.match(s.host.innerHTML,/changed while you were reviewing/);
+ assert.match(s.host.innerHTML,/Review latest booking again/);
+ assert.equal(request.status,"Pending Approval");
+ s.host.querySelector("[data-pa-close]").onclick();
+ assert.equal(s.api.busy(),false);
+ assert.doesNotMatch(s.host.innerHTML,/Latest saved/);
+});
+test("review cancels without writing and already-applied values cannot be resubmitted",async()=>{
+ const s=fixture(),request=s.store.updateRequests[0];
+ request.previous={amount:100};request.changes={amount:150};
+ s.config.review=async()=>({request,current:{amount:100},expected:{current:100}});
+ s.config.resubmit=async()=>{throw Error("Must not be called");};
+ await s.api.reviewId("R1");s.cancel();await s.api.submitReview();
+ assert.equal(request.status,"Pending Approval");
+ s.host.querySelector("[data-pa-close]").onclick();
+ s.config.review=async()=>({request,current:{amount:150},expected:{current:150}});
+ await s.api.reviewId("R1");
+ assert.match(s.host.innerHTML,/All requested changes already match/);
+ assert.doesNotMatch(s.host.innerHTML,/data-pa-keep="amount"/);
+});
+test("review does not offer a backwards Delivered status or replace another page after navigation",async()=>{
+ const s=fixture(),request=s.store.updateRequests[0];
+ request.previous={status:"On Route",amount:100};request.changes={status:"Picked Up",amount:150};
+ s.config.review=async()=>({request,current:{status:"Delivered",amount:100},expected:{current:100}});
+ await s.api.reviewId("R1");
+ assert.doesNotMatch(s.host.innerHTML,/data-pa-keep="status"/);
+ assert.match(s.host.innerHTML,/data-pa-keep="amount"/);
+ s.host.querySelector("[data-pa-close]").onclick();
+ let finish;s.config.review=()=>new Promise(r=>finish=r);
+ const pending=s.api.reviewId("R1");
+ s.host.innerHTML="<h2>Another page</h2>";
+ s.nodes["[data-pa-approve]"]=null;
+ finish({request,current:{amount:100},expected:{current:100}});
+ await pending;
+ assert.equal(s.host.innerHTML,"<h2>Another page</h2>");
 });
 test("Select All and deselection update the count, indeterminate state and approval button",()=>{
  const s=fixture(),all=s.nodes["[data-pa-all]"];
