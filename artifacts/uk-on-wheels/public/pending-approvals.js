@@ -16,7 +16,9 @@
    ${fields.map(([key,label])=>`<tr><th>${label}</th><td>${display(key,review.request.previous?.[key])}</td><td>${display(key,review.current[key])}</td><td>${display(key,review.request.changes?.[key])}</td><td>${requested.has(key)?`<label><input type="checkbox" data-pa-keep="${key}" ${kept.has(key)?"checked":""} ${saving?"disabled":""}> Keep ${label.toLowerCase()} change</label>`:"No outstanding change"}</td></tr>`).join("")}
    </tbody></table></div>
    ${requested.size?"":"<p>All requested changes already match the latest booking, or no changed fields were recorded. You can close this review and reject the outdated request.</p>"}
-   <div class="pa-toolbar"><button type="button" class="btn primary" data-pa-resubmit ${!kept.size||saving||reviewLoading?"disabled":""}>${saving?"Resubmitting…":"Submit replacement request"}</button>
+    <div class="pa-message ${error?"pa-error":""}" data-pa-review-feedback role="${error?"alert":"status"}" tabindex="-1">${E(message)}</div>
+    <p class="muted" id="pa-selection-hint" data-pa-selection-hint>${requested.size&&!kept.size?"Select at least one requested change above to enable submission.":""}</p>
+    <div class="pa-toolbar"><button type="button" class="btn primary" data-pa-resubmit aria-describedby="pa-selection-hint" ${!kept.size||saving||reviewLoading?"disabled":""}>${saving?"Resubmitting…":"Submit replacement request"}</button>
    <button type="button" class="btn secondary" data-pa-reload ${saving||reviewLoading?"disabled":""}>Review latest booking again</button>
    <button type="button" class="btn secondary" data-pa-close ${saving||reviewLoading?"disabled":""}>Close review</button></div></section>`;
  }
@@ -32,7 +34,7 @@
   selected=new Set([...selected].filter(id=>allowed.has(id)));
   host.innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><h2 style="margin:0">Pending Approval</h2><p class="muted">Review pending booking changes. Select individual requests or Select All, then Approve All to save the selected changes together.</p></div><span class="badge amber">${rows.length} pending</span></div>
    <div class="pa-toolbar"><label><input type="checkbox" data-pa-all aria-label="Select all pending approvals" ${!allowed.size||saving?"disabled":""}> Select All</label><span data-pa-count></span><button type="button" class="btn primary" data-pa-approve>Approve All</button><button type="button" class="btn secondary" data-pa-back>Back to Dashboard</button></div>
-   <div class="pa-message ${error?"pa-error":""}" role="${error?"alert":"status"}" data-pa-message>${E(message)}</div>
+    <div class="pa-message ${error?"pa-error":""}" role="${error?"alert":"status"}" data-pa-message tabindex="-1">${E(message)}</div>
    <div class="scroll"><table class="pa-table"><thead><tr><th>Select</th><th>Booking / vehicle</th><th>Requested by</th><th>Current booking</th><th>Proposed changes</th><th>Reason</th><th>Actions</th></tr></thead><tbody>${rows.map(r=>{
     const b=booking(r);
      return `<tr><td><input type="checkbox" data-pa-id="${E(r.id)}" aria-label="${E("Select "+r.bookingRef+" request "+r.id)}" ${selected.has(r.id)?"checked":""} ${!b||saving?"disabled":""}></td><td><b>${E(r.bookingRef)}</b><small>${E(b?.vehicle||"Booking unavailable")} · ${E(b?.reg||"—")}</small><small>${E(b?.business||b?.privateCustomerName||"—")}</small></td><td>${E(r.requestedBy)}<small>${E(r.requestedAt)}</small></td><td>${b?summary(b):"Booking unavailable — cannot approve"}</td><td>${summary(r.changes)}</td><td>${E(r.reason||"—")}</td><td><button type="button" class="btn primary" data-pa-single="${E(r.id)}" ${!b||saving?"disabled":""}>Approve</button> <button type="button" class="btn danger" data-pa-reject="${E(r.id)}" ${!b||saving?"disabled":""}>Reject</button> <button type="button" class="btn secondary" data-pa-review="${E(r.id)}" ${!b||saving||reviewLoading?"disabled":""}>Review latest booking</button></td></tr>`;
@@ -47,7 +49,7 @@
    host.querySelectorAll("[data-pa-single]").forEach(el=>{if(review||reviewLoading)el.disabled=true;el.onclick=()=>approveIds([el.dataset.paSingle]);});
    host.querySelectorAll("[data-pa-reject]").forEach(el=>{el.onclick=()=>{if(!saving&&!confirming&&!reviewLoading){review=null;options.reject(el.dataset.paReject);}};});
    host.querySelectorAll("[data-pa-review]").forEach(el=>{el.onclick=()=>openReview(el.dataset.paReview);});
-   host.querySelectorAll("[data-pa-keep]").forEach(el=>{el.onchange=()=>{if(el.checked)kept.add(el.dataset.paKeep);else kept.delete(el.dataset.paKeep);const button=host.querySelector("[data-pa-resubmit]");if(button)button.disabled=!kept.size||saving;};});
+    host.querySelectorAll("[data-pa-keep]").forEach(el=>{el.onchange=()=>{if(el.checked)kept.add(el.dataset.paKeep);else kept.delete(el.dataset.paKeep);const button=host.querySelector("[data-pa-resubmit]");if(button)button.disabled=!kept.size||saving;const hint=host.querySelector("[data-pa-selection-hint]");if(hint)hint.textContent=kept.size?"":"Select at least one requested change above to enable submission.";};});
    const submit=host.querySelector("[data-pa-resubmit]");
    if(submit)submit.onclick=submitReview;
    const reload=host.querySelector("[data-pa-reload]");
@@ -98,14 +100,14 @@
   if(!Object.keys(changes).length)return;
   confirming=true;sync();
   try{
-   if(!await options.confirm(`Submit a replacement request for ${review.request.bookingRef}?\nOnly the checked changes will be kept. The old request will be marked Superseded. You must still approve the replacement separately.`))return;
-   saving=true;confirming=false;render(host,options);
+    if(!await options.confirm(`Submit a replacement request for ${review.request.bookingRef}?\nOnly the checked changes will be kept. The old request will be marked Superseded. You must still approve the replacement separately.`,"Submit replacement request","Submit replacement"))return;
+    saving=true;confirming=false;error=false;message="Submitting replacement request. Please wait…";render(host,options);
    const result=await options.resubmit(review.request.id,review.expected,changes);
    if(!result?.request?.id||result.request.status!=="Pending Approval")throw new Error("Replacement request was not confirmed. Refresh before retrying.");
    selected.delete(review.request.id);review=null;kept.clear();error=false;
    message="Replacement request saved as Pending Approval. Review and approve it separately. The booking has not changed.";
   }catch(e){error=true;message=e.message||"Could not resubmit. Review the latest booking again.";}
-  finally{saving=false;confirming=false;if(host?.isConnected&&host.querySelector("[data-pa-approve]")){options.store=root.PendingApprovals.store();render(host,options);}}
+   finally{saving=false;confirming=false;if(host?.isConnected&&host.querySelector("[data-pa-approve]")){options.store=root.PendingApprovals.store();render(host,options);const feedback=host.querySelector(review?"[data-pa-review-feedback]":"[data-pa-message]");feedback?.scrollIntoView?.({behavior:"smooth",block:"center"});feedback?.focus?.({preventScroll:true});}}
  }
  root.PendingApprovals={render,approveIds,reviewId:openReview,submitReview,busy:()=>saving||confirming||reviewLoading||!!review,
   store:()=>getStore(),back:()=>go("desktop")};

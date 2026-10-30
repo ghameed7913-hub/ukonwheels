@@ -6000,7 +6000,7 @@ function drawUpdateApprovals(c){
  if(role==="admin")return PendingApprovals.render(c,{
   store:getStore(),approve:approvePendingBookingUpdates,reject:rejectUpdateRequest,
   review:reviewPendingBookingUpdate,resubmit:resubmitPendingBookingUpdate,sessionKey:currentSession?.user?.id,
-  confirm:(message)=>crmConfirm(message,"Approve selected booking updates","Approve All"),
+  confirm:(message,title="Approve selected booking updates",button="Approve All")=>crmConfirm(message,title,button),
   canApprove:true
  });
  const s=ensureApprovalData(),rows=s.updateRequests.filter(r=>r.status==="Pending Approval");

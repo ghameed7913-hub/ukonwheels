@@ -23,7 +23,7 @@ function fixture(){
   rejects=store.updateRequests.filter(r=>r.status==="Pending Approval").map(r=>({dataset:{paReject:r.id}}));
   reviews=store.updateRequests.filter(r=>r.status==="Pending Approval").map(r=>({dataset:{paReview:r.id}}));
   keeps=[...value.matchAll(/<input[^>]*data-pa-keep="([^"]*)"[^>]*>/g)].map(m=>({dataset:{paKeep:m[1]},checked:/\schecked/.test(m[0])}));
-  for(const k of ["resubmit","reload","close"])nodes[`[data-pa-${k}]`]=value.includes(`data-pa-${k}`)?{disabled:false}:null;
+   for(const k of ["resubmit","reload","close","review-feedback","selection-hint"])nodes[`[data-pa-${k}]`]=value.includes(`data-pa-${k}`)?{disabled:false,scrollIntoView(){this.scrolled=true;},focus(){this.focused=true;}}:null;
  }});
  const context=vm.createContext({window:{},getStore:()=>store,go:()=>{}});
  vm.runInContext(js,context);
@@ -49,6 +49,7 @@ test("review compares all values but resubmits only selected actual requested ch
  request.previous={status:"Driver Assigned",miles:10,amount:100,destination:"Old address"};
  request.changes={status:"Driver Assigned",miles:10,amount:150,destination:"Requested address"};
  s.config.review=async()=>({request,current:{status:"On Route",miles:30,amount:100,destination:"Current address"},expected:{token:"snapshot"}});
+ let confirmation;s.config.confirm=async(...args)=>{confirmation=args;return true;};
  s.config.resubmit=async(id,expected,changes)=>{
   s.calls.push({id,expected,changes});
   request.status="Superseded";
@@ -64,6 +65,8 @@ test("review compares all values but resubmits only selected actual requested ch
  const destination=s.host.querySelectorAll("[data-pa-keep]").find(e=>e.dataset.paKeep==="destination");
  destination.checked=false;destination.onchange();
  await s.api.submitReview();
+ assert.equal(confirmation[1],"Submit replacement request");
+ assert.equal(confirmation[2],"Submit replacement");
  const call=s.calls.find(x=>x.changes);
  assert.equal(call.id,"R1");
  assert.equal(JSON.stringify(call.changes),'{"amount":150}');
@@ -81,6 +84,9 @@ test("review retains the comparison and selection on server conflict; closing ch
  await s.api.reviewId("R1");await s.api.submitReview();
  assert.match(s.host.innerHTML,/changed while you were reviewing/);
  assert.match(s.host.innerHTML,/Review latest booking again/);
+ assert.match(s.host.innerHTML,/<section class="pa-review"[\s\S]*data-pa-review-feedback role="alert"[^>]*>The booking changed while you were reviewing/);
+ assert.equal(s.nodes["[data-pa-review-feedback]"].scrolled,true);
+ assert.equal(s.nodes["[data-pa-review-feedback]"].focused,true);
  assert.equal(request.status,"Pending Approval");
  s.host.querySelector("[data-pa-close]").onclick();
  assert.equal(s.api.busy(),false);

@@ -39,7 +39,7 @@ test("review safely replaces stale requests without changing the booking or bypa
    sql(fs.readFileSync(path.join(root,file),"utf8"));
   const original=json("select request_booking_change('B1','{\"amount\":150,\"destination\":\"Leeds\"}','Extra distance');").request;
   denied(`select review_booking_update('${original.id}');`,/active Admin/);
-  sql("update profiles set role='admin',full_name='Super Admin';update bookings set status='On Route',miles=30;");
+  sql("update profiles set role='admin',full_name='Super Admin';update bookings set status='On Route',miles=30,amount=110,destination_address='Manchester';");
   denied(`select approve_booking_updates(array['${original.id}']);`,/changed after this request/);
   const review=json(`select review_booking_update('${original.id}');`);
   assert.equal(review.current.status,"On Route");assert.equal(review.current.miles,30);
@@ -48,21 +48,31 @@ test("review safely replaces stale requests without changing the booking or bypa
   denied(`select resubmit_booking_update('${original.id}',${literal(review.expected)},'{"status":"Picked Up"}');`,/Only the reviewed/);
   denied(`select resubmit_booking_update('${original.id}',${literal(review.expected)},'{}');`,/Select at least/);
   denied(`select resubmit_booking_update('${original.id}','{}','{"amount":150}');`,/changed while/);
+  sql(`insert into bookings(id,reference,status,miles,amount,destination_address)
+   values('00000000-0000-0000-0000-000000000013','B2','Delivered',20,301,'Bath');
+   update app_store set data=jsonb_set(data,'{bookings}',(data->'bookings')||
+    '[{"ref":"B2","status":"Delivered","amount":1,"destination":"Old address","timeline":[{"title":"keep this event"}]}]'::jsonb);`);
   const replacement=json(`select resubmit_booking_update('${original.id}',${literal(review.expected)},'{"amount":150}');`).request;
   assert.notEqual(replacement.id,original.id);
   assert.equal(replacement.status,"Pending Approval");
   assert.equal(replacement.previous.status,"On Route");assert.equal(replacement.previous.miles,30);
-  assert.equal(replacement.changes.status,"On Route");assert.equal(replacement.changes.destination,"London");
-  assert.equal(sql("select amount from bookings;").trim(),"100");
+  assert.equal(replacement.changes.status,"On Route");assert.equal(replacement.changes.destination,"Manchester");
+  assert.equal(sql("select amount from bookings where reference='B1';").trim(),"110");
   let state=JSON.parse(sql("select data from app_store where id='main';"));
   const old=state.updateRequests.find(r=>r.id===original.id);
   assert.equal(old.status,"Superseded");assert.equal(old.requestedBy,"Operations User");
   assert.equal(old.replacementRequestId,replacement.id);
   assert.deepEqual(replacement.reviewOfRequestIds,[original.id]);
   assert.equal(state.bookings[0].pickupPhotos.front,"keep");
+  assert.equal(state.bookings[0].amount,110);
+  assert.equal(state.bookings[0].destination,"Manchester");
+  assert.equal(state.bookings[1].amount,301);
+  assert.equal(state.bookings[1].destination,"Bath");
+  assert.equal(state.bookings[1].timeline[0].title,"keep this event");
+  assert.equal(sql("select amount||':'||destination_address from bookings where reference='B2';").trim(),"301:Bath");
   denied(`select resubmit_booking_update('${original.id}',${literal(review.expected)},'{"amount":150}');`,/no longer pending/);
   json(`select approve_booking_updates(array['${replacement.id}']);`);
-  assert.equal(sql("select status||':'||miles||':'||amount||':'||destination_address from bookings;").trim(),"On Route:30:150:London");
+  assert.equal(sql("select status||':'||miles||':'||amount||':'||destination_address from bookings where reference='B1';").trim(),"On Route:30:150:Manchester");
   const req=json("select request_booking_change('B1','{\"amount\":200}','Another charge');").request;
   const snapshot=json(`select review_booking_update('${req.id}');`);
   sql("update bookings set miles=31;");
