@@ -5999,6 +5999,7 @@ async function requestBookingChange(b,changes,reason=""){
 function drawUpdateApprovals(c){
  if(role==="admin")return PendingApprovals.render(c,{
   store:getStore(),approve:approvePendingBookingUpdates,reject:rejectUpdateRequest,
+  review:reviewPendingBookingUpdate,resubmit:resubmitPendingBookingUpdate,sessionKey:currentSession?.user?.id,
   confirm:(message)=>crmConfirm(message,"Approve selected booking updates","Approve All"),
   canApprove:true
  });
@@ -6047,6 +6048,30 @@ async function approvePendingBookingUpdates(ids){
   bookings:(s.bookings||[]).map(b=>bookings.has(b.ref)?{...b,...bookings.get(b.ref)}:b),
   notifications:[...(data.notifications||[]),...(s.notifications||[])]};
  await loadNormalizedPortalData();
+ return data;
+}
+async function reviewPendingBookingUpdate(id){
+ if(role!=="admin"||!currentSession||!storeReady)throw new Error("Sign in as Admin before reviewing bookings.");
+ const userId=currentSession.user.id;
+ if((sharedSavePending||sharedSaveInFlight)&&!await flushSharedStore())throw new Error("Save pending portal changes before reviewing.");
+ const {data,error}=await sb.rpc("review_booking_update",{p_request_id:id});
+ if(error)throw new Error(error.code==="PGRST202"?"Run supabase/review-booking-approvals.sql before reviewing requests.":error.message);
+ if(currentSession?.user?.id!==userId)throw new Error("Your sign-in changed. Reload the approval list.");
+ if(!data?.request?.id||!data.current||!data.expected)throw new Error("The server did not return the latest booking. Please retry.");
+ return data;
+}
+async function resubmitPendingBookingUpdate(id,expected,changes){
+ if(role!=="admin"||!currentSession||!storeReady)throw new Error("Sign in as Admin before resubmitting.");
+ const userId=currentSession.user.id;
+ if((sharedSavePending||sharedSaveInFlight)&&!await flushSharedStore())throw new Error("Save pending portal changes before resubmitting.");
+ const {data,error}=await sb.rpc("resubmit_booking_update",{p_request_id:id,p_expected:expected,p_changes:changes});
+ if(error)throw new Error(error.code==="PGRST202"?"Run supabase/review-booking-approvals.sql before resubmitting requests.":error.message);
+ if(currentSession?.user?.id!==userId)throw new Error("Your sign-in changed. Reload to check the result.");
+ if(!data?.request?.id||data.request.status!=="Pending Approval")throw new Error("A replacement request was not confirmed. Refresh before retrying.");
+ const s=getStore();
+ STORE_CACHE={...s,updateRequests:[...(s.updateRequests||[]).map(r=>
+  r.id===data.superseded_request_id?{...r,status:"Superseded",replacementRequestId:data.request.id}:r
+ ).filter(r=>r.id!==data.request.id),data.request]};
  return data;
 }
 function rejectUpdateRequest(id){
