@@ -32,6 +32,8 @@ test("Staff ledger SQL: access, deduplication, daily/monthly totals, atomic pays
   sql(fs.readFileSync(path.resolve(__dirname,"../../../supabase/payslip-payments.sql"),"utf8"));
   const patch=fs.readFileSync(path.resolve(__dirname,"../../../supabase/staff-daily-records.sql"),"utf8");
   sql(patch);sql(patch);
+  const sheetPatch=fs.readFileSync(path.resolve(__dirname,"../../../supabase/staff-daily-spreadsheet.sql"),"utf8");
+  sql(sheetPatch);sql(sheetPatch);
   sql(`${as(3)}
    select public.save_staff_pay_person('${person}','Monthly Staff','staff@example.invalid','monthly',2000);
    select public.save_staff_pay_person('${person}','Monthly Staff','staff@example.invalid','monthly',2000);
@@ -92,6 +94,53 @@ test("Staff ledger SQL: access, deduplication, daily/monthly totals, atomic pays
     raise exception 'Viewer saved';exception when insufficient_privilege then null;end;
    begin perform ukow_staff_private.create_portal_payslip('{}','Unpaid');
     raise exception 'Private payroll bypass';exception when insufficient_privilege then null;end;
+  end$$;`);
+  const sheetRow=(n,props={})=>({
+   person_id:uid(n),name:"Sheet Staff "+n,email:`sheet${n}@example.invalid`,pay_basis:"monthly",rate:1800,
+   date:"2026-11-02",work:0,overtime:0,expense:0,advance:0,payment:0,notes:"Spreadsheet",
+   entry_ids:Object.fromEntries(["work","overtime","expense","advance","payment"].map((k,i)=>[k,uid(n*10+i)])),
+   ...props
+  });
+  const rows=[
+   sheetRow(400,{overtime:50,expense:40,advance:100}),
+   sheetRow(400,{date:"2026-11-03",overtime:25,payment:150,entry_ids:sheetRow(401).entry_ids}),
+   sheetRow(402,{pay_basis:"daily",rate:120,work:240,overtime:10,expense:5,advance:30,payment:50})
+  ];
+  const json=x=>"'"+JSON.stringify(x).replaceAll("'","''")+"'::jsonb";
+  const save=(r,b=900)=>`public.save_staff_daily_sheet(${json(r)},'${uid(b)}')`;
+  sql(`${as(3)}select ${save(rows)};select ${save(rows)};
+   do $$declare d jsonb;begin
+    if public.staff_daily_totals('${uid(400)}','2026-11')<>'{"basic":1800,"overtime":75,"otherExpenses":40,"advance":250}'::jsonb then raise exception 'Sheet monthly salary duplicated';end if;
+    if public.staff_daily_totals('${uid(402)}','2026-11')<>'{"basic":240,"overtime":10,"otherExpenses":5,"advance":80}'::jsonb then raise exception 'Sheet daily totals wrong';end if;
+    d:=public.read_staff_daily_records();
+    if (select count(*) from jsonb_array_elements(d->'entries') e where e->>'staff_id' in ('${uid(400)}','${uid(402)}'))<>10 then raise exception 'Sheet retry duplicated entries';end if;
+    if (select sum((e->>'amount')::numeric) from jsonb_array_elements(d#>'{finances,expenses}') e where e->>'payee' like 'Sheet Staff%')<>330 then raise exception 'Sheet expense payments duplicated';end if;
+    begin perform ${save([{...rows[0],payment:999}])};raise exception 'Changed batch accepted';
+      exception when raise_exception then if sqlerrm='Changed batch accepted' then raise;end if;end;
+   end$$;
+  `);
+  const invalid=[sheetRow(410,{payment:100}),sheetRow(411,{overtime:-1})];
+  sql(`${as(3)}do $$declare d jsonb;begin
+   begin perform ${save(invalid,901)};raise exception 'Invalid batch accepted';
+    exception when raise_exception then
+     if sqlerrm='Invalid batch accepted' then raise;end if;
+     if position('Row 2:' in sqlerrm)=0 then raise exception 'Missing row-specific error: %',sqlerrm;end if;
+   end;
+   d:=public.read_staff_daily_records();
+   if exists(select 1 from jsonb_array_elements(d->'people') p where p->>'id'='${uid(410)}') then raise exception 'Partial person saved';end if;
+   if exists(select 1 from jsonb_array_elements(d#>'{finances,expenses}') e where e->>'payee'='Sheet Staff 410') then raise exception 'Partial payment saved';end if;
+  end$$;
+  select ${save([invalid[0],{...invalid[1],overtime:25}],901)};
+  `);
+  for(const n of [2,4,5])sql(`${as(n)}do $$begin
+   begin perform ${save(rows,902)};raise exception 'Unauthorized sheet save';
+    exception when insufficient_privilege then null;end;
+  end$$;`);
+  sql(`${as(1)}do $$begin
+   begin perform ${save([sheetRow(100,{name:"Monthly Staff",email:"staff@example.invalid",rate:2000,date:"2026-10-20",payment:10})],903)};raise exception 'Closed sheet accepted';
+    exception when raise_exception then if sqlerrm='Closed sheet accepted' then raise;end if;end;
+   begin perform ${save([sheetRow(400,{rate:9999})],904)};raise exception 'Sheet changed saved rate';
+    exception when raise_exception then if sqlerrm='Sheet changed saved rate' then raise;end if;end;
   end$$;`);
  }finally{if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"]);fs.rmSync(dir,{recursive:true,force:true})}
 });

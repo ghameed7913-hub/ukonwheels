@@ -9,12 +9,21 @@
 
 No old data is deleted or automatically converted. Existing staff payments must be entered manually if they should reduce a new payslip.
 
+## Spreadsheet layout update
+
+After the original setup, run the entire `supabase/staff-daily-spreadsheet.sql`
+file in a new Supabase SQL query before releasing the spreadsheet frontend.
+This adds one transaction-safe save operation using the existing staff records.
+It does not delete, reset or automatically convert records.
+
 ## Daily use
 
 - Open **Accounts → Staff Daily Record**.
-- Save a name, email and **monthly salary** or **daily rate**. Use the employee's existing email when they already have a payslip/login record. Saving this financial record does not create a login.
-- Choose the person and month. Monthly salary is counted once; daily staff earn the work amounts recorded for their days.
-- Add dated overtime, reimbursable expenses, advances or payments. Work entries accept days × rate, or a manually entered amount. Expenses here mean money owed **to the employee**, not a second general company expense.
+- Choose the month and add spreadsheet rows. Type a new name, email and **monthly salary** or **daily rate** directly into a row, or select an existing employee. Use the employee's existing email when they already have a payslip/login record. Saving this financial record does not create a login.
+- Enter dated normal work pay, overtime, reimbursable expenses, advances and payments directly into their columns. Monthly salary is counted once per employee, not once per row. Daily staff earn the work amounts entered. Expenses mean money owed **to the employee**, not a second general company expense.
+- Review each person's payable balance and the grand total at the bottom. Draft amounts are estimates until saved. Optional tax applies only to normal pay and overtime. Negative balances remain visible as overpayments.
+- Use **Save rows** to save all filled draft rows together. If any row fails validation, none of that batch is saved and all typed values stay available for correction. Up to 100 rows may be saved at a time.
+- Saved history remains read-only so previous payments cannot be silently overwritten. Remove only unsaved rows. Employees' existing pay terms cannot be changed by typing over a previous rate.
 - Advances and payments mean money already handed over. They reduce the balance and create a Salary expense once. Do not add that cash payment again in Add Expenses.
 - Use Refresh saved records to see another user's latest entries. Saved records remain after sign-out.
 
