@@ -70,6 +70,7 @@ window.ExpenseMonth=(()=>{
     if(button){button.disabled=saving||bulk().saving||bulk().uncertain||!s.canManage;button.textContent=saving?"Saving…":pending?"Retry save":"Add Expense";}
     const clear=el("singleExpenseClear");if(clear)clear.disabled=saving||!!pending||!s.canManage;
     paintMessage();
+    window.ExpenseReport?.paint();
   }
   function blocked(){
     if(!locked())return false;

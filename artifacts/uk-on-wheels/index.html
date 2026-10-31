@@ -25,6 +25,8 @@
 <script src="./local-weather.js"></script>
 <script src="./expense-monthly-ui.js"></script>
 <script src="./expense-monthly.js"></script>
+<link rel="stylesheet" href="./expense-report.css">
+<script src="./expense-report.js"></script>
 <link rel="stylesheet" href="./vehicle-trading.css">
 <script src="./vehicle-trading-ui.js"></script>
 <script src="./vehicle-trading.js"></script>
@@ -1409,6 +1411,7 @@ function applyAuthenticatedProfile(profile,session){
   window.ExpenseBulk?.reset();
   window.ExpenseMonth?.reset();
   window.ExpenseTypes?.reset();
+ window.ExpenseReport?.reset();
   window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
@@ -1488,6 +1491,7 @@ async function logoutNow(){
  window.ExpenseBulk?.reset();
  window.ExpenseMonth?.reset();
  window.ExpenseTypes?.reset();
+ window.ExpenseReport?.reset();
  window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
@@ -3743,6 +3747,7 @@ function drawExpenses(c,loaded=false){
  <div class="panel" style="margin-top:12px" id="expenseRegister">${expenseRegisterHtml(s)}</div>`;
  ExpenseBulk.paint();
  ExpenseMonth.paint();
+ window.ExpenseReport?.mount();
  window.ExpenseTypes?.read();
 }
 
