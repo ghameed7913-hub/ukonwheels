@@ -5239,10 +5239,11 @@ function drawBooking(c){
  const bulkAvailable=role==="admin"||role==="staff"||(role==="client"&&currentUser?.accountType==="business");
  c.innerHTML=`<div class="panel booking-form"><h3>Create Booking</h3>
  ${bulkAvailable?`<label for="bookingMode" class="booking-field booking-mode-field"><span>Booking entry</span><select id="bookingMode" class="bulk-mode" aria-label="Booking entry" onchange="BulkBooking.setMode(this.value)"><option value="single">Single vehicle</option><option value="multiple">Multiple vehicles (enter details)</option><option value="bulk">Bulk vehicles (Excel)</option></select></label>
- <div id="bookingVehicleCountControls" class="actions"><label class="booking-field" for="bookingVehicleCount"><span>Number of vehicles</span><input id="bookingVehicleCount" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></label><button type="button" id="applyVehicleCount" class="btn secondary" onclick="BulkBooking.setVehicleCount()">Apply vehicle count</button><span class="muted">Each vehicle gets its own booking reference. Charges are per vehicle.</span></div>`:""}
+ <div id="bookingVehicleCountControls" class="actions"><label class="booking-field" for="bookingVehicleCount"><span>Number of vehicles</span><input id="bookingVehicleCount" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></label><button type="button" id="applyVehicleCount" class="btn secondary" onclick="BulkBooking.setVehicleCount()">Confirm number of vehicles</button><span class="muted">Confirm the count, choose the customer, then enter each vehicle's details. Each gets its own booking reference.</span></div>`:""}
  ${bulkAvailable?`<p id="bulkSharedNotice" class="muted" hidden>Download the Business Excel template, enter one vehicle per row, upload and review, then save. Each vehicle receives its own booking reference and appears as a New Booked Vehicle.</p>`:""}
  <fieldset id="bookingSharedFields" class="form booking-fields">
   <legend class="booking-sr-only">Customer, vehicle and journey details</legend>
+  <h4 id="bookingCustomerHeading" class="full" hidden>Customer for these vehicles</h4>
   ${role==="client"
     ? `<input id="customerType" type="hidden" value="${currentUser?.accountType==="business"?"Business":"Private"}"><div class="panel" style="padding:10px"><b>Booking For:</b> ${escapeHtml(currentUser?.name||"Client")}</div>`
     : `<label class="booking-field" for="customerType"><span>Customer type</span><select id="customerType" onchange="toggleCustomerTypeFields()"><option value="Business">Business Customer</option><option value="Private">Private Customer — Admin Only</option></select></label>`}
@@ -5257,6 +5258,7 @@ function drawBooking(c){
    <label class="booking-field" for="veh"><span>Vehicle make and model</span><input id="veh" placeholder="e.g. Ford Transit"></label>
    <label class="booking-field" for="reg"><span>Registration number</span><input id="reg" placeholder="e.g. AB12 CDE" aria-describedby="registrationRule"><small id="registrationRule" class="muted">Cannot repeat a registration previously booked for this customer/branch. A different saved customer/branch may book it.</small></label>
   </div></div>
+  <div id="bookingJourneyFields" class="full"><div class="form booking-fields">
   <label class="booking-field" for="pickup"><span>Collection address</span><input id="pickup" placeholder="Street, town and postcode"></label>
   <label class="booking-field" for="dest"><span>Delivery address</span><input id="dest" placeholder="Street, town and postcode"></label>
   <input id="service" type="hidden" value="Vehicle Delivery">
@@ -5268,6 +5270,7 @@ function drawBooking(c){
   <label class="booking-field" for="dropoff"><span>Latest drop-off time</span><input id="dropoff" type="time" title="Latest drop-off time"></label>
   <label class="booking-field" for="amount"><span>Customer charge (£)</span><input id="amount" type="number" placeholder="e.g. 150.00"></label>
   <label class="booking-field full" for="notes"><span>Special instructions</span><textarea id="notes" placeholder="Collection, delivery or vehicle instructions"></textarea></label>
+  </div></div>
  </fieldset>
  <div id="tariffInfo" class="full muted"></div>
  ${role==="admin"||role==="staff"||role==="client"?'<div id="bulkBookingPanel" hidden></div>':""}
