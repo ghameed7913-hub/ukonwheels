@@ -142,5 +142,65 @@ test("Staff ledger SQL: access, deduplication, daily/monthly totals, atomic pays
    begin perform ${save([sheetRow(400,{rate:9999})],904)};raise exception 'Sheet changed saved rate';
     exception when raise_exception then if sqlerrm='Sheet changed saved rate' then raise;end if;end;
   end$$;`);
+  sql(`reset role;
+   alter table public.profiles add column name text;
+   alter table public.profiles add column full_name text;
+   alter table public.profiles add column email text;
+   update public.profiles set name='Portal '||id::text,email='user'||right(id::text,1)||'@example.invalid';
+   insert into public.profiles(id,role,status,name,email) values
+    ('${uid(6)}','staff','Inactive','Awaiting Role','new@example.invalid'),
+    ('${uid(7)}','staff','Deleted','Deleted User','deleted@example.invalid');
+   create table public.hr_employee_records(id uuid primary key,data jsonb,checks jsonb);
+   insert into public.hr_employee_records values
+    ('${uid(700)}','{"firstName":"HR","lastName":"Only","email":"hr@example.invalid","passportNumber":"PRIVATE"}','{"private":"SECRET"}'),
+    ('${uid(701)}','{"firstName":"Duplicate","lastName":"Driver","email":"user2@example.invalid","portalUserId":"${uid(2)}"}','{}');
+   update public.app_store set data=jsonb_set(data,'{staffUsers}',
+    '[{"id":"saved-only","name":"Created Staff","email":"created@example.invalid","role":"Unassigned"},{"name":"Duplicate","email":"hr@example.invalid","role":"Staff"},{"name":"Client","email":"client@example.invalid","role":"Client"}]') where id='main';
+  `);
+  const simplePatch=fs.readFileSync(path.resolve(__dirname,"../../../supabase/staff-simple-sheet.sql"),"utf8");
+  sql(simplePatch);sql(simplePatch);
+  sql(`${as(3)}do $$declare r jsonb;begin
+   r:=public.read_staff_pay_roster();
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'email'='new@example.invalid') then raise exception 'Unassigned user missing';end if;
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'email'='created@example.invalid') then raise exception 'Create User missing';end if;
+   if (select count(*) from jsonb_array_elements(r->'employees') x where x->>'email'='hr@example.invalid')<>1 then raise exception 'HR employee missing or duplicated';end if;
+   if (select count(*) from jsonb_array_elements(r->'employees') x where x->>'email'='user2@example.invalid')<>1 then raise exception 'Linked employee duplicated';end if;
+   if exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'role'='client' or x->>'email'='deleted@example.invalid') then raise exception 'Client or deleted user included';end if;
+   if position('PRIVATE' in r::text)>0 or position('SECRET' in r::text)>0 then raise exception 'Private HR fields leaked';end if;
+  end$$;`);
+  for(const n of [2,5])sql(`${as(n)}do $$begin
+   begin perform public.read_staff_pay_roster();raise exception 'Roster exposed';exception when insufficient_privilege then null;end;
+  end$$;`);
+  const bonusRow=sheetRow(500,{email:"user2@example.invalid",rate:2000,overtime:100,expense:75,bonus:50,fuel:40,advance:300,payment:200,
+   entry_ids:{...sheetRow(500).entry_ids,bonus:uid(5005),fuel:uid(5006)}});
+  sql(`${as(3)}select ${save([bonusRow],960)};select ${save([bonusRow],960)};
+   do $$declare t jsonb;begin
+    t:=public.staff_daily_totals('${uid(500)}','2026-11');
+    if t<>'{"basic":2000,"overtime":100,"bonus":50,"fuel":40,"otherExpenses":75,"advance":500}'::jsonb then raise exception 'Bonus/fuel totals wrong: %',t;end if;
+   end$$;`);
+  const invalidBonus=sheetRow(510,{payment:100,bonus:-1,fuel:0});
+  sql(`${as(3)}do $$begin
+   begin perform ${save([invalidBonus],961)};raise exception 'Negative bonus accepted';
+    exception when raise_exception then if sqlerrm='Negative bonus accepted' then raise;end if;end;
+   if exists(select 1 from jsonb_array_elements(public.read_staff_daily_records()->'people') p where p->>'id'='${uid(510)}') then raise exception 'Bonus error saved partial employee';end if;
+  end$$;`);
+  sql(`${as(3)}select ${save([
+    sheetRow(520,{name:"Manual Employee",email:null,pay_basis:"daily",rate:0,work:100}),
+    sheetRow(521,{name:"Manual Employee",email:null,pay_basis:"daily",rate:0,work:200})
+   ],962)};
+   do $$begin
+    if (select count(*) from jsonb_array_elements(public.read_staff_daily_records()->'people') p where p->>'email' is null and p->>'name'='Manual Employee')<>2 then raise exception 'Manual employees without emails were merged';end if;
+    if (public.staff_daily_totals('${uid(520)}','2026-11')->>'basic')::numeric<>100 then raise exception 'Manual no-email pay lost';end if;
+   end$$;`);
+  const bonusSlip={id:"PAY-BONUS",email:"user2@example.invalid",month:"2026-11",basic:2000,overtime:100,bonus:50,fuel:40,otherExpenses:75,advance:500,rate:0,food:0,travel:0,taxEnabled:true,taxPct:20};
+  sql(`${as(1)}select public.create_staff_record_payslip('${uid(500)}',${json(bonusSlip)},'Paid');
+   do $$declare p jsonb;begin
+    select x into p from jsonb_array_elements(public.read_payroll_finances()->'payslips') x where x->>'id'='PAY-BONUS';
+    if (p->>'net')::numeric<>1345 or (p->>'bonus')::numeric<>50 or (p->>'fuel')::numeric<>40 or (p->>'taxAmount')::numeric<>420 then raise exception 'Payslip dropped additions: %',p;end if;
+    if p->>'role'<>'Driver' then raise exception 'Driver payroll role lost';end if;
+    if not exists(select 1 from jsonb_array_elements(public.read_payroll_finances()->'expenses') e where e->>'payslipId'='PAY-BONUS' and e->>'category'='Wages') then raise exception 'Driver expense not Wages';end if;
+   end$$;
+   ${as(3)}select ${save([bonusRow],960)};
+  `);
  }finally{if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"]);fs.rmSync(dir,{recursive:true,force:true})}
 });

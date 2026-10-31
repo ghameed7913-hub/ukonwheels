@@ -18,6 +18,23 @@ It does not delete, reset or automatically convert records.
 
 ## Daily use
 
+For the simplified all-employee sheet, also run
+`supabase/staff-simple-sheet.sql` after both setup files above.
+The page automatically lists internal portal users, saved Create User records
+(including not-yet-assigned staff), HR employee registrations and existing ledger
+people. Matching email addresses appear once. Client sign-ins are not employees.
+Accounts receives only name, email, role and source—not private screening details.
+
+The main sheet has Name, Normal pay, Expenses, Overtime, Bonus, Fuel, Advances,
+Paid and Total payable. Type new amounts for the chosen date; existing month
+totals are included in the payable column. Monthly salary is still counted once.
+Bonus and fuel are separate saved amounts and carry into the payslip. The portal's
+optional manual tax remains on wages and overtime only; this is not PAYE advice.
+Untouched automatic employee rows are not saved as new financial records.
+Manual rows can be saved with a name alone; email is optional for the sheet.
+An email must be supplied before the employee's first save if you also want to
+link that row to HR Payslips. No fabricated addresses are created.
+
 - Open **Accounts → Staff Daily Record**.
 - Choose the month and add spreadsheet rows. Type a new name, email and **monthly salary** or **daily rate** directly into a row, or select an existing employee. Use the employee's existing email when they already have a payslip/login record. Saving this financial record does not create a login.
 - Enter dated normal work pay, overtime, reimbursable expenses, advances and payments directly into their columns. Monthly salary is counted once per employee, not once per row. Daily staff earn the work amounts entered. Expenses mean money owed **to the employee**, not a second general company expense.
