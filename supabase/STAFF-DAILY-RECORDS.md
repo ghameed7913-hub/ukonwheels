@@ -35,6 +35,12 @@ Manual rows can be saved with a name alone; email is optional for the sheet.
 An email must be supplied before the employee's first save if you also want to
 link that row to HR Payslips. No fabricated addresses are created.
 
+Run `supabase/staff-pay-roles.sql` after the simple-sheet setup to show the
+assigned role beside each name. Admin accounts stay visible. HR is identified
+from the user's designation or HR access, not merely from being registered with
+HR. These read-only labels do not change permissions or payroll. Manual rows
+without a linked user show “Not assigned”.
+
 - Open **Accounts → Staff Daily Record**.
 - Choose the month and add spreadsheet rows. Type a new name, email and **monthly salary** or **daily rate** directly into a row, or select an existing employee. Use the employee's existing email when they already have a payslip/login record. Saving this financial record does not create a login.
 - Enter dated normal work pay, overtime, reimbursable expenses, advances and payments directly into their columns. Monthly salary is counted once per employee, not once per row. Daily staff earn the work amounts entered. Expenses mean money owed **to the employee**, not a second general company expense.

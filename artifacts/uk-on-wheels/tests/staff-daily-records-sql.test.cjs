@@ -202,5 +202,30 @@ test("Staff ledger SQL: access, deduplication, daily/monthly totals, atomic pays
    end$$;
    ${as(3)}select ${save([bonusRow],960)};
   `);
+  sql(`reset role;
+   alter table public.profiles add column staff_role text;
+   alter table public.profiles add column permissions jsonb not null default '[]';
+   create table public.user_permissions(profile_id uuid,permission_key text);
+   update public.profiles set staff_role='Staff' where role='staff';
+   update public.profiles set staff_role='Unassigned' where id='${uid(6)}';
+   update public.profiles set staff_role='Operations' where id='${uid(4)}';
+   insert into public.user_permissions values('${uid(3)}','hr:manage');
+  `);
+  const rolesPatch=fs.readFileSync(path.resolve(__dirname,"../../../supabase/staff-pay-roles.sql"),"utf8");
+  sql(rolesPatch);sql(rolesPatch);
+  sql(`${as(3)}do $$declare r jsonb;begin
+   r:=public.read_staff_pay_roster();
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'id'='${uid(1)}' and x->>'roleLabel'='Admin') then raise exception 'Admin missing or mislabeled';end if;
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'id'='${uid(2)}' and x->>'roleLabel'='Driver') then raise exception 'Driver role missing';end if;
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'id'='${uid(3)}' and x->>'roleLabel'='HR') then raise exception 'HR permission not labeled';end if;
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'id'='${uid(4)}' and x->>'roleLabel'='Operations') then raise exception 'Staff designation lost';end if;
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'id'='${uid(6)}' and x->>'roleLabel'='Unassigned') then raise exception 'Unassigned user mislabeled';end if;
+   if not exists(select 1 from jsonb_array_elements(r->'employees') x where x->>'email'='hr@example.invalid' and x->>'roleLabel'='Other Staff') then raise exception 'HR registration mistaken for HR employee role';end if;
+   if position('PRIVATE' in r::text)>0 or position('SECRET' in r::text)>0 then raise exception 'Role lookup leaked vetting';end if;
+   if (select count(*) from jsonb_array_elements(r->'employees') x where x->>'email'='user2@example.invalid')<>1 then raise exception 'Role lookup duplicated an employee';end if;
+  end$$;`);
+  for(const n of [2,5])sql(`${as(n)}do $$begin
+   begin perform public.read_staff_pay_roster();raise exception 'Roster exposed';exception when insufficient_privilege then null;end;
+  end$$;`);
  }finally{if(started)spawnSync("pg_ctl",["-D",data,"-m","immediate","-w","stop"]);fs.rmSync(dir,{recursive:true,force:true})}
 });

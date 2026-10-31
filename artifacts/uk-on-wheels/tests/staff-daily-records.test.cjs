@@ -97,3 +97,21 @@ test("All internal roster names appear once, untouched auto rows are not changes
  const auto=s.normalizeRow(row({rosterId:uuid,email:"",basis:"daily",rate:"0"}),[],[],{});
  assert.equal(auto.row.person_id,uuid,"No-email automatic roster identity remains stable across saves");
 });
+test("Role column identifies Admin, HR, Driver and staff, refreshes cached roles, and leaves money unchanged",()=>{
+ const s=sheet();
+ assert.equal(s.employeeRole({role:"admin",roleLabel:"HR"}),"Admin");
+ assert.equal(s.employeeRole({role:"driver"}),"Driver");
+ assert.equal(s.employeeRole({role:"staff",roleLabel:"HR"}),"HR");
+ assert.equal(s.employeeRole({role:"staff"}),"Other Staff");
+ assert.equal(s.employeeRole({role:"staff",staffRole:"Operations"}),"Operations");
+ assert.equal(s.employeeRole({role:"staff",roleLabel:"Unassigned"}),"Unassigned");
+ assert.equal(s.employeeRole({source:"HR"}),"Not assigned","HR registration alone is not an HR role");
+ const draft=row({auto:true,personId:"a",role:"staff",roleLabel:"Other Staff",work:"100",bonus:"50"});
+ const person={id:"a",name:draft.name,email:draft.email,pay_basis:"monthly",rate:2000};
+ const roster=[{id:"user-a",name:person.name,email:person.email,role:"staff",roleLabel:"HR"}];
+ const merged=s.mergeRoster([draft],roster,[person],()=>"unused");
+ assert.equal(merged.length,1);assert.equal(merged[0].roleLabel,"HR");
+ assert.equal(merged[0].work,"100");assert.equal(merged[0].bonus,"50");
+ assert.match(code,/<th>Name<\/th><th>Role<\/th>/);
+ assert.match(code,/esc\(employeeRole\(r\)\)/,"Role labels are escaped before rendering");
+});

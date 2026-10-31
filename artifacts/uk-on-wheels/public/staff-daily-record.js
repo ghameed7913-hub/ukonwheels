@@ -118,6 +118,17 @@ function blank(r){return !r.personId&&!String(r.name||"").trim()&&!String(r.emai
 function meaningful(r){if(!r)return false;if(r.auto)return AMTS.some(k=>String(r[k]??"").trim()!=="")||!!String(r.notes||"").trim();return !blank(r)}
 let seq=0;
 function rowKey(){return "r"+Date.now().toString(36)+(seq++)}
+function employeeRole(person){
+  const role=String(person?.role||"").trim(),detail=String(person?.roleLabel||person?.staffRole||"").trim();
+  if(/^(admin|super[ _-]?admin)$/i.test(role))return "Admin";
+  if(/^driver$/i.test(role))return "Driver";
+  const label=detail||role;
+  if(!label)return "Not assigned";
+  if(/^(hr|human resources)$/i.test(label))return "HR";
+  if(/^staff$/i.test(label))return "Other Staff";
+  if(/^unassigned$/i.test(label))return "Unassigned";
+  return label;
+}
 /* Pure: merges roster employees + ledger people into sheet rows, one row each, no duplicates.
    Keeps existing rows (typed values), refreshes identity of auto rows, auto rows sorted by name then manual rows. */
 function mergeRoster(rows,roster,people,mkKey){
@@ -131,9 +142,9 @@ function mergeRoster(rows,roster,people,mkKey){
     if(!e||/^client$/i.test(String(e.role||"")))continue;
     const email=lc(e.email),led=byId.get(e.id)||(email&&byEmail.get(email))||null;
     const ex=has(led?.id,email||lc(led?.email),e.id);
-    if(ex){if(ex.auto&&!ex.rosterId)ex.rosterId=e.id;continue}
-    out.push(led?{key:mkKey(),auto:true,rosterId:e.id,personId:led.id,name:led.name,email:led.email||"",basis:led.pay_basis,rate:String(led.rate??"0"),role:e.role||"",source:e.source||""}
-      :{key:mkKey(),auto:true,rosterId:e.id,personId:"",name:String(e.name||e.email||"Unnamed").trim(),email:email,basis:"daily",rate:"0",role:e.role||"",source:e.source||""});
+    if(ex){if(ex.auto&&!ex.rosterId)ex.rosterId=e.id;ex.role=e.role||"";ex.roleLabel=e.roleLabel||e.staffRole||"";continue}
+    out.push(led?{key:mkKey(),auto:true,rosterId:e.id,personId:led.id,name:led.name,email:led.email||"",basis:led.pay_basis,rate:String(led.rate??"0"),role:e.role||"",roleLabel:e.roleLabel||e.staffRole||"",source:e.source||""}
+      :{key:mkKey(),auto:true,rosterId:e.id,personId:"",name:String(e.name||e.email||"Unnamed").trim(),email:email,basis:"daily",rate:"0",role:e.role||"",roleLabel:e.roleLabel||e.staffRole||"",source:e.source||""});
   }
   for(const x of ppl){if(has(x.id,lc(x.email)))continue;out.push({key:mkKey(),auto:true,personId:x.id,name:x.name,email:x.email||"",basis:x.pay_basis,rate:String(x.rate??"0"),source:"Ledger"})}
   for(const r of out)for(const k of AMTS)if(r[k]==null)r[k]="";
@@ -224,9 +235,9 @@ function paint(){
   ${st.error?`<p role="alert" class="sdrErr" data-testid="status-error">${esc(st.error)}</p>`:""}
   ${st.notice?`<p role="status" class="sdrOk" data-testid="status-notice">${esc(st.notice)}</p>`:""}
   <div class="panel sdrSheetPanel">
-  <div class="sdrScroll"><table class="sdrGrid" id="sdrGrid"><thead><tr><th class="idx">#</th><th>Name</th>${COLS.map(([,l])=>`<th class="num">${l}</th>`).join("")}<th class="num">Total payable</th></tr></thead>
-  <tbody>${rows.map((r,i)=>`<tr class="${r.auto?"auto":"manual"}" data-row="${esc(r.key)}" data-testid="row-sheet-${i}"><td class="idx">${i+1}</td><td class="sdrIdCell">${identityCell(r,i,can)}</td>${COLS.map(([f])=>amtCell(r,i,f,can)).join("")}<td class="num sdrTot" data-tot="${esc(r.key)}" data-testid="text-payable-${i}"></td></tr><tr class="errRow" data-err="${esc(r.key)}" hidden><td></td><td colspan="${COLS.length+2}" class="rowErr" role="status"></td></tr>`).join("")}
-  ${rows.length?"":`<tr><td colspan="${COLS.length+3}" class="sdrEmpty">No employees yet. Add users in Create User or HR, or press Add employee.</td></tr>`}</tbody>
+  <div class="sdrScroll"><table class="sdrGrid" id="sdrGrid"><thead><tr><th class="idx">#</th><th>Name</th><th>Role</th>${COLS.map(([,l])=>`<th class="num">${l}</th>`).join("")}<th class="num">Total payable</th></tr></thead>
+  <tbody>${rows.map((r,i)=>`<tr class="${r.auto?"auto":"manual"}" data-row="${esc(r.key)}" data-testid="row-sheet-${i}"><td class="idx">${i+1}</td><td class="sdrIdCell">${identityCell(r,i,can)}</td><td class="sdrRole" data-testid="text-role-${i}">${esc(employeeRole(r))}</td>${COLS.map(([f])=>amtCell(r,i,f,can)).join("")}<td class="num sdrTot" data-tot="${esc(r.key)}" data-testid="text-payable-${i}"></td></tr><tr class="errRow" data-err="${esc(r.key)}" hidden><td></td><td colspan="${COLS.length+3}" class="rowErr" role="status"></td></tr>`).join("")}
+  ${rows.length?"":`<tr><td colspan="${COLS.length+4}" class="sdrEmpty">No employees yet. Add users in Create User or HR, or press Add employee.</td></tr>`}</tbody>
   <tfoot id="sdrFoot"></tfoot></table></div>
   <div class="sdrBar">${can?`<button class="btn secondary" id="sdrAdd" ${st.saving?"disabled":""} data-testid="button-add-employee">+ Add employee</button>`:"<span></span>"}
   <div class="sdrBtns"><span class="sdrCount" id="sdrCount"></span>${can&&st.batchId?`<button class="btn secondary" id="sdrDiscard" ${st.saving?"disabled":""} data-testid="button-discard">Discard unsaved</button>`:""}
@@ -288,10 +299,10 @@ function refreshDerived(){
   });
   const orphan=t.groups.filter(g=>!used.has(g)).reduce((a,g)=>a+g.balance,0);
   const foot=host.querySelector("#sdrFoot");
-  if(foot)foot.innerHTML=!taxValid?`<tr class="grand"><td colspan="${COLS.length+3}" role="alert" class="sdrErr">Enter a tax percentage between 0 and 100 to calculate the total.</td></tr>`
-    :`<tr class="newRow"><td></td><td>New amounts typed now</td>${COLS.map(([f])=>`<td class="num" data-testid="text-new-${f}">${money(colSum[f]/100)}</td>`).join("")}<td class="num" data-testid="text-unsaved-total">${(t.unsaved<0?"− ":"+ ")+money(Math.abs(t.unsaved))}</td></tr>
-    <tr class="savedRow"><td></td><td colspan="${COLS.length+1}">Saved ${esc(st.month)} payable${orphan?` (includes ${money(orphan)} from rows dated outside this sheet)`:""}</td><td class="num" data-testid="text-saved-total">${money(t.grandSaved)}</td></tr>
-    <tr class="grand"><td></td><td colspan="${COLS.length+1}">Grand total payable, ${esc(st.month)}${t.taxPct?` after ${t.taxPct}% tax`:""}</td><td class="num ${t.grand<0?"neg":""}" data-testid="text-grand-total">${money(t.grand)}</td></tr>`;
+  if(foot)foot.innerHTML=!taxValid?`<tr class="grand"><td colspan="${COLS.length+4}" role="alert" class="sdrErr">Enter a tax percentage between 0 and 100 to calculate the total.</td></tr>`
+    :`<tr class="newRow"><td></td><td>New amounts typed now</td><td></td>${COLS.map(([f])=>`<td class="num" data-testid="text-new-${f}">${money(colSum[f]/100)}</td>`).join("")}<td class="num" data-testid="text-unsaved-total">${(t.unsaved<0?"− ":"+ ")+money(Math.abs(t.unsaved))}</td></tr>
+    <tr class="savedRow"><td></td><td colspan="${COLS.length+2}">Saved ${esc(st.month)} payable${orphan?` (includes ${money(orphan)} from rows dated outside this sheet)`:""}</td><td class="num" data-testid="text-saved-total">${money(t.grandSaved)}</td></tr>
+    <tr class="grand"><td></td><td colspan="${COLS.length+2}">Grand total payable, ${esc(st.month)}${t.taxPct?` after ${t.taxPct}% tax`:""}</td><td class="num ${t.grand<0?"neg":""}" data-testid="text-grand-total">${money(t.grand)}</td></tr>`;
   const cnt=host.querySelector("#sdrCount");if(cnt)cnt.textContent=dirty.length?dirty.length+" changed row"+(dirty.length===1?"":"s")+" to save":"No unsaved changes";
 }
 
@@ -384,5 +395,5 @@ async function createPayslip(record,status){
   if(!Array.isArray(result.payslips)||!result.payslips.some(p=>p.id===record.id)||!Array.isArray(result.expenses))throw Error("The saved payslip could not be confirmed. Refresh before retrying.");
   return result;
 }
-window.StaffDailyRecord={draw,mergeRoster,rosterRows:mergeRoster,meaningful,useOnPayslip,preparePayslip,payslipPerson,createPayslip,summary,londonMonth,londonDate,normalizeRow,crossCheck,sheetTotals,buildPayload,parseAmt};
+window.StaffDailyRecord={draw,mergeRoster,rosterRows:mergeRoster,employeeRole,meaningful,useOnPayslip,preparePayslip,payslipPerson,createPayslip,summary,londonMonth,londonDate,normalizeRow,crossCheck,sheetTotals,buildPayload,parseAmt};
 })();
