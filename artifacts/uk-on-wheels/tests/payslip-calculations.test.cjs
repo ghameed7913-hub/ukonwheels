@@ -37,6 +37,7 @@ function setup() {
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/payroll-payments.js"),"utf8"),c);
   c.PayrollPayments=c.window.PayrollPayments;
+  c.StaffDailyRecord={createPayslip:(record,status)=>c.PayrollPayments.create(record,status),preparePayslip(){}};
   vm.runInContext(code, c);
   const draw = c.drawHRPayslips;
   c.drawHRPayslips = () => redraws++;
@@ -133,7 +134,7 @@ test("Generation saves the complete breakdown, which survives reload and printab
   assert.equal(p.net, 930);
   store.payslips = JSON.parse(JSON.stringify(saved().payslips));
   c.viewPayslip(p.id);
-  for (const label of ["Fuel payment", "Food payment", "Travel cost payment", "Overtime payment", "Advance deducted", "Print / Save PDF"]) assert.ok(fields.payslipDetail.innerHTML.includes(label));
+  for (const label of ["Fuel payment", "Food payment", "Travel cost payment", "Overtime payment", "Advances / payments already paid", "Print / Save PDF"]) assert.ok(fields.payslipDetail.innerHTML.includes(label));
   assert.match(fields.payslipDetail.innerHTML, /£930\.00/);
 });
 
