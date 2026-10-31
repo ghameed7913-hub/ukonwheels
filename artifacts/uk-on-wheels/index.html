@@ -47,6 +47,8 @@
 <script src="./driver-incidents.js"></script>
 <script src="./bulk-booking-ui.js"></script>
 <script src="./bulk-booking.js"></script>
+<link rel="stylesheet" href="./booking-deadlines.css">
+<script src="./booking-deadlines.js"></script>
 <style>
 :root{--navy:#071a31;--navy2:#0d2547;--blue:#2f6fe0;--brand-red:#e2131f;--brand-red-dark:#b30f19;--bg:#f4f7fb;--line:#e2e8f0;--text:#132238;--muted:#718096;--green:#159a62;--amber:#d99516;--red:#d9363e;--purple:#7457d6}
 *{box-sizing:border-box}body{margin:0;font-family:'Inter',Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
@@ -1335,7 +1337,7 @@ function bookingApprovalDetails(b){
 function normalizedBookingToPortal(b,pm={},bm={}){
  const d=pm[b.driver_id]||{},u=pm[b.created_by]||{},biz=bm[b.business_id]||{};
  const privateCustomerEmail=pm[b.client_id]?.email||"";
- return {privateCustomerEmail,_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_journeyStartedAt:b.journey_started_at||null,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",dropoffTill:b.dropoff_deadline||"",notes:b.client_notes||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
+ return {privateCustomerEmail,_normalizedId:b.id,_businessId:b.business_id,_clientId:b.client_id,_createdById:b.created_by,_driverId:b.driver_id,_pickedUpAt:b.picked_up_at||null,_journeyStartedAt:b.journey_started_at||null,_deliveredAt:b.delivered_at||null,ref:b.reference,customerType:b.customer_type||"Business",business:biz.trading_name||biz.legal_name||u.business_name||u.full_name||u.name||"Client",vehicle:[b.vehicle_make,b.vehicle_model].filter(Boolean).join(" ")||"Vehicle",reg:b.vehicle_registration||"",pickup:b.pickup_address||"",destination:b.destination_address||"",service:b.service_type||"Vehicle Delivery",miles:Number(b.miles||0),bookingDate:b.booking_date||"",deliveryDate:b.requested_delivery_date||"",dropoffTill:b.dropoff_deadline||"",notes:b.client_notes||"",receiver:b.receiver_name||"",receiverMobile:b.receiver_mobile||"",amount:Number(b.amount||0),status:b.status||"New Booked Vehicle",paymentStatus:b.payment_status||"Pending",driver:d.full_name||d.name||(b.driver_id&&role==="driver"?currentUser?.name:""),createdBy:u.full_name||u.name||"Client",createdAt:b.created_at?new Date(b.created_at).toLocaleString():"",timeline:[{title:b.status||"Booking Created",text:"Live Supabase booking"}]};
 }
 async function loadNormalizedPortalData(){
  if(!sb||!currentSession)return;
