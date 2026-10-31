@@ -2,7 +2,8 @@
 (() => {
   "use strict";
   const fieldIds = ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"];
-  let owner = null, mode = "single", rows = [], common = null, busy = false, generation = 0, sourceName = "";
+  const customerFields = ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail"];
+  let owner = null, mode = "single", rows = [], common = null, busy = false, generation = 0, sourceName = "", countConfirmed = false;
   const el = id => document.getElementById(id);
   const userId = () => currentSession?.user?.id || (!SUPABASE_CONFIGURED ? currentUser?.email || "local-admin" : null);
   const allowed = () => (role === "client" && currentUser?.accountType === "business") || ((role === "admin" || role === "staff") && hasPermission("booking"));
@@ -42,7 +43,7 @@
   function persist() {
     if (!owner) return false;
     try {
-      sessionStorage.setItem(key(owner),JSON.stringify({version:1,mode,rows,common,sourceName}));
+      sessionStorage.setItem(key(owner),JSON.stringify({version:1,mode,rows,common,sourceName,countConfirmed}));
       return true;
     } catch (_) {
       status("The browser could not save this batch's recovery details. No further vehicles will be submitted until browser session storage is available.");
@@ -52,7 +53,7 @@
   function load() {
     const id = userId();
     if (owner === id) return;
-    owner = id; mode = "single"; rows = []; common = null; sourceName = "";
+    owner = id; mode = "single"; rows = []; common = null; sourceName = ""; countConfirmed=false;
     if (!id) return;
     try {
       const saved = JSON.parse(sessionStorage.getItem(key(id)) || "null");
@@ -63,46 +64,66 @@
         }
         common = saved.common; sourceName = typeof saved.sourceName === "string" ? saved.sourceName : "";
         mode = ["bulk","multiple"].includes(saved.mode) ? saved.mode : "single";
+        countConfirmed=typeof saved.countConfirmed==="boolean"?saved.countConfirmed:mode==="multiple"&&rows.length>0;
+        if(mode==="multiple")initializeManualDetails(common||snapshot());
       }
     } catch (_) { status("The saved bulk draft could not be restored. Check existing bookings before starting again."); }
   }
   function hasCommittedRows() { return rows.some(r => ["saved","uncertain","saving"].includes(r.status)); }
+  function initializeManualDetails(shared){
+    for(const row of rows){
+      if(["saved","uncertain","saving"].includes(row.status))continue;
+      if(!row.details)row.details={...shared};
+      for(const field of ["miles","amount"])if(row[field]==null||row[field]==="")row[field]=role==="client"&&field==="amount"?"":shared[field]||"";
+    }
+  }
+  function valuesFor(row,shared){
+    const values=row.details||shared;
+    return mode==="multiple"?{...values,...Object.fromEntries(customerFields.map(k=>[k,shared[k]||""]))}:values;
+  }
   function singleOnly() {
     // Do not restore or delete an old bulk draft for a now-private account.
     // Existing saved bookings are unchanged, and single-form input values are kept.
-    mode="single";rows=[];common=null;sourceName="";
+    mode="single";rows=[];common=null;sourceName="";countConfirmed=false;
     if (el("bulkBookingPanel")) {el("bulkBookingPanel").hidden=true;el("bulkBookingPanel").innerHTML="";}
     if (el("singleVehicleFields")) el("singleVehicleFields").hidden=false;
+    if (el("bookingJourneyFields")) el("bookingJourneyFields").hidden=false;
+    if (el("bookingCustomerHeading")) el("bookingCustomerHeading").hidden=true;
     if (el("bookingSharedFields")) {el("bookingSharedFields").hidden=false;el("bookingSharedFields").disabled=false;}
     if (el("bulkSharedNotice")) el("bulkSharedNotice").hidden=true;
     if (el("bookingMode")) {el("bookingMode").value="single";el("bookingMode").disabled=true;}
     if (el("bookingVehicleCountControls")) el("bookingVehicleCountControls").hidden=true;
     if (el("tariffInfo")) el("tariffInfo").hidden=false;
     const button=document.querySelector('button[onclick="createBooking()"]');
-    if (button) {button.textContent="Create Booking";button.disabled=busy;}
+    if (button) {button.textContent="Create Booking";button.disabled=busy;button.hidden=false;}
   }
   function draw() {
     if (!allowed()) return singleOnly();
     if (!el("bulkBookingPanel")) return;
-    el("bulkBookingPanel").hidden = mode === "single";
+    const waitingForCount=mode==="multiple"&&!countConfirmed;
+    el("bulkBookingPanel").hidden = mode === "single" || waitingForCount;
     el("singleVehicleFields").hidden = mode !== "single";
     // An Excel row carries a complete booking, not a large duplicated shared form.
-    el("bookingSharedFields").hidden = mode === "bulk";
-    if (el("tariffInfo")) el("tariffInfo").hidden = mode === "bulk";
+    el("bookingSharedFields").hidden = mode === "bulk" || waitingForCount;
+    if(el("bookingJourneyFields"))el("bookingJourneyFields").hidden=mode==="multiple";
+    if(el("bookingCustomerHeading"))el("bookingCustomerHeading").hidden=mode!=="multiple";
+    if (el("tariffInfo")) el("tariffInfo").hidden = mode === "bulk" || waitingForCount;
     if (el("bulkSharedNotice")) el("bulkSharedNotice").hidden = mode !== "bulk";
     if (el("bookingMode")) { el("bookingMode").value = mode; el("bookingMode").disabled = busy; }
     el("bookingSharedFields").disabled = busy || (mode !== "single" && hasCommittedRows());
     if (el("bookingVehicleCountControls")) el("bookingVehicleCountControls").hidden = mode === "bulk";
     if (el("bookingVehicleCount")) {
-      el("bookingVehicleCount").value = mode === "multiple" ? rows.length || 1 : 1;
+      if(!waitingForCount)el("bookingVehicleCount").value = mode === "multiple" ? rows.length || 1 : 1;
+      else if(!el("bookingVehicleCount").value)el("bookingVehicleCount").value=rows.length||2;
       el("bookingVehicleCount").disabled = busy || hasCommittedRows();
     }
     if (el("applyVehicleCount")) el("applyVehicleCount").disabled = busy || hasCommittedRows();
     el("bulkBookingEditor").disabled = busy;
-    el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy,common || snapshot(),getStore().businesses || [],SUPABASE_CONFIGURED,{client:role === "client",sourceName});
+    el("bulkVehicleRows").innerHTML = BulkBookingUI.renderRows(rows,busy,common || snapshot(),getStore().businesses || [],SUPABASE_CONFIGURED,{client:role === "client",sourceName,manual:mode==="multiple"});
     el("bulkBookingResults").innerHTML = BulkBookingUI.summary(rows,busy);
     const button = document.querySelector('button[onclick="createBooking()"]');
     if (button) {
+      button.hidden=waitingForCount;
       button.textContent = mode !== "single" ? busy ? "Creating vehicle bookings…" : rows.length && rows.every(r=>r.status === "saved") ? "All vehicles booked" : rows.some(r=>r.status !== "editing") ? "Retry remaining vehicles" : "Create all vehicle bookings" : "Create Booking";
       button.disabled = busy || (mode !== "single" && (!rows.length || rows.every(r=>r.status === "saved")));
     }
@@ -149,12 +170,17 @@
       status("Finish or reconcile this batch first, or use Start a new batch. Saved bookings will not be deleted.");
       draw(); return;
     }
-    if (value === "multiple") return setVehicleCount(rows.length || 2);
+    if (value === "multiple") {
+      mode="multiple";countConfirmed=hasCommittedRows();common=snapshot();
+      if(el("bookingVehicleCount"))el("bookingVehicleCount").value=rows.length||2;
+      persist();mount();status("Confirm the number of vehicles to continue to the customer and individual vehicle details.");
+      return;
+    }
     mode = value === "bulk" ? "bulk" : "single";
     common = snapshot(); persist(); mount();
   }
   function needsVehicleCount() {
-    return allowed() && mode !== "bulk" && Number(el("bookingVehicleCount")?.value ?? 1) !== (mode === "multiple" ? rows.length : 1);
+    return allowed() && mode !== "bulk" && ((mode==="multiple"&&!countConfirmed)||Number(el("bookingVehicleCount")?.value ?? 1) !== (mode === "multiple" ? rows.length : 1));
   }
   async function setVehicleCount(value = el("bookingVehicleCount")?.value) {
     if (!allowed() || busy) return false;
@@ -169,15 +195,16 @@
     if (rows.length>count && rows.slice(count).some(hasRowInput) &&
       !await crmConfirm("Reducing the vehicle count will discard details for the last "+(rows.length-count)+" unsaved vehicles.","Change vehicle count","Discard those vehicle details")) {draw();return false;}
     if (busy || owner!==id || userId()!==id) return false;
-    const previous={rows,mode,common,sourceName};
+    const previous={rows:rows.map(r=>({...r,details:r.details?{...r.details}:null})),mode,common,sourceName,countConfirmed};
     rows=rows.slice(0,count);
     while(rows.length<count)rows.push(newRow());
     if (previous.mode==="single" && !hasRowInput(rows[0])) {
       rows[0].vehicle=el("veh")?.value.trim()||"";
       rows[0].reg=el("reg")?.value.trim()||"";
     }
-    mode="multiple"; common=snapshot();sourceName="";
-    if (!persist()) {({rows,mode,common,sourceName}=previous);return false;}
+    mode="multiple"; common=snapshot();sourceName="";countConfirmed=true;
+    initializeManualDetails(common);
+    if (!persist()) {({rows,mode,common,sourceName,countConfirmed}=previous);return false;}
     mount();status("Enter and review all "+count+" vehicles, then create their bookings. Nothing has been saved yet.");
     return true;
   }
@@ -201,6 +228,7 @@
     return row && !["saved","uncertain","saving"].includes(row.status) ? row : null;
   }
   function setOwnDetails(id,enabled) {
+    if(mode==="multiple")return;
     const row = editableRow(id);
     if (!row) return;
     if (enabled && !row.details) {
@@ -235,8 +263,8 @@
     if (rows.some(r=>r.status !== "saved" && hasRowInput(r)) &&
       !await crmConfirm("Discard the remaining unsaved vehicle rows? Any bookings already saved will remain.","Start a new batch","Discard unsaved rows")) return;
     if (busy) return;
-    rows = []; sourceName = ""; common = snapshot();
-    if (mode === "multiple") rows.push(newRow()); else mode = "bulk";
+    rows = []; sourceName = ""; common = snapshot();countConfirmed=false;
+    if (mode !== "multiple") mode = "bulk";
     persist(); mount(); status("New batch ready. Saved bookings from previous batches are unchanged.");
   }
   function number(value,label) {
@@ -263,7 +291,7 @@
   function validateRows(shared) {
     let valid = true;
     const rowKey = row => {
-      const values = role === "client" ? ownClientDetails(row.details || shared) : row.details || shared;
+      const values = role === "client" ? ownClientDetails(valuesFor(row,shared)) : valuesFor(row,shared);
       return registrationKey({
         customerType:values.customerType || "Business",
         _businessId:values.biz,business:values.biz,
@@ -360,7 +388,8 @@
     const seen = new Set();
     return vehicles.map((row,index) => {
     if (role === "client" && Number(row.amount || 0) !== 0) throw new Error("Vehicle "+(index+1)+": Clients cannot set customer charges. Leave that column blank.");
-    const values = role === "client" ? ownClientDetails(row.details || shared) : row.details || shared;
+    if(mode==="multiple"&&!countConfirmed)throw new Error("Confirm the number of vehicles first.");
+    const values = role === "client" ? ownClientDetails(valuesFor(row,shared)) : valuesFor(row,shared);
     const label = "Vehicle "+(index+1)+": ";
     const sharedCustomer = !row.details;
     const type = values.customerType || "Business";

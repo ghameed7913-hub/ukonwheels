@@ -78,3 +78,12 @@
 .bulk-row>*{grid-column:1/-1}
 .bulk-row{padding:12px}
 }
+
+.bulk-row.bulk-manual{display:block;padding:16px}
+.bulk-mhead{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line,#e2e8f0)}
+.bulk-mtitle{font-size:16px;color:var(--navy,#071a31);border-left:3px solid var(--brand-red,#e2131f);padding-left:8px}
+.bulk-mhead .bulk-remove{margin-left:auto;min-height:40px}
+.bulk-manual>.bulk-msg{margin:0 0 10px;font-size:13px}
+.bulk-manual .bulk-field{grid-column:auto}
+.bulk-manual .bulk-field.bulk-wide{grid-column:1/-1}
+@media(max-width:600px){.bulk-mhead .bulk-remove{margin-left:0;width:100%}}

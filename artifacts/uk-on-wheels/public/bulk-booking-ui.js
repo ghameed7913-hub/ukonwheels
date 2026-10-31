@@ -7,7 +7,7 @@ var CLS={editing:"",saving:"amber",saved:"green",failed:"red",uncertain:"amber"}
 function shell(context){
  var client=!!(context&&context.client);
  if(client&&context.accountType!=="business")return "";
- if(context&&context.manual)return '<div class="bulk-wrap"><div class="bulk-intro"><b>Vehicle details</b><p class="muted">Enter every vehicle below. Customer and journey details above apply to all vehicles unless you select separate details for a vehicle. Each has its own charge, booking reference and Driver assignment.</p></div><fieldset id="bulkBookingEditor" class="bulk-editor"><legend class="bulk-sr">Vehicles to book</legend><div id="bulkVehicleRows" class="bulk-rows"></div></fieldset><p id="bulkBookingStatus" class="bulk-status muted" role="status" aria-live="polite"></p><div id="bulkBookingResults" class="bulk-results"></div></div>';
+ if(context&&context.manual)return '<div class="bulk-wrap"><div class="bulk-intro"><b>Vehicle details</b><p class="muted">Select the shared customer above, then complete the full details for each vehicle below: make and model, registration, collection and delivery addresses, mileage, charge, dates, receiver and special instructions. Each vehicle is saved as its own booking with its own reference and Driver assignment.</p></div><fieldset id="bulkBookingEditor" class="bulk-editor"><legend class="bulk-sr">Vehicles to book</legend><div id="bulkVehicleRows" class="bulk-rows"></div></fieldset><p id="bulkBookingStatus" class="bulk-status muted" role="status" aria-live="polite"></p><div id="bulkBookingResults" class="bulk-results"></div></div>';
  var downloads='<button type="button" class="btn secondary bulk-dl" onclick="BulkBooking.downloadTemplate(\'Business\')">Download Business Excel</button>';
  return '<div class="bulk-wrap">'+
  '<div class="bulk-intro"><b>Bulk booking from Excel</b><p class="muted">One spreadsheet row per vehicle. Each vehicle is saved as its own booking with its own reference in New Booked Vehicle.'+(client?' Bookings are made for your own account; Operations sets charges.':'')+'</p></div>'+
@@ -26,8 +26,8 @@ function shell(context){
 }
 function renderRows(rows,busy,shared,businesses,linkedOnly,context){
  rows=rows||[];shared=shared||{};businesses=businesses||[];context=context||{};
- var client=!!context.client;
- if(!rows.length)return '<div class="bulk-empty"><b>Nothing to review yet</b><span class="muted">Download the template, fill one row per vehicle, then upload it above. Every vehicle will appear here for review before anything is saved.</span></div>';
+ var client=!!context.client,manual=!!context.manual;
+ if(!rows.length)return '<div class="bulk-empty"><b>Nothing to review yet</b><span class="muted">'+(manual?'Confirm the number of vehicles above to enter their details.':'Download the template, fill one row per vehicle, then upload it above. Every vehicle will appear here for review before anything is saved.')+'</span></div>';
  var head='<div class="bulk-review-head"><b>'+rows.length+' vehicle'+(rows.length===1?'':'s')+' to review</b>'+(context.sourceName?'<span class="muted">from '+esc(context.sourceName)+'</span>':'')+'</div>';
  return head+rows.map(function(r,i){
   var st=LABEL[r.status]?r.status:"editing",n=i+1,lock=!!busy||st==="saving"||st==="saved"||st==="uncertain";
@@ -46,6 +46,27 @@ function renderRows(rows,busy,shared,businesses,linkedOnly,context){
    else if(type==="textarea")field='<textarea'+attrs+' oninput="BulkBooking.updateDetail('+id+',\''+f+'\',this.value)"'+handler+'>'+esc(value)+'</textarea>';
    else field='<input'+attrs+' type="'+type+'" value="'+esc(value)+'" oninput="BulkBooking.updateDetail('+id+',\''+f+'\',this.value)"'+handler+'>';
    return '<label class="bulk-field'+(f==="notes"?' bulk-wide':'')+'"><span>'+label+(req?' <i aria-hidden="true">*</i>':'')+'</span>'+field+'</label>';
+  }
+  if(manual){
+   var manualMessage=r.message||(st==="uncertain"?"Server result unknown. Retry to reconcile before editing.":"");
+   var miles=r.miles==null||r.miles===""?v.miles||"":r.miles;
+   var charge=r.amount==null||r.amount===""?v.amount||"":r.amount;
+   return '<section class="bulk-row bulk-manual bulk-'+st+'" aria-label="Vehicle '+n+'">'+
+    '<div class="bulk-mhead"><b class="bulk-mtitle">Vehicle '+n+'</b>'+
+    '<span class="badge '+(needsCorrection?'red':CLS[st])+'">'+(needsCorrection?'Needs correction':LABEL[st])+'</span>'+
+    (st==="saved"&&r.reference?'<span class="bulk-ref">Ref '+esc(r.reference)+'</span>':'')+
+    '<button type="button" class="btn danger bulk-remove" aria-label="Remove vehicle '+n+'"'+dis+' onclick="BulkBooking.removeRow('+id+')">Remove</button></div>'+
+    (manualMessage?'<p class="bulk-msg'+(st==="failed"||needsCorrection?' bulk-err':'')+'" role="status">'+esc(manualMessage)+'</p>':'')+
+    '<div class="bulk-detail-grid">'+
+    inp("vehicle","Make and model",r.vehicle,"text","e.g. Ford Transit",true)+
+    inp("reg","Registration",r.reg,"text","e.g. AB12 CDE",true)+
+    detail("pickup","Collection address","text",true)+detail("dest","Delivery address","text",true)+
+    inp("miles","Mileage",miles,"number","0",false)+
+    inp("amount","Charges (£)",client?"":charge,"number",client?"Set by Operations":"0",false,client,client?"Charges are set by Operations after booking.":"")+
+    detail("bdate","Collection date","date",false)+detail("ddate","Delivery date","date",false)+
+    detail("receiver","Person receiving vehicle","text",true)+detail("mobile","Receiver mobile number","tel",true)+
+    detail("dropoff","Latest drop-off time","time",false)+detail("notes","Special instructions","textarea",false)+
+    '</div></section>';
   }
   var choices=[{value:"",label:"Select Business"}].concat(businesses.filter(function(b){return String(b.accountType||"business").toLowerCase()==="business";}).map(function(b){
    var inactive=String(b.status||"Active").toLowerCase()!=="active",unlinked=linkedOnly&&!b.id;

@@ -11,7 +11,7 @@ const html = fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
 function setup(options = {}) {
   const stored = options.stored || new Map(), saved = options.saved || new Map(), calls = [], rpcCalls=[];
   const fields = {};
-  for (const id of ["bookingVehicleCount","bookingVehicleCountControls","applyVehicleCount","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
+  for (const id of ["bookingCustomerHeading","bookingJourneyFields","bookingVehicleCount","bookingVehicleCountControls","applyVehicleCount","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
     fields[id] = {value:"",innerHTML:"",textContent:"",disabled:false,isConnected:true,addEventListener() {}};
   }
   const shared = {customerType:"Business",biz:"business-1",pickup:"Collection A",dest:"Delivery B",service:"Vehicle Delivery",miles:"40",amount:"100",receiver:"Test Receiver",mobile:"07000000000",notes:"Handle carefully",dropoff:"18:00"};
@@ -143,6 +143,53 @@ test("single booking uses the same historical customer-scoped check before eithe
   assert.match(submit,/if\(duplicate\)return alert\(duplicate\)/);
 });
 
+test("Multiple selection waits for count confirmation, then shows customer and expanded per-vehicle fields",async()=>{
+ const s=setup({empty:true});s.api.setMode("multiple");
+ assert.equal(s.fields.bookingSharedFields.hidden,true);
+ assert.equal(s.fields.bulkBookingPanel.hidden,true);assert.equal(s.button.hidden,true);
+ assert.equal(s.api.needsVehicleCount(),true);
+ s.fields.bookingVehicleCount.value="3";s.api.refresh();
+ assert.equal(s.fields.bookingVehicleCount.value,"3","An async business refresh does not reset the unconfirmed count");
+ await s.api.setVehicleCount();
+ assert.equal(s.state().rows.length,3);assert.equal(s.state().countConfirmed,true);
+ assert.equal(s.fields.bookingSharedFields.hidden,false);
+ assert.equal(s.fields.bookingCustomerHeading.hidden,false);
+ assert.equal(s.fields.bookingJourneyFields.hidden,true);
+ assert.equal(s.button.hidden,false);
+ const card=s.fields.bulkVehicleRows.innerHTML;
+ for(const field of ["Make and model","Registration","Collection address","Delivery address","Mileage","Charges (£)","Collection date","Delivery date","Special instructions"])assert.ok(card.includes(field),field);
+ assert.doesNotMatch(card,/<details|Set separate details|Select Business|Customer type|Choose Excel file/);
+ assert.equal((card.match(/class="bulk-mtitle"/g)||[]).length,3);
+});
+test("Manual vehicle journeys, dates, charges and instructions save independently with the current shared customer",async()=>{
+ const s=setup({empty:true});await s.api.setVehicleCount(2);s.fill(0);s.fill(1);
+ const secondBusiness={id:"business-2",name:"Other Branch",status:"Active"};s.store.businesses.push(secondBusiness);
+ const drafts=s.state().rows;
+ for(const [i,r]of drafts.entries()){
+   for(const [f,v]of Object.entries({pickup:"Collect "+i,dest:"Deliver "+i,bdate:"2026-11-0"+(i+1),ddate:"2026-11-0"+(i+2),notes:"Instructions "+i}))s.api.updateDetail(r.id,f,v);
+   s.api.updateRow(r.id,"miles",String(50+i));s.api.updateRow(r.id,"amount",String(150+i));
+ }
+ s.fields.biz.value="business-2";s.fields.pickup.value="Do not overwrite row pickup";s.api.refresh();
+ await s.api.submit();assert.equal(s.saved.size,2);
+ s.calls.forEach(({booking:b},i)=>{
+   assert.equal(b._businessId,"business-2");assert.equal(b.pickup,"Collect "+i);assert.equal(b.destination,"Deliver "+i);
+   assert.equal(b.bookingDate,"2026-11-0"+(i+1));assert.equal(b.deliveryDate,"2026-11-0"+(i+2));
+   assert.equal(b.miles,50+i);assert.equal(b.amount,150+i);assert.ok(b.notes.includes("Instructions "+i));
+ });
+ assert.equal(new Set(s.calls.map(c=>c.ref)).size,2);
+});
+test("Older manual drafts keep their journeys, references and retry safety after the layout update",async()=>{
+ const s=setup({empty:true});await s.api.setVehicleCount(2);s.fill(0);s.fill(1);
+ s.failAt(2);await s.api.submit();
+ const old=s.state();delete old.countConfirmed;old.rows.forEach(r=>{r.details=null;r.miles="";r.amount=""});
+ s.stored.set("ukow-bulk-booking:admin-test",JSON.stringify(old));
+ const restored=setup({empty:true,restore:true,stored:s.stored,saved:s.saved});
+ assert.equal(restored.fields.bookingSharedFields.hidden,false);
+ await restored.api.submit();assert.equal(restored.saved.size,2);
+ assert.equal(restored.calls.length,1);assert.equal(restored.calls[0].booking.amount,100);
+ assert.equal(restored.calls[0].booking.pickup,"Collection A");
+ assert.equal(restored.calls[0].ref,old.rows[1].reference);
+});
 test("vehicle count opens manual rows, keeps initial vehicle and saves separate references and charges",async()=>{
   const s=setup({empty:true});
   s.api.setMode("single");
