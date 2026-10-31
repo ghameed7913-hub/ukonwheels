@@ -70,3 +70,30 @@ test("Spreadsheet retry IDs are stable and multiple rows use one new person",()=
  assert.equal(changed[0].entry_ids.payment,first[0].entry_ids.payment);
  assert.match(code,/p_batch_id:batch/);
 });
+test("Bonus and fuel remain separate, survive payroll calculation and don't change the selected wages/overtime tax base",()=>{
+ const s=sheet(),person={id:"s",pay_basis:"monthly",rate:2000};
+ const entries=[["overtime",100],["expense",75],["bonus",50],["fuel",40],["advance",300],["payment",200]].map(([kind,amount])=>({staff_id:"s",entry_date:"2026-11-15",kind,amount}));
+ const t=s.summary(person,entries,"2026-11",20);
+ assert.equal(t.bonus,50);assert.equal(t.fuel,40);assert.equal(t.tax,420);assert.equal(t.balance,1345);
+ const html=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
+ const ctx={};vm.createContext(ctx);vm.runInContext(html.slice(html.indexOf("function calculatePayslip("),html.indexOf("function readPayslipAmounts(")),ctx);
+ const slip=ctx.calculatePayslip({basic:2000,overtime:100,bonus:50,fuel:40,otherExpenses:75,advance:500,taxEnabled:true,taxPct:20});
+ assert.equal(slip.net,1345);assert.equal(slip.bonus,50);assert.equal(slip.fuel,40);
+});
+test("All internal roster names appear once, untouched auto rows are not changes, and manual rows need no email",()=>{
+ const s=sheet(),people=[{id:"a",name:"Existing Employee",email:"a@example.invalid",pay_basis:"daily",rate:0}];
+ const roster=[{id:"user-a",name:"Existing User",email:"a@example.invalid",role:"staff"},{id:"hr-a",name:"Duplicate HR",email:"A@example.invalid",role:"staff"},
+ {id:"b",name:"HR Only",email:"b@example.invalid",role:"staff"},{id:"c",name:"Private Client",email:"c@example.invalid",role:"client"}];
+ let i=0;const rows=s.mergeRoster([],roster,people,()=>"r"+(++i));
+ assert.equal(rows.length,2);assert.equal(rows[0].personId,"a");assert.equal(rows[1].name,"HR Only");
+ assert.ok(rows.every(r=>!s.meaningful(r)));rows[1].bonus="25";assert.ok(s.meaningful(rows[1]));
+ const drafts=[row({key:"first",email:"",name:"Same Name",basis:"daily",rate:"0",work:"100"}),row({key:"second",email:"",name:"Same Name",basis:"daily",rate:"0",work:"200"})];
+ const norm=s.crossCheck(drafts.map(r=>s.normalizeRow(r,[],[],{})));
+ assert.ok(norm.every(n=>Object.keys(n.errors).length===0));
+ const payload=s.buildPayload(drafts,norm,{},()=>"uuid-"+(++i));
+ assert.notEqual(payload[0].person_id,payload[1].person_id);assert.equal(payload[0].email,null);
+ assert.equal(s.sheetTotals([],[],[],norm,"2026-10",0).grand,300);
+ const uuid="00000000-0000-0000-0000-000000000099";
+ const auto=s.normalizeRow(row({rosterId:uuid,email:"",basis:"daily",rate:"0"}),[],[],{});
+ assert.equal(auto.row.person_id,uuid,"No-email automatic roster identity remains stable across saves");
+});

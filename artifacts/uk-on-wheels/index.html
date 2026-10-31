@@ -4509,6 +4509,7 @@ function drawHRPayslips(c,loaded=false){
   <label class="autoFieldWrap">Food payment (£)<input id="psFood" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
   <label class="autoFieldWrap">Travel cost payment (£)<input id="psTravel" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
   <label class="autoFieldWrap">Other reimbursable expenses (£)<input id="psOtherExpenses" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
+  <label class="autoFieldWrap">Bonus (£)<input id="psBonus" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
   <label class="step" style="margin:0;display:flex;align-items:center;gap:8px"><input id="psTaxEnabled" type="checkbox" checked style="width:auto" onchange="refreshPayslipEstimate()"> Apply tax to wages and overtime</label>
   <label class="autoFieldWrap">Tax rate (%) — optional<input id="psTax" type="number" min="0" max="100" step="0.01" value="20" oninput="refreshPayslipEstimate()"></label>
   <label class="autoFieldWrap">Advances / payments already paid — deduction (£)<input id="psAdvance" type="number" min="0" step="0.01" oninput="refreshPayslipEstimate()"></label>
@@ -4522,8 +4523,8 @@ function drawHRPayslips(c,loaded=false){
  if(typeof StaffDailyRecord!=="undefined")StaffDailyRecord.preparePayslip();
 }
 
-function calculatePayslip({deliveredCount=0,rate=0,basic=0,overtime=0,fuel=0,food=0,travel=0,otherExpenses=0,advance=0,taxEnabled=true,taxPct=20}={}){
- const values={deliveredCount,rate,basic,overtime,fuel,food,travel,otherExpenses,advance};
+function calculatePayslip({deliveredCount=0,rate=0,basic=0,overtime=0,bonus=0,fuel=0,food=0,travel=0,otherExpenses=0,advance=0,taxEnabled=true,taxPct=20}={}){
+ const values={deliveredCount,rate,basic,overtime,bonus,fuel,food,travel,otherExpenses,advance};
  for(const [key,value] of Object.entries(values)){
   if(!Number.isFinite(value)||value<0)throw new Error("Enter a valid amount of zero or more for "+key+".");
  }
@@ -4532,18 +4533,19 @@ function calculatePayslip({deliveredCount=0,rate=0,basic=0,overtime=0,fuel=0,foo
  if(!Number.isFinite(appliedRate)||appliedRate<0||appliedRate>100)throw new Error("Tax rate must be between 0 and 100.");
  const pennies=value=>Math.round((value+Number.EPSILON)*100);
  const vehiclePay=pennies(rate)*deliveredCount,taxablePay=pennies(basic)+vehiclePay+pennies(overtime);
- const expensePayments=pennies(fuel)+pennies(food)+pennies(travel)+pennies(otherExpenses),gross=taxablePay+expensePayments,taxAmount=Math.round(taxablePay*appliedRate/100);
+ const expensePayments=pennies(bonus)+pennies(fuel)+pennies(food)+pennies(travel)+pennies(otherExpenses),gross=taxablePay+expensePayments,taxAmount=Math.round(taxablePay*appliedRate/100);
  if(![vehiclePay,taxablePay,expensePayments,gross,taxAmount,pennies(advance)].every(Number.isSafeInteger))throw new Error("Payslip amounts are too large. Enter smaller valid amounts.");
- return {deliveredCount,rate:pennies(rate)/100,basic:pennies(basic)/100,overtime:pennies(overtime)/100,fuel:pennies(fuel)/100,food:pennies(food)/100,travel:pennies(travel)/100,otherExpenses:pennies(otherExpenses)/100,advance:pennies(advance)/100,vehiclePay:vehiclePay/100,taxablePay:taxablePay/100,expensePayments:expensePayments/100,gross:gross/100,taxEnabled,taxPct:appliedRate,taxAmount:taxAmount/100,net:(gross-taxAmount-pennies(advance))/100};
+ return {deliveredCount,rate:pennies(rate)/100,basic:pennies(basic)/100,overtime:pennies(overtime)/100,bonus:pennies(bonus)/100,fuel:pennies(fuel)/100,food:pennies(food)/100,travel:pennies(travel)/100,otherExpenses:pennies(otherExpenses)/100,advance:pennies(advance)/100,vehiclePay:vehiclePay/100,taxablePay:taxablePay/100,expensePayments:expensePayments/100,gross:gross/100,taxEnabled,taxPct:appliedRate,taxAmount:taxAmount/100,net:(gross-taxAmount-pennies(advance))/100};
 }
 function readPayslipAmounts(deliveredCount){
  const amount=id=>Number(document.getElementById(id)?.value||0);
- return calculatePayslip({deliveredCount,rate:amount("psRate"),basic:amount("psBasic"),overtime:amount("psOvertime"),fuel:amount("psFuel"),food:amount("psFood"),travel:amount("psTravel"),otherExpenses:amount("psOtherExpenses"),advance:amount("psAdvance"),taxEnabled:document.getElementById("psTaxEnabled")?.checked!==false,taxPct:amount("psTax")});
+ return calculatePayslip({deliveredCount,rate:amount("psRate"),basic:amount("psBasic"),overtime:amount("psOvertime"),bonus:amount("psBonus"),fuel:amount("psFuel"),food:amount("psFood"),travel:amount("psTravel"),otherExpenses:amount("psOtherExpenses"),advance:amount("psAdvance"),taxEnabled:document.getElementById("psTaxEnabled")?.checked!==false,taxPct:amount("psTax")});
 }
 function payslipBreakdown(p){
  const vehiclePay=p.vehiclePay??Number(p.deliveredCount||0)*Number(p.rate||0);
  const rows=[["Basic / other wages",p.basic],["Delivered vehicle pay ("+Number(p.deliveredCount||0)+" × "+currency(p.rate)+")",vehiclePay],["Overtime payment",p.overtime],["Wages + overtime (tax base)",p.taxablePay??p.gross],["Fuel payment — no tax",p.fuel],["Food payment — no tax",p.food],["Travel cost payment — no tax",p.travel],["Total pay + expenses",p.gross],["Tax "+(p.taxEnabled===false?"not applied":"("+Number(p.taxPct||0)+"% on wages + overtime)"),-Number(p.taxAmount||0)],["Advance deducted",-Number(p.advance||0)]];
  rows.splice(7,0,["Other reimbursable expenses — no tax",Number(p.otherExpenses||0)]);
+ rows.splice(8,0,["Bonus payment",Number(p.bonus||0)]);
  rows[rows.length-1][0]="Advances / payments already paid";
  return `<table style="width:100%;min-width:0">${rows.map(([label,value])=>`<tr><td>${escapeHtml(label)}</td><td style="text-align:right;white-space:nowrap">${currency(value)}</td></tr>`).join("")}<tr><td><b>Net pay / balance</b></td><td style="text-align:right;white-space:nowrap"><b>${currency(p.net)}</b></td></tr></table>${Number(p.net)<0?`<p role="status">Money already paid exceeds this payslip's pay by <b>${currency(-p.net)}</b>. This is a balance owed, not a payment due.</p>`:""}`;
 }
