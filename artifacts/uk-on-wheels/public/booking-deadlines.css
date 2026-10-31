@@ -1,0 +1,12 @@
+.booking-deadline-panel{margin:0 0 14px;padding:12px 14px;border:1px solid #f0b7bd;border-radius:12px;background:#fff4f5;color:#7d1826}
+.booking-deadline-panel summary{font-weight:700;cursor:pointer}
+.booking-deadline-panel ul{padding-left:20px;max-height:280px;overflow:auto}
+.booking-deadline-panel li{margin:9px 0;line-height:1.5}
+.booking-deadline-panel button{padding:3px 7px;background:transparent;color:inherit;text-decoration:underline}
+.booking-deadline-panel small{display:block;margin-top:6px}
+.booking-deadline-error{background:#fff8e9;color:#704d06;border-color:#e9cf92}
+tr.booking-delivery-urgent>td,.driverJob.booking-delivery-urgent,.driverJobSelect.booking-delivery-urgent{background:#fff0f1!important;color:#8d1c2c;border-bottom-color:#edc2c6}
+tr.booking-delivery-urgent>td:first-child{box-shadow:inset 4px 0 #c71e36}
+.booking-delayed-label{display:inline-block;white-space:normal;margin:5px 4px;padding:4px 8px;border-radius:6px;background:#ba1830;color:#fff;font-size:12px;font-weight:700;line-height:1.4}
+.driverJob.booking-delivery-urgent,.driverJobSelect.booking-delivery-urgent{border:2px solid #c71e36}
+@media(prefers-color-scheme:dark){.booking-deadline-panel{color:#7d1826}}
