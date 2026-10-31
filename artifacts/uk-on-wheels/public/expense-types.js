@@ -21,6 +21,7 @@ window.ExpenseTypes=(()=>{
   const button=document.getElementById("expenseTypeSave");
   if(button){button.disabled=loading||saving||!canManage();button.textContent=saving?"Saving type…":"Save expense type";}
   const input=document.getElementById("expenseTypeName");if(input)input.disabled=saving||!canManage();
+  window.ExpenseReport?.paint();
  }
  function failure(error){
   return ["PGRST202","42P01","42883"].includes(error?.code)
