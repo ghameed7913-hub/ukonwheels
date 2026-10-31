@@ -47,6 +47,7 @@
 .sdr .sdrX{border:0;background:none;color:var(--sdr-neg);cursor:pointer;font-size:11px;text-decoration:underline;margin-left:auto}
 .sdr .sdrPill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;background:#e3eaee;color:#3b4b55;font-weight:500;margin-left:6px}
 .sdr .neg{color:var(--sdr-neg)}
+.sdr .sdrRole{min-width:96px;font-size:12px;white-space:nowrap;color:var(--sdr-accent);font-weight:600}
 .sdr tfoot td{padding:7px 8px;background:var(--sdr-soft);font-size:12.5px}
 .sdr tfoot tr.newRow td{color:#7a5a12}
 .sdr tfoot tr.grand td{font-weight:700;font-size:15px;background:#dcecee;border-top:2px solid var(--sdr-accent)}
