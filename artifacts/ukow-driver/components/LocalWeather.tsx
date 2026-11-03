@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useColors } from '@/hooks/useColors';
 import { PORTAL_URL } from '@/lib/portal';
+import { weatherLocationPermission } from '@/lib/weather-location';
 
 type Place = { id?: string; name: string; label: string; latitude: number; longitude: number; countryCode: string; areas: string[] };
 type Warning = { title: string; description: string; url: string; level: 'yellow' | 'amber' | 'red' };
@@ -82,16 +83,17 @@ export default function LocalWeather({ active = true }: { active?: boolean }) {
     } finally { if (id === reqId.current) setLoading(false); }
   }, []);
 
-  const locate = useCallback(async (userInitiated: boolean) => {
+  const locate = useCallback(async (userInitiated: boolean, onOpen = false) => {
     const id = ++geoId.current;
     if (Platform.OS === 'web') { setGeoMsg('Use the town or city search on web preview.'); return; }
     setGeoBusy(true); setGeoMsg('');
     try {
-      let perm = await Location.getForegroundPermissionsAsync();
-      if (!perm.granted && userInitiated && perm.canAskAgain) perm = await Location.requestForegroundPermissionsAsync();
+      const perm = await weatherLocationPermission(userInitiated, onOpen);
+      if (id !== geoId.current || !activeRef.current) return;
       if (!perm.granted) {
         setDenied(true);
-        if (userInitiated) setGeoMsg('Location permission is off. Allow location in Settings, or search for a town or city.');
+        setGeoMsg('Location permission is off. Allow location in Settings, or search for a town or city.');
+        setDetails(true); setShowSearch(true);
         return;
       }
       setDenied(false);
@@ -123,12 +125,16 @@ export default function LocalWeather({ active = true }: { active?: boolean }) {
   const locateRef = useRef(locate); locateRef.current = locate;
 
   useEffect(() => {
-    if (Platform.OS !== 'web') {
-      Location.getForegroundPermissionsAsync().then(p => { if (p.granted && modeRef.current === 'none') void locateRef.current(false); }).catch(() => {});
-    }
+    if (Platform.OS !== 'web') void locateRef.current(false, true);
     const due = () => activeRef.current && lastFetch.current > 0 && Date.now() - lastFetch.current >= REFRESH_MS - 5000;
     const iv = setInterval(() => { if (AppState.currentState === 'active' && due()) refreshRef.current(); }, 60000);
-    const sub = AppState.addEventListener('change', st => { if (st === 'active' && due()) refreshRef.current(); });
+    const sub = AppState.addEventListener('change', st => {
+      if (st !== 'active' || !activeRef.current) return;
+      // Detect the current city again after returning to the app, including
+      // after permission was enabled in Settings before any successful fetch.
+      if (modeRef.current !== 'manual') void locateRef.current(false);
+      else if (due()) refreshRef.current();
+    });
     return () => { clearInterval(iv); sub.remove(); ++geoId.current; ++reqId.current; ++searchId.current; ctrl.current?.abort(); sctrl.current?.abort(); };
   }, []);
 
