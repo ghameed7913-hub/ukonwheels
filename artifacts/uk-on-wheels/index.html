@@ -34,6 +34,9 @@
 <script src="./driver-payments-ui.js"></script>
 <script src="./driver-payments.js"></script>
 <script src="./driver-identity-ui.js"></script>
+<script src="./trade-plates-api.js"></script>
+<script src="./trade-plates-ui.js"></script>
+<link rel="stylesheet" href="./trade-plates.css">
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
@@ -1407,6 +1410,7 @@ function migrateClientData(){
 function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
   window.DriverIdentityUI?.reset();
+  window.TradePlatesUI?.reset();
   window.DriverPayments?.reset();
   window.ExpenseBulk?.reset();
   window.ExpenseMonth?.reset();
@@ -1487,6 +1491,7 @@ async function logoutNow(){
  }
  window.DriverCompliance?.stop();
  window.DriverIdentityUI?.reset();
+ window.TradePlatesUI?.reset();
  window.DriverPayments?.reset();
  window.ExpenseBulk?.reset();
  window.ExpenseMonth?.reset();
@@ -1823,6 +1828,7 @@ function nav(){
   ]},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",items:[
     {key:"hrRegister",label:"Employee Registration"},
+    {key:"tradePlates",label:"Trade plates"},
     {key:"driverCompanyIDs",label:"Driver photos & IDs"},
     {key:"hrHolidays",label:"Holidays"},
     {key:"hrPayslips",label:"Payslips"},
@@ -1879,6 +1885,7 @@ function nav(){
   {key:"reports",label:"Reports & Invoices",icon:"chart",cat:"reports"},
   {group:"hr",key:"hr",label:"HR",icon:"clipboard",cat:"hr",items:[
     {key:"hrRegister",label:"Employee Registration"},
+    {key:"tradePlates",label:"Trade plates"},
     {key:"driverCompanyIDs",label:"Driver photos & IDs"},
     {key:"hrHolidays",label:"Holidays"},
     {key:"hrPayslips",label:"Payslips"},
@@ -1935,6 +1942,7 @@ function hasPermission(key){
  return (currentStaffUser?.permissions||[]).includes(key);
 }
 function render(){
+ window.TradePlatesUI?.stop();
  if(role==="admin")syncAdminPageUrl();
  document.body.classList.toggle("client-mode",role==="client");
  document.body.classList.toggle("driver-mode",role==="driver");
@@ -2130,7 +2138,7 @@ function go(p){
    page=p;render();return;
  }
  const permissionMap={desktop:"desktop",booking:"booking",businesses:"businesses",assign:"assign",status:"status",statusPage:"status",singleUpdate:"status",approvals:"status",miles:"miles",amount:"amount",destination:"destination",accounts:"accounts",expenses:"accounts",invoices:"reports",payments:"accounts",pendingPayments:"accounts",accountReports:"reports",pnl:"accounts",reports:"reports",hr:"hr",hrRegister:"hr",hrHolidays:"hr",hrPayslips:"hr",hrNonResidents:"hr",hrShareCodes:"hr",hrDvla:"hr",messageCentre:"notifications",notifications:"notifications",settings:"settings",users:"users",createUsers:"users",assignRoles:"users",driver:"driver"};
- const required=p==="driverCompanyIDs"?"hr":p==="staffDailyRecord"?"accounts":permissionMap[p];
+ const required=["driverCompanyIDs","tradePlates"].includes(p)?"hr":p==="staffDailyRecord"?"accounts":permissionMap[p];
  if(required && !hasPermission(required)){alert("Access denied. This section is restricted for your user role.");return}
  page=p;render();
 }
@@ -2209,6 +2217,12 @@ function draw(){
  if(page==="accountReports")return drawAccountReports(c);
  if(page==="pnl")return drawProfitLoss(c);
  if(page==="hr")return drawHR(c);
+ if(page==="tradePlates"){
+   if(!["admin","staff"].includes(role)||!hasPermission("hr")){
+     c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;
+   }
+   return TradePlatesUI.draw(c);
+ }
  if(page==="driverCompanyIDs"){
    if(!["admin","staff"].includes(role)||!hasPermission("hr")){
      c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;
@@ -4299,6 +4313,7 @@ function drawHR(c){
  <div class="cards" style="margin-top:12px">
   <div class="card" style="cursor:pointer" onclick="page='hrRegister';render()"><b>Employee Registration</b><strong>+</strong><small>Private employee records, screening and vetting</small></div>
   <button class="card" onclick="go('driverCompanyIDs')"><b>Driver photos &amp; company IDs</b><strong>ID</strong><small>Upload Driver profile photos, issue and revoke company IDs</small></button>
+  <button class="card" onclick="go('tradePlates')"><b>Trade plates</b><strong>No.</strong><small>Assign Driver trade plate numbers and expiry dates</small></button>
   <div class="card" style="cursor:pointer" onclick="page='hrHolidays';render()"><b>Holidays</b><strong>${pending}</strong><small>Pending requests</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrPayslips';render()"><b>Payslips</b><strong>${s.payslips.length}</strong><small>Generated</small></div>
   <div class="card" style="cursor:pointer" onclick="page='hrNonResidents';render()"><b>Non-Resident Records</b><strong>${nonResidents}</strong><small>Non-British staff</small></div>
@@ -6073,6 +6088,7 @@ function driverMobileNav(){
   <button class="${driverMobileTab==="history"?"active":""}" onclick="setDriverMobileTab('history')"><span>${ico("receipt")}</span>History</button>
   <button class="${driverMobileTab==="payments"?"active":""}" ${driverMobileTab==="payments"?'aria-current="page"':""} onclick="setDriverMobileTab('payments')"><span>${ico("receipt")}</span>Payments</button>
   <button class="${driverMobileTab==="companyId"?"active":""}" ${driverMobileTab==="companyId"?'aria-current="page"':""} onclick="setDriverMobileTab('companyId')"><span><span class="ico-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2"/><circle cx="8.5" cy="11" r="2.2"/><path d="M5.5 16c.6-1.6 1.7-2.4 3-2.4s2.4.8 3 2.4M14 10h4.5M14 13.5h3"/></svg></span></span>Digital ID</button>
+  <button class="${driverMobileTab==="tradePlate"?"active":""}" ${driverMobileTab==="tradePlate"?'aria-current="page"':""} onclick="setDriverMobileTab('tradePlate')"><span>${ico("car")}</span>Assigned trade plate</button>
   <button class="${driverMobileTab==="profile"?"active":""}" ${driverMobileTab==="profile"?'aria-current="page"':""} onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
  </div>`;
 }
@@ -6152,6 +6168,7 @@ function drawDriverProfileMobile(){
  </div>${globalThis.DriverIdentityUI?.renderProfile()||""}`;
 }
 function drawDriver(c){
+ window.TradePlatesUI?.stop();
  IncidentUI.captureForm();
  document.body.classList.add("driver-mode");
  const rows=driverAssignedRows(),counts=driverStatusCounts(rows),name=currentUser?.name||currentStaffUser?.name||"Driver";
@@ -6165,6 +6182,7 @@ function drawDriver(c){
  else if(activeTab==="history")body=drawDriverHistoryMobile();
  else if(activeTab==="payments")body=DriverPayments.view();
  else if(activeTab==="companyId")body=DriverIdentityUI.renderCard();
+ else if(activeTab==="tradePlate")body=TradePlatesUI.renderDriver();
  else body=drawDriverProfileMobile();
 
  c.innerHTML=`<div class="driverApp${activeTab==="companyId"?" driverCompanyIDView":""}">
@@ -6183,6 +6201,7 @@ function drawDriver(c){
  </div>`;
  if(activeTab==="incidents")IncidentUI.mountDriver();
  if(activeTab==="payments")DriverPayments.mount();
+ if(activeTab==="tradePlate")TradePlatesUI.mountDriver();
  if(activeTab==="jobs"&&showingJob)restoreDriverFormDraft();
  globalThis.DriverIdentityUI?.mountDriver();
 }
