@@ -30,19 +30,20 @@ const PERSONAL: Shortcut[] = [
 export default function DriverApp() {
   const c=useColors(),insets=useSafeAreaInsets();
   const [screen,setScreen]=useState<'home'|'portal'|'help'>('home');
-  const [opened,setOpened]=useState(false);
   const [section,setSection]=useState<Section|null>(null);
   const [request,setRequest]=useState(0);
   const [notificationId,setNotificationId]=useState<string|null>(null);
   const [logoutRequest,setLogoutRequest]=useState(0);
   const [signedIn,setSignedIn]=useState(false);
-  const push=useDriverPush(id=>{setNotificationId(id);setOpened(true);setScreen('portal');});
+  const [jobCounts,setJobCounts]=useState<{assigned:number;active:number;delivered:number}|null>(null);
+  const [alertsOpen,setAlertsOpen]=useState(false);
+  const push=useDriverPush(id=>{setNotificationId(id);setScreen('portal');});
   useEffect(()=>{if(Platform.OS!=='android')return;const listener=BackHandler.addEventListener('hardwareBackPress',()=>{
     if(screen!=='home'){setScreen('home');return true;}return false;
   });return ()=>listener.remove();},[screen]);
   function open(next:Section|null) {
     void Haptics.selectionAsync().catch(()=>{});
-    setSection(next);setRequest(r=>r+1);setOpened(true);setScreen('portal');
+    setSection(next);setRequest(r=>r+1);setScreen('portal');
   }
   async function camera() {
     if(Platform.OS==='web'){Alert.alert('Phone camera','Open the app in Expo Go to manage native camera permissions.');return;}
@@ -61,31 +62,29 @@ export default function DriverApp() {
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         <View style={s.header}>
           <View style={s.logoGroup}><Image source={require('@/assets/images/company-logo.jpg')} style={s.logo}/><View><Text style={[s.brand,{color:c.foreground}]}>UK ON WHEELS</Text><Text style={[s.eyebrow,{color:c.mutedForeground}]}>DRIVER COMPANION</Text></View></View>
-          <Pressable testID="help" accessibilityRole="button" accessibilityLabel="Help and camera settings" onPress={()=>setScreen('help')} hitSlop={12}><Feather name="help-circle" size={24} color={c.foreground}/></Pressable>
+          <View style={s.headerActions}>
+            <Pressable testID="alerts" accessibilityRole="button" accessibilityLabel="Job and instruction alerts" accessibilityState={{expanded:alertsOpen}} onPress={()=>setAlertsOpen(v=>!v)} hitSlop={12}><Feather name="bell" size={23} color={alertsOpen?c.primary:c.foreground}/>{!push.registration&&<View style={[s.badge,{backgroundColor:c.primary}]}/>}</Pressable>
+            <Pressable testID="help" accessibilityRole="button" accessibilityLabel="Help and camera settings" onPress={()=>setScreen('help')} hitSlop={12}><Feather name="help-circle" size={24} color={c.foreground}/></Pressable>
+          </View>
         </View>
+        {alertsOpen&&<View testID="alerts-panel" style={[s.alertPanel,{backgroundColor:c.card,borderColor:c.border}]}>
+          <View style={s.header}><Text style={[s.tileTitle,{color:c.foreground}]}>Job & instruction alerts</Text><Pressable accessibilityRole="button" accessibilityLabel="Close alerts" onPress={()=>setAlertsOpen(false)} hitSlop={12}><Feather name="x" size={20} color={c.mutedForeground}/></Pressable></View>
+          <Text accessibilityLiveRegion="polite" style={[s.tileDetail,{color:c.mutedForeground}]}>{push.status}</Text>
+          <Pressable accessibilityRole="button" disabled={push.busy} onPress={()=>void push.enable()} style={[s.compact,{backgroundColor:c.primary,opacity:push.busy?.6:1}]}>
+            <Feather name="bell" size={16} color={c.white}/><Text style={[s.compactLabel,{color:c.white}]}>{push.busy?'Connecting…':push.registration?'Refresh notification connection':'Enable notifications'}</Text>
+          </Pressable>
+        </View>}
         <LocalWeather active={screen==='home'}/>
-        <View style={s.sectionHeading}><Text style={[s.heading,{color:c.foreground}]}>Delivery run</Text></View>
+        <View style={s.sectionHeading}><Text style={[s.heading,{color:c.foreground}]}>Delivery run</Text>
+          {!signedIn&&<Pressable testID="sign-in" accessibilityRole="button" accessibilityLabel="Sign in to see your jobs" onPress={()=>open(null)} hitSlop={8} style={s.signIn}><Feather name="log-in" size={15} color={c.primary}/><Text style={[s.signInText,{color:c.primary}]}>Sign in</Text></Pressable>}
+        </View>
         <View style={[s.jobTabs,{backgroundColor:c.card,borderColor:c.border}]} accessibilityLabel="Job categories">
-          {ROUTE.map(item=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}`} onPress={()=>open(item.id)}
+          {ROUTE.map(item=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}, ${jobCounts&&signedIn?jobCounts[item.id as 'assigned'|'active'|'delivered']:'count unavailable'}`} onPress={()=>open(item.id)}
             style={({pressed})=>[s.jobTab,{backgroundColor:pressed?c.muted:c.card,borderColor:c.border}]}>
             <Feather name={item.icon} size={20} color={c.primary}/>
+            <Text style={[s.count,{color:c.foreground}]}>{jobCounts&&signedIn?jobCounts[item.id as 'assigned'|'active'|'delivered']:'—'}</Text>
             <Text style={[s.jobTabTitle,{color:c.foreground}]}>{item.title}</Text>
           </Pressable>)}
-        </View>
-        <View style={[s.helpCard,{backgroundColor:c.card,borderColor:c.border}]}>
-          <View style={s.header}><Text style={[s.tileTitle,{color:c.foreground}]}>Job & instruction alerts</Text><Feather name="bell" size={20} color={c.primary}/></View>
-          <Text accessibilityLiveRegion="polite" style={[s.tileDetail,{color:c.mutedForeground}]}>{push.status}</Text>
-          <Pressable accessibilityRole="button" disabled={push.busy} onPress={()=>void push.enable()} style={[s.primary,{backgroundColor:c.primary,opacity:push.busy?.6:1}]}>
-            <Text style={[s.primaryLabel,{color:c.white}]}>{push.busy?'Connecting…':push.registration?'Refresh notification connection':'Enable notifications'}</Text>
-          </Pressable>
-        </View>
-        <View style={[s.hero,{backgroundColor:c.navy}]}>
-          <View style={s.heroTop}><Text style={[s.heroTag,{color:c.navyMuted}]}>{opened?'PORTAL STILL OPEN':'READY FOR THE ROAD'}</Text><View style={[s.dot,{backgroundColor:opened?c.success:c.primary}]}/></View>
-          <Text style={[s.heroTitle,{color:c.white}]}>{opened?'Pick up where\nyou left off.':'Find your vehicle.\nStart the run.'}</Text>
-          <Pressable testID="open-jobs" accessibilityRole="button" accessibilityLabel={opened?'Resume Driver portal':'Open assigned jobs'} onPress={()=>open(opened?null:'assigned')} style={({pressed})=>[s.primary,{backgroundColor:c.primary,opacity:pressed?.85:1,transform:[{scale:pressed?.98:1}]}]}>
-            <Feather name={opened?'rotate-ccw':'truck'} size={20} color={c.white}/><Text style={[s.primaryLabel,{color:c.white}]}>{opened?'Resume Driver portal':'Open assigned jobs'}</Text><Feather name="arrow-right" size={20} color={c.white}/>
-          </Pressable>
-          <View style={s.secure}><Feather name="lock" size={12} color={c.navyMuted}/><Text style={[s.secureText,{color:c.navyMuted}]}>Your existing portal sign-in. No new account.</Text></View>
         </View>
         <Pressable testID="section-incidents" accessibilityRole="button" accessibilityLabel="Open incident report form" onPress={()=>open('incidents')} style={({pressed})=>[s.incident,{borderColor:c.primary,backgroundColor:c.card,opacity:pressed?.8:1}]}>
           <View style={[s.incidentIcon,{backgroundColor:c.primary}]}><Feather name="alert-triangle" size={20} color={c.white}/></View>
@@ -108,7 +107,7 @@ export default function DriverApp() {
         <View style={[s.connection,{borderColor:c.border}]}><Feather name="wifi" size={17} color={c.mutedForeground}/><Text style={[s.connectionText,{color:c.mutedForeground}]}>Internet required. Updates go to the same Admin and Client portal.</Text></View>
       </ScrollView>
     </View>
-    {opened&&<View style={[s.fill,screen==='portal'?undefined:s.hidden]}><DriverPortal section={section} request={request} onHome={()=>setScreen('home')} pushRegistration={push.registration} notificationId={notificationId} onPushStatus={push.connection} onNotificationHandled={()=>setNotificationId(null)} logoutRequest={logoutRequest} onSignedIn={()=>setSignedIn(true)} onSignedOut={()=>{setSignedIn(false);setSection(null);setNotificationId(null);}}/></View>}
+    <View style={[s.fill,screen==='portal'?undefined:s.hidden]}><DriverPortal section={section} request={request} onHome={()=>setScreen('home')} pushRegistration={push.registration} notificationId={notificationId} onPushStatus={push.connection} onNotificationHandled={()=>setNotificationId(null)} logoutRequest={logoutRequest} onSignedIn={()=>setSignedIn(true)} onSignedOut={()=>{setSignedIn(false);setJobCounts(null);setSection(null);setNotificationId(null);}} onJobCounts={setJobCounts}/></View>
     {screen==='help'&&<ScrollView contentContainerStyle={s.content}>
       <Pressable testID="help-back" accessibilityRole="button" accessibilityLabel="Back to home" onPress={()=>setScreen('home')} style={s.back}><Feather name="arrow-left" size={24} color={c.foreground}/></Pressable>
       <Text style={[s.heading,{color:c.foreground}]}>Help for your working day</Text>
@@ -125,6 +124,9 @@ export default function DriverApp() {
   </View>;
 }
 const s=StyleSheet.create({
+ headerActions:{flexDirection:'row',alignItems:'center',gap:18},badge:{position:'absolute',top:0,right:0,width:8,height:8,borderRadius:4},
+ alertPanel:{borderWidth:1,borderRadius:12,padding:16,gap:10},compact:{borderRadius:8,paddingHorizontal:14,paddingVertical:11,flexDirection:'row',alignItems:'center',gap:10,alignSelf:'flex-start'},compactLabel:{fontFamily:'Inter_600SemiBold',fontSize:13},
+ count:{fontFamily:'Inter_700Bold',fontSize:22},signIn:{flexDirection:'row',alignItems:'center',gap:6},signInText:{fontFamily:'Inter_600SemiBold',fontSize:13},
  jobTabs:{flexDirection:'row',borderWidth:1,borderRadius:12,overflow:'hidden'},
  jobTab:{flex:1,minWidth:0,minHeight:84,alignItems:'center',justifyContent:'center',gap:9,padding:8,borderRightWidth:StyleSheet.hairlineWidth},
  jobTabTitle:{fontFamily:'Inter_600SemiBold',fontSize:12,textAlign:'center'},

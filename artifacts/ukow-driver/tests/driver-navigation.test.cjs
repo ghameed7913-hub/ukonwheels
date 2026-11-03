@@ -128,3 +128,32 @@ test('Tab clicks call the guarded navigation handler rather than bypassing it',(
  vm.runInNewContext(onclick,h.c);
  assert.equal(h.calls.length,0);
 });
+test('Native home receives own-job counts, updates and logout clearing',()=>{
+ const h=harness(),messages=[];
+ h.c.ReactNativeWebView={postMessage:value=>messages.push(JSON.parse(value))};
+ h.c.currentUser={id:'driver-one'};
+ const original=h.c.document.getElementById;
+ let hidden=false;
+ h.c.document.getElementById=id=>id==='app'?{classList:{contains:()=>hidden}}:original(id);
+ const tick=h.intervals[0];
+ tick();
+ assert.deepEqual(messages.pop(),{type:'driver-job-counts',counts:{assigned:1,active:3,delivered:1}});
+ tick();assert.equal(messages.length,0);
+ h.rows.push({ref:'NEW-1',status:'Driver Assigned'});
+ tick();assert.equal(messages.pop().counts.assigned,2);
+ h.rows[0].status='Delivered';
+ tick();assert.deepEqual(messages.pop().counts,{assigned:1,active:3,delivered:2});
+ hidden=true;tick();
+ assert.equal(messages.pop().counts,null);
+ hidden=false;h.c.role='admin';tick();assert.equal(messages.length,0);
+ h.c.role='driver';h.c.currentUser=null;tick();assert.equal(messages.length,0);
+});
+test('Home uses compact bell, removes promotional hero and wires real counts',()=>{
+ const home=fs.readFileSync(path.join(__dirname,'../app/index.tsx'),'utf8');
+ assert.match(home,/testID="alerts"/);
+ assert.match(home,/\{alertsOpen&&<View testID="alerts-panel"/);
+ assert.doesNotMatch(home,/Find your vehicle|Start the run|Pick up where/);
+ assert.match(home,/onJobCounts=\{setJobCounts\}/);
+ assert.match(home,/jobCounts\[item.id/);
+ assert.doesNotMatch(home,/\{opened&&/);
+});
