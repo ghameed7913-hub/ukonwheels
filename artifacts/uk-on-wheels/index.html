@@ -37,6 +37,10 @@
 <script src="./trade-plates-api.js"></script>
 <script src="./trade-plates-ui.js"></script>
 <link rel="stylesheet" href="./trade-plates.css">
+<script src="./vehicle-tracking-api.js"></script>
+<script src="./driver-tracking.js"></script>
+<script src="./vehicle-tracking-ui.js"></script>
+<link rel="stylesheet" href="./vehicle-tracking.css">
 <script type="module" src="./src/incident-pdf-entry.js"></script>
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
@@ -1411,6 +1415,8 @@ function applyAuthenticatedProfile(profile,session){
  if(currentSession?.user?.id!==session?.user?.id){
   window.DriverIdentityUI?.reset();
   window.TradePlatesUI?.reset();
+  window.VehicleTrackingUI?.reset();
+  if(currentSession?.user?.id)window.DriverTracking?.reset();
   window.DriverPayments?.reset();
   window.ExpenseBulk?.reset();
   window.ExpenseMonth?.reset();
@@ -1492,6 +1498,8 @@ async function logoutNow(){
  window.DriverCompliance?.stop();
  window.DriverIdentityUI?.reset();
  window.TradePlatesUI?.reset();
+ window.VehicleTrackingUI?.reset();
+ window.DriverTracking?.reset();
  window.DriverPayments?.reset();
  window.ExpenseBulk?.reset();
  window.ExpenseMonth?.reset();
@@ -1807,6 +1815,7 @@ function nav(){
   ]},
   {key:"businesses",label:"Businesses",icon:"building"},
   {key:"assign",label:"Assign Driver",icon:"truck"},
+  {key:"vehicleTracking",label:"Track Vehicle",icon:"pin"},
   {key:"incidents",label:"Incident Reports",icon:"clipboard"},
   {group:"status",key:"status",label:"Status Update",icon:"edit",items:[
     {key:"singleUpdate",label:"Single Booking Update"}
@@ -1847,7 +1856,7 @@ function nav(){
   {key:"desktop",label:"Dashboard",icon:"home"},
   {key:"booking",label:"Create Booking",icon:"plusCircle"},
   {key:"clientBookings",label:"Bookings",icon:"clipboard"},
-  {key:"clientTracking",label:"Tracking",icon:"pin"},
+  {key:"clientTracking",label:"Track Vehicle",icon:"pin"},
   {key:"clientReports",label:"Reports",icon:"chart"},
   {key:"clientPayments",label:"Payments",icon:"wallet"},
   {key:"clientBusiness",label:"Business Profile",icon:"building"},
@@ -1942,6 +1951,7 @@ function hasPermission(key){
  return (currentStaffUser?.permissions||[]).includes(key);
 }
 function render(){
+ window.VehicleTrackingUI?.stop();
  window.TradePlatesUI?.stop();
  if(role==="admin")syncAdminPageUrl();
  document.body.classList.toggle("client-mode",role==="client");
@@ -2191,6 +2201,10 @@ function draw(){
  if(page==="reports")return drawReports(c);
  if(page==="clientBookings")return drawClientBookings(c);
  if(page==="clientTracking")return drawClientTracking(c);
+ if(page==="vehicleTracking"){
+  if(role!=="admin"){c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return}
+  return VehicleTrackingUI.draw(c);
+ }
  if(page==="clientInvoices"){ if(!clientInvoiceAccessEnabled()){c.innerHTML=`<div class="panel"><h2>Invoice Access Off</h2><p class="muted">Invoice access is disabled for this business account.</p></div>`;return;} return drawClientInvoices(c); }
  if(page==="clientReports")return drawClientReports(c);
  if(page==="clientPayments")return drawClientPayments(c);
@@ -2405,17 +2419,7 @@ function clientViewBooking(ref){
 
 
 function drawClientTracking(c){
- c.innerHTML=`<div class="panel">
-  <h2>Tracking</h2>
-  <p class="muted">Enter your Booking Reference to see the full journey from booking creation to delivery.</p>
-  <input id="clientTrackRef" placeholder="Example: BK00129" style="width:100%;padding:13px;border:1px solid var(--line);border-radius:8px;text-transform:uppercase">
-  <div class="actions"><button class="btn primary" onclick="findClientTracking()">Track Booking</button></div>
- </div>
- <div id="clientTrackingResult"></div>`;
- const el=document.getElementById("clientTrackRef");
- if(el)el.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();findClientTracking()}});
- const previewTrack=(location.hostname==="localhost"||location.hostname==="127.0.0.1")?new URLSearchParams(location.search).get("ui-track"):null;
- if(previewTrack&&el){el.value=previewTrack;setTimeout(findClientTracking,50)}
+ return VehicleTrackingUI.draw(c);
 }
 function findClientTracking(){
  const ref=document.getElementById("clientTrackRef")?.value.trim().toUpperCase();
@@ -6101,6 +6105,7 @@ function driverMobileJobCard(b){
   </div>
   <h3>${b.vehicle||"Vehicle"} <span class="muted">${b.reg||""}</span></h3>
   <div class="driverRoute"><b>${b.pickup||"—"}</b><br><span class="muted">↓ deliver to</span><br><b>${b.destination||"—"}</b></div>
+  ${VehicleTrackingUI.renderDriver(b)}
   <details class="driverExtras"><summary>Receiver & booking details</summary><div class="driverMeta">
    <div><b>Receiver</b><br>${b.receiver||"—"}</div>
    <div><b>Mobile</b><br>${b.receiverMobile||"—"}</div>
@@ -6168,6 +6173,8 @@ function drawDriverProfileMobile(){
  </div>${globalThis.DriverIdentityUI?.renderProfile()||""}`;
 }
 function drawDriver(c){
+ window.VehicleTrackingUI?.stop();
+ window.DriverTracking?.init();
  window.TradePlatesUI?.stop();
  IncidentUI.captureForm();
  document.body.classList.add("driver-mode");
@@ -6202,11 +6209,13 @@ function drawDriver(c){
  if(activeTab==="incidents")IncidentUI.mountDriver();
  if(activeTab==="payments")DriverPayments.mount();
  if(activeTab==="tradePlate")TradePlatesUI.mountDriver();
+ if(activeTab==="jobs")VehicleTrackingUI.mountDriver();
  if(activeTab==="jobs"&&showingJob)restoreDriverFormDraft();
  globalThis.DriverIdentityUI?.mountDriver();
 }
 function driverCard(b){
  return `<div class="panel"><div><span class="badge">${b.status}</span></div><h2>${b.ref} — ${b.vehicle}</h2><p><b>${b.pickup}</b> → <b>${b.destination}</b></p>
+  ${VehicleTrackingUI.renderDriver(b)}
   ${!b._normalizedId&&SUPABASE_CONFIGURED?"<p class='muted'>Ask Admin to enable photo evidence for this older booking before taking pictures.</p>":b.status==="Driver Assigned"?pickupSteps(b):b.status==="Picked Up"?onRouteSteps(b):b.status==="On Route"||["Delayed","Accident","Fault On Route","Assigned AA on Route"].includes(b.status)?journeySteps(b):b.status==="Delivered"?`<div class="badge green">${ico("check")} Delivered</div>`:"<p class='muted'>Waiting for next stage.</p>"}
  <h3>Journey Timeline</h3>${(b.timeline||[]).map(e=>`<div class="event"><b>${escapeHtml(e.title||"")}</b><div class="muted">${escapeHtml(e.text||"")}</div></div>`).join("")}</div>`;
 }
