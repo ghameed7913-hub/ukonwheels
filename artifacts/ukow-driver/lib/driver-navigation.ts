@@ -6,6 +6,22 @@ export const DRIVER_NAVIGATION_BRIDGE = `
  root.__ukowDriverNavigation=true;
  let mode='assigned';
  const activeStatuses=new Set(['Picked Up','On Route','Delayed','Accident','Claims','Fault On Route','Assigned AA on Route']);
+ let lastCounts='null';
+ function publishCounts(){
+  try{
+   const app=root.document?.getElementById('app');
+   const authenticated=app&&!app.classList.contains('hidden')&&typeof currentUser!=='undefined'&&currentUser&&typeof role!=='undefined'&&role==='driver';
+   const rows=authenticated&&typeof driverAssignedRows==='function'?driverAssignedRows():null;
+   const counts=rows?{assigned:rows.filter(b=>b.status==='Driver Assigned').length,active:rows.filter(b=>activeStatuses.has(b.status)).length,delivered:rows.filter(b=>b.status==='Delivered').length}:null;
+   const signature=JSON.stringify(counts);
+   if(signature!==lastCounts){
+    lastCounts=signature;
+    root.ReactNativeWebView?.postMessage(JSON.stringify({type:'driver-job-counts',counts}));
+   }
+  }catch(error){
+   if(lastCounts!=='null'){lastCounts='null';root.ReactNativeWebView?.postMessage(JSON.stringify({type:'driver-job-counts',counts:null}));}
+  }
+ }
  const esc=value=>typeof escapeHtml==='function'?escapeHtml(String(value??'')):String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function jobTabs(selected){
   const rows=driverAssignedRows();
@@ -78,5 +94,5 @@ export const DRIVER_NAVIGATION_BRIDGE = `
    wrapped.ukowHomeNavigation=true;root.driverMobileNav=wrapped;
   }
  }
- install();setInterval(install,700);
+ install();publishCounts();setInterval(function(){install();publishCounts();},700);
 })(window);`;

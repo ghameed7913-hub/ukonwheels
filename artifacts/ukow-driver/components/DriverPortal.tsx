@@ -13,7 +13,9 @@ import { getEvidencePosition, prepareEvidencePhoto } from '@/lib/evidence-media'
 import { pushOpenScript, pushRegistrationScript, type PushRegistration } from '@/lib/push-bridge';
 import { startNativeTracking, stopNativeTracking, nativeTrackingStatus, syncTrackingOwner } from '@/lib/live-tracking';
 
-export default function DriverPortal({ section, request, onHome, pushRegistration, notificationId, onPushStatus, onNotificationHandled, logoutRequest = 0, onSignedOut, onSignedIn }: {
+export type JobCounts = { assigned: number; active: number; delivered: number };
+
+export default function DriverPortal({ section, request, onHome, pushRegistration, notificationId, onPushStatus, onNotificationHandled, logoutRequest = 0, onSignedOut, onSignedIn, onJobCounts }: {
   section: Section | null; request: number; onHome: () => void;
   pushRegistration?: PushRegistration | null;
   notificationId?: string | null;
@@ -22,6 +24,7 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
   logoutRequest?: number;
   onSignedOut?: () => void;
   onSignedIn?: () => void;
+  onJobCounts?: (counts: JobCounts | null) => void;
 }) {
   const colors = useColors();
   const web = useRef<WebView>(null);
@@ -70,6 +73,14 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
     if (navigationKind(event.nativeEvent.url) !== 'portal') return;
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      if(data.type==='driver-job-counts'){
+        const counts=data.counts;
+        if(counts===null){onJobCounts?.(null);return;}
+        if(counts&&['assigned','active','delivered'].every(key=>Number.isSafeInteger(counts[key])&&counts[key]>=0)){
+          onJobCounts?.({assigned:counts.assigned,active:counts.active,delivered:counts.delivered});
+        }
+        return;
+      }
       if(data.type==='tracking-owner'){
         trackingOwner.current=typeof data.ownerId==='string'&&/^[a-f0-9-]{36}$/i.test(data.ownerId)?data.ownerId:null;
         void syncTrackingOwner(trackingOwner.current).catch(()=>{});
@@ -91,6 +102,7 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
         return;
       }
       if (data.type === 'signed-out') {
+        onJobCounts?.(null);
         trackingOwner.current=null;void syncTrackingOwner(null).catch(()=>{});
         pushRequest.current++;setReady(false);onSignedOut?.();if(pushRegistration)onPushStatus?.(false, 'Sign in to connect alerts');return;
       }
@@ -235,7 +247,7 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
         mixedContentMode="never" allowsInlineMediaPlayback mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
         allowFileAccess={false} allowsBackForwardNavigationGestures={false} setSupportMultipleWindows={false}
         injectedJavaScript={PORTAL_BRIDGE} onMessage={message}
-        onLoadStart={()=>{setLoading(true);setReady(false);}}
+        onLoadStart={()=>{setLoading(true);setReady(false);onJobCounts?.(null);}}
         onLoadEnd={()=>setLoading(false)}
         onError={()=>{setFailed(true);setLoading(false);setReady(false);}}
         onHttpError={e=>{if(e.nativeEvent.url===PORTAL_URL&&e.nativeEvent.statusCode>=400){setFailed(true);setLoading(false);}}}

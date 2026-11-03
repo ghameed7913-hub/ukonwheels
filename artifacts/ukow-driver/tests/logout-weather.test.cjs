@@ -33,7 +33,7 @@ test('Both native logout controls exist; signed-out event clears account state',
   const home=read('app/index.tsx'),portal=read('components/DriverPortal.tsx');
   assert.match(home,/testID="home-logout"/);
   assert.match(portal,/testID="portal-logout"/);
-  assert.match(home,/setSignedIn\(false\);setSection\(null\);setNotificationId\(null\)/);
+  assert.match(home,/setSignedIn\(false\);setJobCounts\(null\);setSection\(null\);setNotificationId\(null\)/);
   assert.match(portal,/syncTrackingOwner\(null\)/);
 });
 test('Weather defaults to a compact pill with controls hidden until expanded',()=>{
