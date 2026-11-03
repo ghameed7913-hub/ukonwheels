@@ -34,6 +34,8 @@ export default function DriverApp() {
   const [section,setSection]=useState<Section|null>(null);
   const [request,setRequest]=useState(0);
   const [notificationId,setNotificationId]=useState<string|null>(null);
+  const [logoutRequest,setLogoutRequest]=useState(0);
+  const [signedIn,setSignedIn]=useState(false);
   const push=useDriverPush(id=>{setNotificationId(id);setOpened(true);setScreen('portal');});
   useEffect(()=>{if(Platform.OS!=='android')return;const listener=BackHandler.addEventListener('hardwareBackPress',()=>{
     if(screen!=='home'){setScreen('home');return true;}return false;
@@ -99,10 +101,18 @@ export default function DriverApp() {
           <View style={s.tileTop}><Feather name={item.icon} size={22} color={item.id==='companyId'?c.white:c.foreground}/><Feather name="arrow-up-right" size={15} color={item.id==='companyId'?c.navyMuted:c.mutedForeground}/></View>
           <Text style={[s.tileTitle,{color:item.id==='companyId'?c.white:c.foreground}]}>{item.title}</Text><Text style={[s.tileDetail,{color:item.id==='companyId'?c.navyMuted:c.mutedForeground}]}>{item.detail}</Text>
         </Pressable>)}</View>
+        {signedIn && <Pressable testID="home-logout" accessibilityRole="button" accessibilityLabel="Log out of Driver account" onPress={()=>{
+          Alert.alert('Log out?', 'Save your work first. You will need to sign in again to access your jobs.', [
+            {text:'Cancel',style:'cancel'},
+            {text:'Log out',style:'destructive',onPress:()=>{setScreen('portal');setLogoutRequest(v=>v+1);}},
+          ]);
+        }} style={[s.incident,{borderColor:c.border,backgroundColor:c.card}]}>
+          <Feather name="log-out" size={20} color={c.primary}/><Text style={[s.tileTitle,{color:c.primary}]}>Log out</Text>
+        </Pressable>}
         <View style={[s.connection,{borderColor:c.border}]}><Feather name="wifi" size={17} color={c.mutedForeground}/><Text style={[s.connectionText,{color:c.mutedForeground}]}>Internet required. Updates go to the same Admin and Client portal.</Text></View>
       </ScrollView>
     </View>
-    {opened&&<View style={[s.fill,screen==='portal'?undefined:s.hidden]}><DriverPortal section={section} request={request} onHome={()=>setScreen('home')} pushRegistration={push.registration} notificationId={notificationId} onPushStatus={push.connection} onNotificationHandled={()=>setNotificationId(null)}/></View>}
+    {opened&&<View style={[s.fill,screen==='portal'?undefined:s.hidden]}><DriverPortal section={section} request={request} onHome={()=>setScreen('home')} pushRegistration={push.registration} notificationId={notificationId} onPushStatus={push.connection} onNotificationHandled={()=>setNotificationId(null)} logoutRequest={logoutRequest} onSignedIn={()=>setSignedIn(true)} onSignedOut={()=>{setSignedIn(false);setSection(null);setNotificationId(null);}}/></View>}
     {screen==='help'&&<ScrollView contentContainerStyle={s.content}>
       <Pressable testID="help-back" accessibilityRole="button" accessibilityLabel="Back to home" onPress={()=>setScreen('home')} style={s.back}><Feather name="arrow-left" size={24} color={c.foreground}/></Pressable>
       <Text style={[s.heading,{color:c.foreground}]}>Help for your working day</Text>

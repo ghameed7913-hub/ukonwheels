@@ -12,6 +12,7 @@ const colors = {
     navy: '#0b2039', navyMuted: '#a9b8cb', white: '#ffffff',
     success: '#26785b',
     warningAmber: '#995500', warningYellow: '#746000',
+    weatherPill: '#101d1b', weatherGold: '#e8cf70',
   },
   radius: 8,
 };

@@ -60,6 +60,7 @@ export default function LocalWeather({ active = true }: { active?: boolean }) {
   const [results, setResults] = useState<Place[] | null>(null);
   const [searchError, setSearchError] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [details, setDetails] = useState(false);
   const reqId = useRef(0), searchId = useRef(0), geoId = useRef(0);
   const activeRef = useRef(active); activeRef.current = active;
   const ctrl = useRef<AbortController | null>(null), sctrl = useRef<AbortController | null>(null);
@@ -165,7 +166,28 @@ export default function LocalWeather({ active = true }: { active?: boolean }) {
       <Feather name={icon} size={14} color={primary ? c.white : c.navy} /><Text style={[s.btnText, { color: primary ? c.white : c.navy }]}>{label}</Text>
     </Pressable>;
 
-  return <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]} accessibilityLabel="Local weather">
+  const condition = wx?.condition || (status || (error ? 'Weather unavailable' : 'Tap for local weather'));
+  const icon: React.ComponentProps<typeof Feather>['name'] = /snow/i.test(condition) ? 'cloud-snow' : /rain|drizzle/i.test(condition) ? 'cloud-rain' : /fair|clear|sun/i.test(condition) ? 'sun' : 'cloud';
+  return <View style={s.widget} accessibilityLabel="Local weather">
+    <Pressable testID="weather-summary" accessibilityRole="button" accessibilityLabel={`Weather: ${data?.place?.name || 'Choose city'}, ${wx ? `${Math.round(wx.temperatureC)} degrees, ` : ''}${condition}. ${details ? 'Hide' : 'Show'} details`}
+      accessibilityState={{ expanded: details }} onPress={() => setDetails(v => !v)}
+      style={({ pressed }) => [s.pill, { backgroundColor: c.weatherPill, opacity: pressed ? .85 : 1 }]}>
+      <Feather name={icon} size={24} color={c.weatherGold} />
+      <Text style={[s.pillTemp, { color: c.white }]}>{wx ? `${Math.round(wx.temperatureC)}°C` : '—'}</Text>
+      <View style={[s.pillLocation, { borderLeftColor: c.navyMuted }]}>
+        <Text numberOfLines={1} style={[s.eyebrow, { color: c.weatherGold }]}>{(data?.place?.name || 'LOCAL WEATHER').toUpperCase()}</Text>
+        <Text numberOfLines={1} style={[s.small, { color: c.white }]}>{stale ? 'Earlier data · tap to retry' : condition}</Text>
+      </View>
+      <Feather name={details ? 'chevron-up' : 'chevron-down'} size={16} color={c.white} />
+    </Pressable>
+    {!!items.length && <Pressable testID="weather-warning-summary" accessibilityRole="button" onPress={() => { setDetails(true); setExpanded(true); }}
+      style={[s.warningSummary, { backgroundColor: c.card, borderColor: levelColor(items.some(it => it.level === 'red') ? 'red' : items.some(it => it.level === 'amber') ? 'amber' : 'yellow') }]}>
+      <Feather name="alert-triangle" size={18} color={levelColor(items[0].level)} />
+      <Text numberOfLines={2} style={[s.warningText, { color: c.foreground }]}>{items.length > 1 ? `${items.length} regional warnings · ` : ''}{items[0].title}</Text>
+      <Feather name="chevron-right" size={16} color={c.foreground} />
+    </Pressable>}
+    {w && w.status !== 'ok' && <Text style={[s.small, { color: c.warningAmber }]}>Regional warnings could not be confirmed. Tap for details.</Text>}
+    {details && <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
     <View style={s.head}>
       <View style={s.flex}>
         <Text style={[s.eyebrow, { color: c.mutedForeground }]}>LOCAL WEATHER{mode === 'gps' ? ' · YOUR LOCATION' : mode === 'manual' ? ' · CHOSEN PLACE' : ''}</Text>
@@ -233,10 +255,17 @@ export default function LocalWeather({ active = true }: { active?: boolean }) {
     <Text style={[s.attr, { color: c.mutedForeground }]}>
       Weather <Text style={s.link} onPress={() => void Linking.openURL('https://www.met.no/en').catch(() => {})}>MET Norway</Text> (<Text style={s.link} onPress={() => void Linking.openURL('https://creativecommons.org/licenses/by/4.0/').catch(() => {})}>CC BY 4.0</Text>, values rounded and wind converted) · Places © <Text style={s.link} onPress={() => void Linking.openURL('https://www.openstreetmap.org/copyright').catch(() => {})}>OpenStreetMap contributors</Text> · Warnings <Text style={s.link} onPress={() => void Linking.openURL('https://www.metoffice.gov.uk/').catch(() => {})}>Met Office</Text>
     </Text>
+    </View>}
   </View>;
 }
 
 const s = StyleSheet.create({
+  widget: { gap: 7 },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 40, paddingHorizontal: 15, paddingVertical: 12, minHeight: 60 },
+  pillTemp: { fontSize: 25, fontWeight: '800' },
+  pillLocation: { flex: 1, minWidth: 0, borderLeftWidth: 1, paddingLeft: 12, gap: 3 },
+  warningSummary: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderLeftWidth: 4, padding: 10, borderRadius: 12 },
+  warningText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   card: { borderWidth: 1, borderRadius: 8, padding: 14, gap: 8 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   flex: { flex: 1, minWidth: 0 },

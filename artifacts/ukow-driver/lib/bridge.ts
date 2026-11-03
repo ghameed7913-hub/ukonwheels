@@ -91,3 +91,16 @@ export function sectionScript(section: string) {
   const legacy = section === 'delivered' ? 'history' : ['assigned','active'].includes(section) ? 'jobs' : section;
   return `if(typeof role!=='undefined'&&role==='driver'){if(typeof window.__ukowOpenDriverSection==='function'){window.__ukowOpenDriverSection(${JSON.stringify(section)});}else if(typeof setDriverMobileTab==='function'){setDriverMobileTab(${JSON.stringify(legacy)});}}true;`;
 }
+
+// Use the portal's own logout flow so its in-progress-save guards and
+// session cleanup also apply to the native button.
+export const LOGOUT_SCRIPT = `
+(async function(){
+ const send=payload=>window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+ try{
+  if(typeof logoutNow!=='function')throw Error('Portal is not ready. Please wait and try again.');
+  await logoutNow();
+ }catch(error){
+  send({type:'logout-error',message:'Sign out could not be completed. Check your connection and try again.'});
+ }
+})();true;`;
