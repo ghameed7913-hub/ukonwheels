@@ -8,17 +8,20 @@ import * as Location from 'expo-location';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { PORTAL_URL, navigationKind, type Section } from '@/lib/portal';
-import { PORTAL_BRIDGE, sectionScript } from '@/lib/bridge';
+import { PORTAL_BRIDGE, sectionScript, LOGOUT_SCRIPT } from '@/lib/bridge';
 import { getEvidencePosition, prepareEvidencePhoto } from '@/lib/evidence-media';
 import { pushOpenScript, pushRegistrationScript, type PushRegistration } from '@/lib/push-bridge';
 import { startNativeTracking, stopNativeTracking, nativeTrackingStatus, syncTrackingOwner } from '@/lib/live-tracking';
 
-export default function DriverPortal({ section, request, onHome, pushRegistration, notificationId, onPushStatus, onNotificationHandled }: {
+export default function DriverPortal({ section, request, onHome, pushRegistration, notificationId, onPushStatus, onNotificationHandled, logoutRequest = 0, onSignedOut, onSignedIn }: {
   section: Section | null; request: number; onHome: () => void;
   pushRegistration?: PushRegistration | null;
   notificationId?: string | null;
   onPushStatus?: (ok: boolean, error?: string) => void;
   onNotificationHandled?: () => void;
+  logoutRequest?: number;
+  onSignedOut?: () => void;
+  onSignedIn?: () => void;
 }) {
   const colors = useColors();
   const web = useRef<WebView>(null);
@@ -33,6 +36,18 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
   const pushRequest = useRef(0);
   const trackingOwner = useRef<string|null>(null);
   const [pushSession,setPushSession]=useState(0);
+  useEffect(() => {
+    if (logoutRequest > 0) {
+      if (ready) web.current?.injectJavaScript(LOGOUT_SCRIPT);
+      else Alert.alert('Portal not ready', 'Wait for the portal to finish loading, then try Log out again.');
+    }
+  }, [logoutRequest]);
+  function logout() {
+    Alert.alert('Log out?', 'Save your work first. You will need to sign in again to access your jobs.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log out', style: 'destructive', onPress: () => web.current?.injectJavaScript(LOGOUT_SCRIPT) },
+    ]);
+  }
   useEffect(() => {
     if (ready && pushRegistration) web.current?.injectJavaScript(pushRegistrationScript(pushRegistration, String(++pushRequest.current)));
   }, [ready, pushRegistration, pushSession]);
@@ -77,9 +92,12 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
       }
       if (data.type === 'signed-out') {
         trackingOwner.current=null;void syncTrackingOwner(null).catch(()=>{});
-        pushRequest.current++;setReady(false);if(pushRegistration)onPushStatus?.(false, 'Sign in to connect alerts');return;
+        pushRequest.current++;setReady(false);onSignedOut?.();if(pushRegistration)onPushStatus?.(false, 'Sign in to connect alerts');return;
       }
-      if (data.type === 'driver-ready') { setReady(true); return; }
+      if (data.type === 'logout-error') {
+        Alert.alert('Unable to log out', 'Check your connection and try again.'); return;
+      }
+      if (data.type === 'driver-ready') { setReady(true); onSignedIn?.(); return; }
       if (data.type === 'driver-push-session') {
         pushRequest.current++;
         if(pushRegistration)onPushStatus?.(false,data.signedIn?'Connecting alerts to your Driver account…':'Sign in to connect alerts');
@@ -200,6 +218,9 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
     <View style={[styles.bar,{borderColor:colors.border}]}>
       <Pressable testID="portal-home" accessibilityRole="button" accessibilityLabel="Return to app home; keep portal open" onPress={onHome} hitSlop={12}><Feather name="arrow-left" size={23} color={colors.foreground}/></Pressable>
       <View style={styles.brand}><Feather name="lock" size={13} color={colors.success}/><Text style={{color:colors.foreground,fontFamily:'Inter_600SemiBold'}}>Driver portal</Text></View>
+      {ready && <Pressable testID="portal-logout" accessibilityRole="button" accessibilityLabel="Log out of Driver account" onPress={logout} hitSlop={8} style={{flexDirection:'row',alignItems:'center',gap:5,padding:8}}>
+        <Feather name="log-out" size={18} color={colors.primary}/><Text style={{color:colors.primary,fontWeight:'600'}}>Log out</Text>
+      </Pressable>}
       <Pressable accessibilityRole="button" accessibilityLabel="Reload portal" onPress={()=>Alert.alert('Reload portal?', 'Unsubmitted form changes may be lost. Save your work first.',[{text:'Cancel',style:'cancel'},{text:'Reload',onPress:()=>{setReady(false);setFailed(false);setLoading(true);web.current?.reload();}}])} hitSlop={12}><Feather name="rotate-cw" size={20} color={colors.foreground}/></Pressable>
     </View>
     {Platform.OS === 'web' ? <View style={styles.notice}>
