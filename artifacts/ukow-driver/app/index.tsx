@@ -11,6 +11,8 @@ import type { Section } from '@/lib/portal';
 import DriverPortal from '@/components/DriverPortal';
 import LocalWeather from '@/components/LocalWeather';
 import { useDriverPush } from '@/hooks/useDriverPush';
+import { LinearGradient } from 'expo-linear-gradient';
+import colors from '@/constants/colors';
 
 type Icon = React.ComponentProps<typeof Feather>['name'];
 type Shortcut = { id: Section; title: string; detail: string; icon: Icon };
@@ -27,8 +29,15 @@ const PERSONAL: Shortcut[] = [
   { id: 'profile', title: 'Profile', detail: 'Details managed by HR', icon: 'user' },
 ];
 
+type Tile = { key: Section | 'support'; title: string; detail: string; label: string; icon: Icon };
+const GRID: Tile[] = [
+  { key: 'incidents', title: 'Report issue', detail: 'Damage, accidents, delays', label: 'Open incident report form', icon: 'alert-triangle' },
+  ...PERSONAL.map(p => ({ key: p.id, title: p.title, detail: p.detail, label: `Open ${p.title}`, icon: p.icon })),
+  { key: 'support', title: 'Help & support', detail: 'Guides, camera setup', label: 'Open help and support', icon: 'headphones' },
+];
+
 export default function DriverApp() {
-  const c=useColors(),insets=useSafeAreaInsets();
+  const c=useColors(),insets=useSafeAreaInsets(),g=colors.driverHome;
   const [screen,setScreen]=useState<'home'|'portal'|'help'>('home');
   const [section,setSection]=useState<Section|null>(null);
   const [request,setRequest]=useState(0);
@@ -56,55 +65,55 @@ export default function DriverApp() {
       else Alert.alert('Camera permission needed','Allow camera access in Settings to take inspection photos. You can still choose existing files where the portal allows it.',[{text:'Not now',style:'cancel'},{text:'Open Settings',onPress:()=>void Linking.openSettings().catch(()=>Alert.alert('Settings unavailable','Open your phone settings and find this app.'))}]);
     } catch {Alert.alert('Camera unavailable','Check camera permissions in your phone settings.');}
   }
-  return <View style={[s.root,{backgroundColor:c.background,paddingTop:Platform.OS==='web'?Math.max(insets.top,67):insets.top,paddingBottom:Platform.OS==='web'?Math.max(insets.bottom,34):insets.bottom}]}>
-    <StatusBar style="dark"/>
+  return <View style={[s.root,{backgroundColor:screen==='home'?g.bg:c.background,paddingTop:Platform.OS==='web'?Math.max(insets.top,67):insets.top,paddingBottom:Platform.OS==='web'?Math.max(insets.bottom,34):insets.bottom}]}>
+    <StatusBar style={screen==='home'?'light':'dark'}/>
+    {screen==='home'&&<View style={[StyleSheet.absoluteFill,{backgroundColor:g.bg}]}/>}
     <View style={[s.fill,screen==='home'?undefined:s.hidden]}>
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={s.header}>
-          <View style={s.logoGroup}><Image source={require('@/assets/images/company-logo.jpg')} style={s.logo}/><View><Text style={[s.brand,{color:c.foreground}]}>UK ON WHEELS</Text><Text style={[s.eyebrow,{color:c.mutedForeground}]}>DRIVER COMPANION</Text></View></View>
-          <View style={s.headerActions}>
-            <Pressable testID="alerts" accessibilityRole="button" accessibilityLabel="Job and instruction alerts" accessibilityState={{expanded:alertsOpen}} onPress={()=>setAlertsOpen(v=>!v)} hitSlop={12}><Feather name="bell" size={23} color={alertsOpen?c.primary:c.foreground}/>{!push.registration&&<View style={[s.badge,{backgroundColor:c.primary}]}/>}</Pressable>
-            <Pressable testID="help" accessibilityRole="button" accessibilityLabel="Help and camera settings" onPress={()=>setScreen('help')} hitSlop={12}><Feather name="help-circle" size={24} color={c.foreground}/></Pressable>
+      <ScrollView contentContainerStyle={s.hContent} showsVerticalScrollIndicator={false}>
+        <View style={s.hHeader}>
+          <Pressable testID="help" accessibilityRole="button" accessibilityLabel="Help and camera settings" onPress={()=>setScreen('help')} hitSlop={10} style={({pressed})=>[s.iconBtn,{opacity:pressed?.6:1}]}><Feather name="help-circle" size={22} color={g.gold}/></Pressable>
+          <View style={s.brandCol}>
+            <Image source={require('@/assets/images/company-logo.jpg')} style={[s.hLogo,{borderColor:g.gold}]}/>
+            <Text style={[s.hBrand,{color:g.goldBright}]}>UK ON WHEELS</Text>
+            <View style={s.tagRow}><View style={[s.tagLine,{backgroundColor:g.goldLine}]}/><Text style={[s.hTag,{color:g.gold}]}>DRIVER COMPANION</Text><View style={[s.tagLine,{backgroundColor:g.goldLine}]}/></View>
           </View>
+          <Pressable testID="alerts" accessibilityRole="button" accessibilityLabel="Job and instruction alerts" accessibilityState={{expanded:alertsOpen}} onPress={()=>setAlertsOpen(v=>!v)} hitSlop={10} style={({pressed})=>[s.iconBtn,{opacity:pressed?.6:1}]}><Feather name="bell" size={22} color={alertsOpen?g.goldBright:g.gold}/>{!push.registration&&<View style={[s.badge,{backgroundColor:g.goldBright}]}/>}</Pressable>
         </View>
-        {alertsOpen&&<View testID="alerts-panel" style={[s.alertPanel,{backgroundColor:c.card,borderColor:c.border}]}>
-          <View style={s.header}><Text style={[s.tileTitle,{color:c.foreground}]}>Job & instruction alerts</Text><Pressable accessibilityRole="button" accessibilityLabel="Close alerts" onPress={()=>setAlertsOpen(false)} hitSlop={12}><Feather name="x" size={20} color={c.mutedForeground}/></Pressable></View>
-          <Text accessibilityLiveRegion="polite" style={[s.tileDetail,{color:c.mutedForeground}]}>{push.status}</Text>
-          <Pressable accessibilityRole="button" disabled={push.busy} onPress={()=>void push.enable()} style={[s.compact,{backgroundColor:c.primary,opacity:push.busy?.6:1}]}>
-            <Feather name="bell" size={16} color={c.white}/><Text style={[s.compactLabel,{color:c.white}]}>{push.busy?'Connecting…':push.registration?'Refresh notification connection':'Enable notifications'}</Text>
+        {alertsOpen&&<View testID="alerts-panel" style={[s.alertPanel,{backgroundColor:g.surface,borderColor:g.goldLine}]}>
+          <View style={s.header}><Text style={[s.tileTitle,{color:g.text}]}>Job & instruction alerts</Text><Pressable accessibilityRole="button" accessibilityLabel="Close alerts" onPress={()=>setAlertsOpen(false)} hitSlop={12}><Feather name="x" size={20} color={g.muted}/></Pressable></View>
+          <Text accessibilityLiveRegion="polite" style={[s.tileDetail,{color:g.muted}]}>{push.status}</Text>
+          <Pressable accessibilityRole="button" disabled={push.busy} onPress={()=>void push.enable()} style={[s.compact,{backgroundColor:g.gold,opacity:push.busy?.6:1}]}>
+            <Feather name="bell" size={16} color={g.ink}/><Text style={[s.compactLabel,{color:g.ink}]}>{push.busy?'Connecting…':push.registration?'Refresh notification connection':'Enable notifications'}</Text>
           </Pressable>
         </View>}
         <LocalWeather active={screen==='home'}/>
-        <View style={s.sectionHeading}><Text style={[s.heading,{color:c.foreground}]}>Delivery run</Text>
-          {!signedIn&&<Pressable testID="sign-in" accessibilityRole="button" accessibilityLabel="Sign in to see your jobs" onPress={()=>open(null)} hitSlop={8} style={s.signIn}><Feather name="log-in" size={15} color={c.primary}/><Text style={[s.signInText,{color:c.primary}]}>Sign in</Text></Pressable>}
-        </View>
-        <View style={[s.jobTabs,{backgroundColor:c.card,borderColor:c.border}]} accessibilityLabel="Job categories">
-          {ROUTE.map(item=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}, ${jobCounts&&signedIn?jobCounts[item.id as 'assigned'|'active'|'delivered']:'count unavailable'}`} onPress={()=>open(item.id)}
-            style={({pressed})=>[s.jobTab,{backgroundColor:pressed?c.muted:c.card,borderColor:c.border}]}>
-            <Feather name={item.icon} size={20} color={c.primary}/>
-            <Text style={[s.count,{color:c.foreground}]}>{jobCounts&&signedIn?jobCounts[item.id as 'assigned'|'active'|'delivered']:'—'}</Text>
-            <Text style={[s.jobTabTitle,{color:c.foreground}]}>{item.title}</Text>
-          </Pressable>)}
-        </View>
-        <Pressable testID="section-incidents" accessibilityRole="button" accessibilityLabel="Open incident report form" onPress={()=>open('incidents')} style={({pressed})=>[s.incident,{borderColor:c.primary,backgroundColor:c.card,opacity:pressed?.8:1}]}>
-          <View style={[s.incidentIcon,{backgroundColor:c.primary}]}><Feather name="alert-triangle" size={20} color={c.white}/></View>
-          <View style={s.stopText}><Text style={[s.tileTitle,{color:c.foreground}]}>Report an incident</Text><Text style={[s.tileDetail,{color:c.mutedForeground}]}>Damage, accidents or delays, with photo evidence</Text></View>
-          <Feather name="arrow-up-right" size={18} color={c.primary}/>
-        </Pressable>
-        <View style={s.sectionHeading}><Text style={[s.heading,{color:c.foreground}]}>You & your company</Text></View>
-        <View style={s.grid}>{PERSONAL.map(item=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}`} onPress={()=>open(item.id)} style={({pressed})=>[s.tile,{backgroundColor:item.id==='companyId'?c.navy:c.card,borderColor:item.id==='companyId'?c.navy:c.border,opacity:pressed?.75:1}]}>
-          <View style={s.tileTop}><Feather name={item.icon} size={22} color={item.id==='companyId'?c.white:c.foreground}/><Feather name="arrow-up-right" size={15} color={item.id==='companyId'?c.navyMuted:c.mutedForeground}/></View>
-          <Text style={[s.tileTitle,{color:item.id==='companyId'?c.white:c.foreground}]}>{item.title}</Text><Text style={[s.tileDetail,{color:item.id==='companyId'?c.navyMuted:c.mutedForeground}]}>{item.detail}</Text>
+        <LinearGradient colors={[g.goldBright,g.gold,g.goldDeep]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.summary}>
+          <View style={s.sumHead}><View style={s.sumTitleRow}><Feather name="briefcase" size={20} color={g.ink}/><Text style={[s.sumTitle,{color:g.ink}]}>Delivery run</Text></View>
+            {!signedIn&&<Pressable testID="sign-in" accessibilityRole="button" accessibilityLabel="Sign in to see your jobs" onPress={()=>open(null)} hitSlop={8} style={({pressed})=>[s.signIn,{backgroundColor:g.ink,opacity:pressed?.7:1}]}><Feather name="log-in" size={14} color={g.goldBright}/><Text style={[s.signInText,{color:g.goldBright}]}>Sign in</Text></Pressable>}
+          </View>
+          <View style={s.sumRow}>{ROUTE.map((item,i)=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}, ${jobCounts&&signedIn?jobCounts[item.id as 'assigned'|'active'|'delivered']:'count unavailable'}`} onPress={()=>open(item.id)}
+            style={({pressed})=>[s.sumCell,i>0&&{borderLeftWidth:1,borderLeftColor:'rgba(26,19,7,0.25)'},{opacity:pressed?.6:1}]}>
+            <Text style={[s.sumCount,{color:g.ink}]}>{jobCounts&&signedIn?jobCounts[item.id as 'assigned'|'active'|'delivered']:'—'}</Text>
+            <Text style={[s.sumLabel,{color:g.ink}]} numberOfLines={1}>{item.title}</Text>
+          </Pressable>)}</View>
+        </LinearGradient>
+        <View style={s.hGrid}>{GRID.map(item=><Pressable key={item.key} testID={item.key==='support'?'home-support':`section-${item.key}`} accessibilityRole="button" accessibilityLabel={item.label} onPress={()=>item.key==='support'?setScreen('help'):open(item.key as Section)}
+          style={({pressed})=>[s.hTile,{backgroundColor:pressed?g.surfaceHi:g.surface,borderColor:pressed?g.gold:g.goldLine,transform:[{scale:pressed?.98:1}]}]}>
+          <Feather name={item.icon} size={26} color={g.gold}/>
+          <View style={s.stopText}><Text style={[s.hTileTitle,{color:g.text}]} numberOfLines={2}>{item.title}</Text><Text style={[s.hTileDetail,{color:g.muted}]} numberOfLines={2}>{item.detail}</Text></View>
         </Pressable>)}</View>
         {signedIn && <Pressable testID="home-logout" accessibilityRole="button" accessibilityLabel="Log out of Driver account" onPress={()=>{
           Alert.alert('Log out?', 'Save your work first. You will need to sign in again to access your jobs.', [
             {text:'Cancel',style:'cancel'},
             {text:'Log out',style:'destructive',onPress:()=>{setScreen('portal');setLogoutRequest(v=>v+1);}},
           ]);
-        }} style={[s.incident,{borderColor:c.border,backgroundColor:c.card}]}>
-          <Feather name="log-out" size={20} color={c.primary}/><Text style={[s.tileTitle,{color:c.primary}]}>Log out</Text>
+        }} style={({pressed})=>[s.hLogout,{borderColor:g.goldLine,opacity:pressed?.7:1}]}>
+          <Feather name="log-out" size={18} color={g.gold}/><Text style={[s.tileTitle,{color:g.gold}]}>Log out</Text>
         </Pressable>}
-        <View style={[s.connection,{borderColor:c.border}]}><Feather name="wifi" size={17} color={c.mutedForeground}/><Text style={[s.connectionText,{color:c.mutedForeground}]}>Internet required. Updates go to the same Admin and Client portal.</Text></View>
+        <View style={[s.footer,{borderTopColor:g.hairline}]}>
+          <Text style={[s.footBrand,{color:g.gold}]}>UK ON WHEELS</Text>
+          <Text style={[s.connectionText,{color:g.muted,textAlign:'center'}]}>Professional vehicle delivery. Internet required — updates go to the same Admin and Client portal.</Text>
+        </View>
       </ScrollView>
     </View>
     <View style={[s.fill,screen==='portal'?undefined:s.hidden]}><DriverPortal section={section} request={request} onHome={()=>setScreen('home')} pushRegistration={push.registration} notificationId={notificationId} onPushStatus={push.connection} onNotificationHandled={()=>setNotificationId(null)} logoutRequest={logoutRequest} onSignedIn={()=>setSignedIn(true)} onSignedOut={()=>{setSignedIn(false);setJobCounts(null);setSection(null);setNotificationId(null);}} onJobCounts={setJobCounts}/></View>
@@ -124,9 +133,20 @@ export default function DriverApp() {
   </View>;
 }
 const s=StyleSheet.create({
+ hContent:{paddingHorizontal:18,paddingTop:8,paddingBottom:28,gap:18},
+ hHeader:{flexDirection:'row',alignItems:'flex-start',justifyContent:'space-between'},iconBtn:{width:44,height:44,alignItems:'center',justifyContent:'center'},
+ brandCol:{alignItems:'center',gap:6,flex:1},hLogo:{width:58,height:58,borderRadius:29,borderWidth:1.5},
+ hBrand:{fontFamily:'Inter_700Bold',fontSize:22,letterSpacing:2},tagRow:{flexDirection:'row',alignItems:'center',gap:8},tagLine:{width:22,height:1},hTag:{fontFamily:'Inter_600SemiBold',fontSize:9,letterSpacing:2.4},
+ summary:{borderRadius:16,padding:16,gap:12},sumHead:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},sumTitleRow:{flexDirection:'row',alignItems:'center',gap:10},sumTitle:{fontFamily:'Inter_700Bold',fontSize:18},
+ sumRow:{flexDirection:'row'},sumCell:{flex:1,minWidth:0,minHeight:72,alignItems:'center',justifyContent:'center',gap:2,paddingHorizontal:4},sumCount:{fontFamily:'Inter_700Bold',fontSize:34},sumLabel:{fontFamily:'Inter_600SemiBold',fontSize:12},
+ hGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',rowGap:12},
+ hTile:{width:'48.3%',minHeight:84,borderWidth:1,borderRadius:14,padding:13,flexDirection:'row',alignItems:'center',gap:11},
+ hTileTitle:{fontFamily:'Inter_600SemiBold',fontSize:14},hTileDetail:{fontFamily:'Inter_400Regular',fontSize:11,lineHeight:15},
+ hLogout:{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:10,borderWidth:1,borderRadius:14,minHeight:50},
+ footer:{borderTopWidth:1,paddingTop:16,alignItems:'center',gap:6},footBrand:{fontFamily:'Inter_700Bold',fontSize:12,letterSpacing:2.4},
  headerActions:{flexDirection:'row',alignItems:'center',gap:18},badge:{position:'absolute',top:0,right:0,width:8,height:8,borderRadius:4},
  alertPanel:{borderWidth:1,borderRadius:12,padding:16,gap:10},compact:{borderRadius:8,paddingHorizontal:14,paddingVertical:11,flexDirection:'row',alignItems:'center',gap:10,alignSelf:'flex-start'},compactLabel:{fontFamily:'Inter_600SemiBold',fontSize:13},
- count:{fontFamily:'Inter_700Bold',fontSize:22},signIn:{flexDirection:'row',alignItems:'center',gap:6},signInText:{fontFamily:'Inter_600SemiBold',fontSize:13},
+ count:{fontFamily:'Inter_700Bold',fontSize:22},signIn:{flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,minHeight:34,borderRadius:17},signInText:{fontFamily:'Inter_600SemiBold',fontSize:13},
  jobTabs:{flexDirection:'row',borderWidth:1,borderRadius:12,overflow:'hidden'},
  jobTab:{flex:1,minWidth:0,minHeight:84,alignItems:'center',justifyContent:'center',gap:9,padding:8,borderRightWidth:StyleSheet.hairlineWidth},
  jobTabTitle:{fontFamily:'Inter_600SemiBold',fontSize:12,textAlign:'center'},
