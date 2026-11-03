@@ -27,10 +27,10 @@ function harness(){
 }
 test('Assigned and Active shortcuts open distinct real-data job lists',()=>{
  const h=harness();h.c.__ukowOpenDriverSection('assigned');
- let html=h.c.drawDriverJobsMobile();
+ let html=h.c.drawDriverJobsMobile().split('role="tabpanel">')[1];
  assert.match(html,/<h3[^>]*>Assigned Jobs/);assert.match(html,/First car/);
  assert.doesNotMatch(html,/Second car|ACTIVE-1|DELIVERED-1/);
- h.c.__ukowOpenDriverSection('active');html=h.c.drawDriverJobsMobile();
+ h.c.__ukowOpenDriverSection('active');html=h.c.drawDriverJobsMobile().split('role="tabpanel">')[1];
  assert.match(html,/<h3[^>]*>Active Jobs/);assert.match(html,/Second car/);
  assert.match(html,/ROUTE-1/);assert.match(html,/DELAY-1/);
  assert.doesNotMatch(html,/First car|ASSIGNED-1|DELIVERED-1/);
@@ -61,7 +61,8 @@ test('Opened sections hide existing menus and unrelated dashboard totals after e
   assert.equal(h.styles.length,1);
  }
  h.c.__ukowOpenDriverSection('assigned');
- assert.doesNotMatch(h.c.drawDriverJobsMobile(),/ukowJobFilters|aria-label="Job lists"/);
+ assert.match(h.c.drawDriverJobsMobile(),/role="tablist" aria-label="Job lists"/);
+ assert.equal((h.c.drawDriverJobsMobile().match(/role="tab"/g)||[]).length,3);
 });
 test('Opening another list keeps drafts and clears a stale selected job',()=>{
  const h=harness();h.c.driverSelectedJobRef='ACTIVE-1';
@@ -98,4 +99,32 @@ test('Bridge installation is idempotent',()=>{
  const h=harness(),before=h.c.drawDriverJobsMobile;
  vm.runInNewContext(output.DRIVER_NAVIGATION_BRIDGE,h.c);
  assert.equal(h.c.drawDriverJobsMobile,before);assert.equal(h.intervals.length,1);
+});
+test('Job tabs show real own-job counts and selected state in every list',()=>{
+ const h=harness();
+ for(const section of ['assigned','active','delivered']){
+  h.c.__ukowOpenDriverSection(section);
+  const html=section==='delivered'?h.c.drawDriverHistoryMobile():h.c.drawDriverJobsMobile();
+  assert.equal((html.match(/role="tab"/g)||[]).length,3);
+  assert.equal((html.match(/aria-selected="true"/g)||[]).length,1);
+  assert.match(html,/Assigned jobs <span>1<\/span>/);
+  assert.match(html,/Active jobs <span>3<\/span>/);
+  assert.match(html,/Delivered <span>1<\/span>/);
+  assert.ok(html.includes('aria-selected="true" onclick="window.__ukowOpenDriverSection(\''+section+'\')'));
+ }
+});
+test('Delivered tab snapshots an unfinished job and clears the selection',()=>{
+ const h=harness();h.c.driverSelectedJobRef='ACTIVE-1';
+ h.c.__ukowOpenDriverSection('delivered');
+ assert.deepEqual(h.drafts,['ACTIVE-1']);
+ assert.equal(h.c.driverSelectedJobRef,null);
+ assert.deepEqual(h.calls,['history']);
+});
+test('Tab clicks call the guarded navigation handler rather than bypassing it',()=>{
+ const h=harness();
+ const html=h.c.drawDriverJobsMobile();
+ const onclick=html.match(/onclick="([^"]*__ukowOpenDriverSection[^"]*)"/)[1];
+ h.c.driverPhotoIsSaving=()=>true;
+ vm.runInNewContext(onclick,h.c);
+ assert.equal(h.calls.length,0);
 });

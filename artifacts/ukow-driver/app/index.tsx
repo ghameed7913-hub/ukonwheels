@@ -64,6 +64,14 @@ export default function DriverApp() {
           <Pressable testID="help" accessibilityRole="button" accessibilityLabel="Help and camera settings" onPress={()=>setScreen('help')} hitSlop={12}><Feather name="help-circle" size={24} color={c.foreground}/></Pressable>
         </View>
         <LocalWeather active={screen==='home'}/>
+        <View style={s.sectionHeading}><Text style={[s.heading,{color:c.foreground}]}>Delivery run</Text></View>
+        <View style={[s.jobTabs,{backgroundColor:c.card,borderColor:c.border}]} accessibilityLabel="Job categories">
+          {ROUTE.map(item=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}`} onPress={()=>open(item.id)}
+            style={({pressed})=>[s.jobTab,{backgroundColor:pressed?c.muted:c.card,borderColor:c.border}]}>
+            <Feather name={item.icon} size={20} color={c.primary}/>
+            <Text style={[s.jobTabTitle,{color:c.foreground}]}>{item.title}</Text>
+          </Pressable>)}
+        </View>
         <View style={[s.helpCard,{backgroundColor:c.card,borderColor:c.border}]}>
           <View style={s.header}><Text style={[s.tileTitle,{color:c.foreground}]}>Job & instruction alerts</Text><Feather name="bell" size={20} color={c.primary}/></View>
           <Text accessibilityLiveRegion="polite" style={[s.tileDetail,{color:c.mutedForeground}]}>{push.status}</Text>
@@ -78,18 +86,6 @@ export default function DriverApp() {
             <Feather name={opened?'rotate-ccw':'truck'} size={20} color={c.white}/><Text style={[s.primaryLabel,{color:c.white}]}>{opened?'Resume Driver portal':'Open assigned jobs'}</Text><Feather name="arrow-right" size={20} color={c.white}/>
           </Pressable>
           <View style={s.secure}><Feather name="lock" size={12} color={c.navyMuted}/><Text style={[s.secureText,{color:c.navyMuted}]}>Your existing portal sign-in. No new account.</Text></View>
-        </View>
-        <View style={s.sectionHeading}><Text style={[s.heading,{color:c.foreground}]}>Delivery run</Text><Text style={[s.small,{color:c.mutedForeground}]}>ASSIGNED TO DELIVERED</Text></View>
-        <View style={[s.route,{backgroundColor:c.card,borderColor:c.border}]}>
-          {ROUTE.map((item,i)=><Pressable key={item.id} testID={`section-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.title}`} onPress={()=>open(item.id)} style={({pressed})=>[s.stop,{backgroundColor:pressed?c.muted:'transparent'}]}>
-            <View style={s.rail}>
-              <View style={[s.railLine,{backgroundColor:i===0?'transparent':c.border}]}/>
-              <View style={[s.node,{borderColor:i===1?c.primary:c.navy,backgroundColor:i===2?c.navy:c.card}]}><Feather name={item.icon} size={15} color={i===2?c.white:i===1?c.primary:c.navy}/></View>
-              <View style={[s.railLine,{backgroundColor:i===ROUTE.length-1?'transparent':c.border}]}/>
-            </View>
-            <View style={s.stopText}><Text style={[s.tileTitle,{color:c.foreground}]}>{item.title}</Text><Text style={[s.tileDetail,{color:c.mutedForeground}]}>{item.detail}</Text></View>
-            <Feather name="chevron-right" size={18} color={c.mutedForeground}/>
-          </Pressable>)}
         </View>
         <Pressable testID="section-incidents" accessibilityRole="button" accessibilityLabel="Open incident report form" onPress={()=>open('incidents')} style={({pressed})=>[s.incident,{borderColor:c.primary,backgroundColor:c.card,opacity:pressed?.8:1}]}>
           <View style={[s.incidentIcon,{backgroundColor:c.primary}]}><Feather name="alert-triangle" size={20} color={c.white}/></View>
@@ -129,6 +125,9 @@ export default function DriverApp() {
   </View>;
 }
 const s=StyleSheet.create({
+ jobTabs:{flexDirection:'row',borderWidth:1,borderRadius:12,overflow:'hidden'},
+ jobTab:{flex:1,minWidth:0,minHeight:84,alignItems:'center',justifyContent:'center',gap:9,padding:8,borderRightWidth:StyleSheet.hairlineWidth},
+ jobTabTitle:{fontFamily:'Inter_600SemiBold',fontSize:12,textAlign:'center'},
  root:{flex:1},fill:{flex:1},hidden:{display:'none'},content:{paddingHorizontal:22,paddingTop:16,paddingBottom:24,gap:22},
  header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:3},logoGroup:{flexDirection:'row',gap:10,alignItems:'center'},logo:{width:43,height:43,borderRadius:22},brand:{fontFamily:'Inter_700Bold',fontSize:15,letterSpacing:.3},eyebrow:{fontFamily:'Inter_500Medium',fontSize:9,letterSpacing:1.9,marginTop:4},
  hero:{borderRadius:16,padding:23,gap:19},heroTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},dot:{width:9,height:9,borderRadius:5},route:{borderWidth:1,borderRadius:14,paddingVertical:6,overflow:'hidden'},stop:{flexDirection:'row',alignItems:'center',gap:14,paddingRight:16,minHeight:74},rail:{width:52,alignSelf:'stretch',alignItems:'center'},railLine:{width:2,flex:1},node:{width:34,height:34,borderRadius:17,borderWidth:2,alignItems:'center',justifyContent:'center'},stopText:{flex:1,gap:3},incident:{flexDirection:'row',alignItems:'center',gap:14,borderWidth:1.5,borderRadius:14,padding:14},incidentIcon:{width:42,height:42,borderRadius:10,alignItems:'center',justifyContent:'center'},heroTag:{fontFamily:'Inter_600SemiBold',fontSize:10,letterSpacing:1.6},heroTitle:{fontFamily:'Inter_700Bold',fontSize:31,lineHeight:39,letterSpacing:-.8},heroCopy:{fontFamily:'Inter_400Regular',fontSize:14,lineHeight:22},
