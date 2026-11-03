@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "776862518930",
+    "project_id": "uk-on-wheels-ltd",
+    "storage_bucket": "uk-on-wheels-ltd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:776862518930:android:94ed79c5959ee1e173e04b",
+        "android_client_info": {
+          "package_name": "org.ukonwheels.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6it_JRMlcQqgFuyZURxq-QGVgRSXXiuI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
