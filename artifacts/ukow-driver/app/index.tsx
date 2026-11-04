@@ -73,8 +73,7 @@ export default function DriverApp() {
         <View style={s.hHeader}>
           <Pressable testID="help" accessibilityRole="button" accessibilityLabel="Help and camera settings" onPress={()=>setScreen('help')} hitSlop={10} style={({pressed})=>[s.iconBtn,{opacity:pressed?.6:1}]}><Feather name="help-circle" size={22} color={g.gold}/></Pressable>
           <View style={s.brandCol}>
-            <Image source={require('@/assets/images/company-logo.jpg')} style={[s.hLogo,{borderColor:g.gold}]}/>
-            <Text style={[s.hBrand,{color:g.goldBright}]}>UK ON WHEELS</Text>
+            <Image source={require('@/assets/images/company-logo.png')} style={s.hLogo} resizeMode="contain" accessibilityLabel="UK On Wheels company logo"/>
             <View style={s.tagRow}><View style={[s.tagLine,{backgroundColor:g.goldLine}]}/><Text style={[s.hTag,{color:g.gold}]}>DRIVER COMPANION</Text><View style={[s.tagLine,{backgroundColor:g.goldLine}]}/></View>
           </View>
           <Pressable testID="alerts" accessibilityRole="button" accessibilityLabel="Job and instruction alerts" accessibilityState={{expanded:alertsOpen}} onPress={()=>setAlertsOpen(v=>!v)} hitSlop={10} style={({pressed})=>[s.iconBtn,{opacity:pressed?.6:1}]}><Feather name="bell" size={22} color={alertsOpen?g.goldBright:g.gold}/>{!push.registration&&<View style={[s.badge,{backgroundColor:g.goldBright}]}/>}</Pressable>
@@ -135,7 +134,7 @@ export default function DriverApp() {
 const s=StyleSheet.create({
  hContent:{paddingHorizontal:18,paddingTop:8,paddingBottom:28,gap:18},
  hHeader:{flexDirection:'row',alignItems:'flex-start',justifyContent:'space-between'},iconBtn:{width:44,height:44,alignItems:'center',justifyContent:'center'},
- brandCol:{alignItems:'center',gap:6,flex:1},hLogo:{width:58,height:58,borderRadius:29,borderWidth:1.5},
+ brandCol:{alignItems:'center',gap:6,flex:1},hLogo:{width:'100%',maxWidth:230,height:140},
  hBrand:{fontFamily:'Inter_700Bold',fontSize:22,letterSpacing:2},tagRow:{flexDirection:'row',alignItems:'center',gap:8},tagLine:{width:22,height:1},hTag:{fontFamily:'Inter_600SemiBold',fontSize:9,letterSpacing:2.4},
  summary:{borderRadius:16,padding:16,gap:12},sumHead:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},sumTitleRow:{flexDirection:'row',alignItems:'center',gap:10},sumTitle:{fontFamily:'Inter_700Bold',fontSize:18},
  sumRow:{flexDirection:'row'},sumCell:{flex:1,minWidth:0,minHeight:72,alignItems:'center',justifyContent:'center',gap:2,paddingHorizontal:4},sumCount:{fontFamily:'Inter_700Bold',fontSize:34},sumLabel:{fontFamily:'Inter_600SemiBold',fontSize:12},
