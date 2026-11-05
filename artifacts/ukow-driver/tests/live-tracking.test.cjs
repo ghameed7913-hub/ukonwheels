@@ -18,6 +18,7 @@ function harness(){
   const Location={Accuracy:{High:4},ActivityType:{AutomotiveNavigation:1},
     hasStartedLocationUpdatesAsync:async()=>state.running,stopLocationUpdatesAsync:async()=>{state.running=false;},
     requestForegroundPermissionsAsync:async()=>({granted:state.granted}),
+    getForegroundPermissionsAsync:async()=>({granted:state.granted}),
     getBackgroundPermissionsAsync:async()=>({granted:state.background}),
     requestBackgroundPermissionsAsync:async()=>({granted:state.background}),
     hasServicesEnabledAsync:async()=>true,
@@ -82,4 +83,18 @@ test('Restored orphaned native location tasks are stopped instead of running sil
   const {api,state}=harness();state.running=true;state.stored='invalid JSON';
   const status=await api.nativeTrackingStatus();
   assert.equal(status.sharing,false);assert.equal(state.running,false);assert.equal(state.stored,null);
+});
+test('Revoking all-time access stops native GPS before any further location publication',async()=>{
+  const {api,state}=harness();await api.startNativeTracking(session);
+  state.background=false;
+  await state.task({data:{locations:[{timestamp:Date.now(),coords:{latitude:55,longitude:-4,accuracy:8}}]}});
+  assert.equal(state.running,false);assert.equal(state.stored,null);
+  assert.equal(state.requests.filter(r=>r.url.endsWith('publish_vehicle_location')).length,0);
+  assert.ok(state.requests.at(-1).url.endsWith('close_vehicle_tracking'));
+});
+test('Permission downgrade is also detected by a status check without a new GPS fix',async()=>{
+  const {api,state}=harness();await api.startNativeTracking(session);
+  state.granted=false;
+  assert.equal((await api.nativeTrackingStatus()).sharing,false);
+  assert.equal(state.running,false);assert.equal(state.stored,null);
 });

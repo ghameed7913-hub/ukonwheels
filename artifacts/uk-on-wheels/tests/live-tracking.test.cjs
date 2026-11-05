@@ -64,6 +64,10 @@ test('Tracking UI shows only real GPS, stale/ended labels, safely escaped data a
   assert.match(html,/Offline/);
   html=c._trackingTest.detail({...booking,status:'Delivered',sharing:false,location:null});
   assert.match(html,/no longer shared/i);assert.doesNotMatch(html,/<iframe/);
+  for(const status of ['Delivered','Driver Assigned','New Booking','Cancelled']){
+    html=c._trackingTest.detail({...booking,status});
+    assert.doesNotMatch(html,/<iframe|55\.85|-4\.25/,'Inactive jobs must never display cached Driver coordinates');
+  }
   html=c.VehicleTrackingUI.renderDriver({_normalizedId:id,ref:'UKOW00001',status:'Picked Up'});
   assert.match(html,/Start sharing/);assert.doesNotMatch(html,/a{64}/);
   html=c.VehicleTrackingUI.renderDriver({_normalizedId:id,status:'Driver Assigned'});

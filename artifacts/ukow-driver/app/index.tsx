@@ -13,6 +13,7 @@ import LocalWeather from '@/components/LocalWeather';
 import { useDriverPush } from '@/hooks/useDriverPush';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '@/constants/colors';
+import DriverLocationGate from '@/components/DriverLocationGate';
 
 type Icon = React.ComponentProps<typeof Feather>['name'];
 type Shortcut = { id: Section; title: string; detail: string; icon: Icon };
@@ -37,6 +38,10 @@ const GRID: Tile[] = [
 ];
 
 export default function DriverApp() {
+  return <DriverLocationGate><DriverHome/></DriverLocationGate>;
+}
+
+function DriverHome() {
   const c=useColors(),insets=useSafeAreaInsets(),g=colors.driverHome;
   const [screen,setScreen]=useState<'home'|'portal'|'help'>('home');
   const [section,setSection]=useState<Section|null>(null);

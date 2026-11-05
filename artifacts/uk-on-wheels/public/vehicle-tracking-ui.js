@@ -123,7 +123,9 @@
 
   function freshness(b) {
     var l = b.location;
-    if (!b.sharing || !l) return { kind: "none" };
+    // Never render a cached GPS point for a delivered, assigned-only or otherwise
+    // inactive booking, even if an older response still says "sharing".
+    if (ACTIVE.indexOf(String(b.status || "")) < 0 || !b.sharing || !l) return { kind: "none" };
     var lat = num(l.latitude), lon = num(l.longitude);
     if (!(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180)) return { kind: "none" };
     var rec = Date.parse(l.recorded_at), rcv = Date.parse(l.received_at), ref = isFinite(rec) ? rec : rcv;
