@@ -52,9 +52,12 @@ async function request(s:TrackingSession,name:string,args:Record<string,unknown>
   }finally{clearTimeout(timer);}
 }
 async function clearDevice(){
-  if(await Location.hasStartedLocationUpdatesAsync(TASK))await Location.stopLocationUpdatesAsync(TASK);
-  session=null;loaded=true;lastError='';
-  await SecureStore.deleteItemAsync(KEY,options);
+  try {
+    if(await Location.hasStartedLocationUpdatesAsync(TASK))await Location.stopLocationUpdatesAsync(TASK);
+  } finally {
+    session=null;loaded=true;lastError='';
+    await SecureStore.deleteItemAsync(KEY,options);
+  }
 }
 async function close(s:TrackingSession){await request(s,'close_vehicle_tracking',{p_token:s.token});}
 function status(){
@@ -64,6 +67,12 @@ function status(){
 async function publish(position:Location.LocationObject){
   const s=await load();if(!s){await clearDevice();return;}
   if(!validTrackingSession(s)){await clearDevice();return;}
+  const foreground=await Location.getForegroundPermissionsAsync();
+  const background=await Location.getBackgroundPermissionsAsync();
+  if(!foreground.granted||!background.granted){
+    try { await clearDevice(); } finally { await close(s).catch(()=>{}); }
+    return;
+  }
   try{
     const result=await request(s,'publish_vehicle_location',{p_token:s.token,
       p_latitude:position.coords.latitude,p_longitude:position.coords.longitude,
@@ -133,14 +142,24 @@ export async function startNativeTracking(input:unknown){
 export function stopNativeTracking(){
   ++generation;
   return serial(async()=>{
-    const s=await load();await clearDevice();
-    if(s)await close(s); // Surface failure; portal's authenticated stop RPC is authoritative.
+    const s=await load();
+    try { await clearDevice(); }
+    finally { if(s)await close(s); } // Revoke even if the OS task could not be stopped.
     return status();
   });
 }
 export function nativeTrackingStatus(){
   return serial(async()=>{
     await load();
+    if(session){
+      const foreground=await Location.getForegroundPermissionsAsync();
+      const background=await Location.getBackgroundPermissionsAsync();
+      if(!foreground.granted||!background.granted){
+        const old=session;
+        try { await clearDevice(); } finally { await close(old).catch(()=>{}); }
+        lastError='Location permission changed. Allow location all the time / Always before continuing.';
+      }
+    }
     if(!session&&await Location.hasStartedLocationUpdatesAsync(TASK))await clearDevice();
     if(session&&!validTrackingSession(session))await clearDevice();
     if(session&&!await Location.hasStartedLocationUpdatesAsync(TASK)){
