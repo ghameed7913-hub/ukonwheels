@@ -48,6 +48,7 @@
 <script src="./pickup-checklist.js"></script>
 <script src="./pickup-photo-guides.js"></script>
   <script src="./hr-screening-api.js"></script>
+<script src="./image-retention.js"></script>
   <script src="./driver-compliance.js"></script>
   <script src="./hr-registration.js"></script>
   <link rel="stylesheet" href="./hr-registration.css">
@@ -4765,6 +4766,7 @@ function ensureMessagingSettings(){
 
 function drawMessageCentre(c){drawSettings(c,true)}
 function drawSettings(c,messagingOnly=false){
+ if(!messagingOnly && role==="admin") queueMicrotask(()=>window.ImageRetention?.mount(c));
  const s=ensureMessagingSettings(),m=s.messagingSettings;
  c.innerHTML=`<div class="panel">
   <h2>${messagingOnly?"WhatsApp / Text Messages":"Settings"}</h2>

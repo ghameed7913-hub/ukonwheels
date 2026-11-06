@@ -1,10 +1,27 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @workspace/uk-on-wheels run build",
-  "outputDirectory": "artifacts/uk-on-wheels/dist/public",
   "framework": null,
+  "outputDirectory": "artifacts/uk-on-wheels/dist/public",
   "rewrites": [
-    { "source": "/weather-api", "destination": "/api/weather" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "destination": "/api/weather",
+      "source": "/weather-api"
+    },
+    {
+      "destination": "/index.html",
+      "source": "/((?!api/).*)"
+    }
+  ],
+  "functions": {
+    "api/image-retention.js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/image-retention",
+      "schedule": "15 3 * * *"
+    }
   ]
 }
