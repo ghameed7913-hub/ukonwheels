@@ -27,6 +27,7 @@
 <script src="./expense-monthly.js"></script>
 <link rel="stylesheet" href="./expense-report.css">
 <script src="./expense-report.js"></script>
+<script src="./expense-corrections.js"></script>
 <link rel="stylesheet" href="./vehicle-trading.css">
 <script src="./vehicle-trading-ui.js"></script>
 <script src="./vehicle-trading.js"></script>
@@ -1424,6 +1425,7 @@ function applyAuthenticatedProfile(profile,session){
   window.ExpenseMonth?.reset();
   window.ExpenseTypes?.reset();
  window.ExpenseReport?.reset();
+ window.ExpenseCorrections?.reset();
   window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
@@ -1507,6 +1509,7 @@ async function logoutNow(){
  window.ExpenseMonth?.reset();
  window.ExpenseTypes?.reset();
  window.ExpenseReport?.reset();
+ window.ExpenseCorrections?.reset();
  window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
@@ -3751,7 +3754,7 @@ function drawAdminAccounts(c,loaded=false){
 function expenseRegisterHtml(s){
  const view=ExpenseMonth.state(s.expenses),rows=ExpenseMonth.filter(s.expenses,view.month,view.day).slice().sort((a,b)=>b.date.localeCompare(a.date));
  return `<h3>Expense Register — ${escapeHtml(view.day||view.title)}</h3><p class="muted">${rows.length} expense${rows.length===1?"":"s"} · Total ${money(view.visibleTotal)}${view.day?' · <button type="button" class="btn small secondary" onclick="ExpenseMonth.allDays()">Show whole month</button>':""}</p>${!rows.length?'<p>No saved expenses for '+escapeHtml(view.day||view.title)+'. Other months are kept separately; select a month to view them.</p>':""}<div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
- ${rows.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":x.source==="expense-batch"?" · Saved expense":""}</td></tr>`).join("")}
+ ${rows.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.category)}</td><td>${escapeHtml(x.payee||"—")}</td><td>${escapeHtml(x.method||"—")}</td><td>${escapeHtml(x.reference||"—")}</td><td>${money(x.amount)}</td><td>${escapeHtml(x.notes||"—")}${x.source==="payslip"?" · Linked to payslip":x.source==="expense-batch"?" · Saved expense":""}<div class="actions">${window.ExpenseCorrections?.actions(x)||""}</div></td></tr>`).join("")}
  </table></div>`;
 }
 function drawExpenses(c,loaded=false){

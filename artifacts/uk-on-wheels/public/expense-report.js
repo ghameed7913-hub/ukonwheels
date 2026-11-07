@@ -32,7 +32,7 @@ window.ExpenseReport=(()=>{
     const f={from:filters?.from,to:filters?.to,category:filters?.category||ALL},error=validate(f);
     if(error)return {ok:false,error,filters:f,count:0,totalPennies:0,byCategory:[],byDay:[],rows:[]};
     const list=(rows||[]).filter(r=>r&&validDate(r.date)&&r.date>=f.from&&r.date<=f.to&&(!f.category||String(r.category||"").trim()===f.category))
-      .map(r=>({date:r.date,category:String(r.category||"").trim()||"Uncategorised",amountPennies:pennies(r.amount),payee:r.payee||"",method:r.method||"",reference:r.reference||"",notes:r.notes||""}))
+      .map(r=>({...r,date:r.date,category:String(r.category||"").trim()||"Uncategorised",amountPennies:pennies(r.amount),payee:r.payee||"",method:r.method||"",reference:r.reference||"",notes:r.notes||""}))
       .sort((a,b)=>a.date.localeCompare(b.date)||a.category.localeCompare(b.category));
     const cat=new Map(),day=new Map();
     for(const r of list){
@@ -81,21 +81,21 @@ window.ExpenseReport=(()=>{
     const custom=agg.byCategory.filter(c=>c.category!=="Fuel"&&c.category!=="Entertainment").reduce((a,c)=>({p:a.p+c.totalPennies,n:a.n+c.count}),{p:0,n:0});
     let body;
     if(err)body=`<p class="xr-msg error" role="alert">${esc(err)}</p>`;
-    else if(!agg.count)body=`<div class="xr-empty" role="status"><b>No expenses recorded</b><span>Nothing saved between ${esc(from)} and ${esc(to)}${category?" for "+esc(category):""}. Widen the dates or choose All categories.</span></div>`;
+    else if(!agg.count)body=`<div class="xr-empty" role="status"><b>No expenses recorded · Total £0.00</b><span>Nothing saved between ${esc(from)} and ${esc(to)}${category?" for "+esc(category):""}. Widen the dates or choose All categories.</span></div>`;
     else body=`<div class="xr-tiles" role="status" aria-live="polite">
       <div class="xr-tile xr-main"><b>Total spent</b><strong>${gbp(agg.totalPennies)}</strong><small>${agg.count} record${agg.count===1?"":"s"}</small></div>
       ${tile("Fuel")}${tile("Entertainment")}
       <div class="xr-tile"><b>Other types</b><strong>${gbp(custom.p)}</strong><small>${custom.n} record${custom.n===1?"":"s"}</small></div></div>
       <p class="xr-note">Fuel figures are money spent (GBP); litres are not recorded.</p>
       <div class="xr-charts">${bars(agg)}${trend(agg)}</div>
-      <details class="xr-detail"><summary>Matching records (${agg.count}) · ${gbp(agg.totalPennies)}</summary><div class="scroll"><table style="min-width:900px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr>
-      ${agg.rows.map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.category)}</td><td>${esc(r.payee||"—")}</td><td>${esc(r.method||"—")}</td><td>${esc(r.reference||"—")}</td><td>${gbp(r.amountPennies)}</td><td>${esc(r.notes||"—")}</td></tr>`).join("")}
+      <details class="xr-detail" open><summary>Matching records (${agg.count}) · ${gbp(agg.totalPennies)}</summary><div class="scroll"><table style="min-width:900px"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes / Actions</th></tr>
+      ${agg.rows.map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.category)}</td><td>${esc(r.payee||"—")}</td><td>${esc(r.method||"—")}</td><td>${esc(r.reference||"—")}</td><td>${gbp(r.amountPennies)}</td><td>${esc(r.notes||"—")}<div class="actions">${window.ExpenseCorrections?.actions(r)||""}</div></td></tr>`).join("")}
       <tr class="xr-total"><td colspan="5">Total (${agg.count})</td><td>${gbp(agg.totalPennies)}</td><td></td></tr></table></div></details>`;
-    return `<div class="xr-head"><div><h3>Spending report</h3><p class="muted">Read-only. Dates are inclusive; unsaved entries are not counted.</p></div>
+    return `<div class="xr-head"><div><h3>Spending report</h3><p class="muted">Dates are inclusive; the full matching list, total and graphs use saved expenses only.</p></div>
      <form class="xr-filters" onsubmit="event.preventDefault();ExpenseReport.apply()">
-      <label>From<input type="date" id="xrFrom" value="${esc(from)}"></label>
-      <label>To<input type="date" id="xrTo" value="${esc(to)}"></label>
-      <label>Category<select id="xrCat"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c)}"${c===category?" selected":""}>${esc(c)}</option>`).join("")}</select></label>
+      <label>From<input type="date" id="xrFrom" value="${esc(from)}" onchange="ExpenseReport.apply()"></label>
+      <label>To<input type="date" id="xrTo" value="${esc(to)}" onchange="ExpenseReport.apply()"></label>
+      <label>Category<select id="xrCat" onchange="ExpenseReport.apply()"><option value="">All categories</option>${cats.map(c=>`<option value="${esc(c)}"${c===category?" selected":""}>${esc(c)}</option>`).join("")}</select></label>
       <div class="xr-btns"><button class="btn small primary" type="submit">Show report</button><button class="btn small secondary" type="button" onclick="ExpenseReport.thisMonth()">This month</button></div>
      </form></div>${body}`;
   }

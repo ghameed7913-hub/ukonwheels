@@ -38,3 +38,14 @@
 .xr-msg.error{color:#B42318;background:#FEF3F2;border-radius:6px;padding:8px 10px}
 @media (max-width:860px){.xr-charts{grid-template-columns:1fr}.xr-tiles{grid-template-columns:1fr 1fr}}
 @media (max-width:520px){.xr-tiles{grid-template-columns:1fr}.xr-filters,.xr-filters label,.xr-filters input,.xr-filters select{width:100%}}
+
+/* Keep the complete expense report reachable below the mobile navigation.
+   Scope these overrides to Expenses, not the Driver or other portal pages. */
+@media (max-width:900px){
+ body:has(#expenseReport) .shell{height:auto;min-height:100dvh;overflow:visible}
+ body:has(#expenseReport) .main{height:auto;min-height:100dvh}
+ body:has(#expenseReport) .content{overflow:visible}
+}
+/* A failed-save warning must remain visible without covering the final row's
+   correction buttons at the end of the scroll container. */
+body:has(#sharedSaveNotice) .content:has(#expenseReport){padding-bottom:max(260px,45vh)}

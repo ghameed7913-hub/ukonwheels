@@ -81,3 +81,11 @@ test("save and expense-type refresh hooks call report without wrapping closure f
  assert.ok(html.includes("window.ExpenseReport?.mount();"));
  assert.equal((html.match(/window\.ExpenseReport\?\.reset\(\)/g)||[]).length,2);
 });
+test("full matching list opens by default and filters update immediately",()=>{
+ const c=setup([{id:"EXP-1",date:new Date().toISOString().slice(0,10),category:"Fuel",amount:12}]);
+ c.ExpenseCorrections={actions:r=>`Edit ${r.id}`};
+ const html=c.ExpenseReport.render();
+ assert.match(html,/<details class="xr-detail" open>/);
+ assert.match(html,/Edit EXP-1/);
+ assert.equal((html.match(/onchange="ExpenseReport.apply\(\)"/g)||[]).length,3);
+});
