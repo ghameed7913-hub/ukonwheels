@@ -1,17 +1,19 @@
 const {test}=require("node:test"),assert=require("node:assert/strict"),vm=require("node:vm"),fs=require("node:fs"),path=require("node:path");
 function setup(){
  const c={Date,Intl,console};c.window=c;vm.createContext(c);
+ vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/invoice-vehicles.js"),"utf8"),c);
  vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/profit-loss.js"),"utf8"),c);
  return c;
 }
 const store={
+ bookings:[{ref:"A",status:"Delivered",_deliveredAt:"2026-10-01T10:00:00Z",amount:100.10,paymentStatus:"Paid"},{ref:"B",status:"Delivered",_deliveredAt:"2026-10-31T10:00:00Z",amount:200.20,paymentStatus:"Pending"},{ref:"C",status:"Delivered",_deliveredAt:"2026-11-01T10:00:00Z",amount:999}],
  transactions:[{date:"2026-10-01",amount:100.10},{date:"2026-10-31",amount:200.20},{date:"2026-11-01",amount:999}],
  invoices:[{date:"2026-10-15",status:"Paid",total:50},{date:"2026-10-20",status:"Pending",total:999}],
  expenses:[{date:"2026-10-01",amount:10.10},{date:"2026-10-31",amount:20.20},{date:"2026-09-30",amount:999}]
 };
-test("inclusive custom dates preserve original income sources and exact penny totals",()=>{
+test("inclusive dates count delivered booking revenue once, both paid and unpaid",()=>{
  const before=JSON.stringify(store),r=setup().ProfitLoss.aggregate(store,"2026-10-01","2026-10-31");
- assert.equal(r.income,35030);assert.equal(r.expenses,3030);assert.equal(r.net,32000);assert.equal(r.count,5);
+ assert.equal(r.income,30030);assert.equal(r.expenses,3030);assert.equal(r.net,27000);assert.equal(r.count,4);
  assert.equal(JSON.stringify(store),before);
 });
 test("single-day, cross-month, loss and empty ranges",()=>{
@@ -30,7 +32,7 @@ test("missing, impossible and reversed dates fail; leap days valid",()=>{
 });
 test("undated records excluded with visible count, invalid money fails explicitly",()=>{
  const api=setup().ProfitLoss;
- assert.equal(api.aggregate({transactions:[{amount:999},{date:"bad",amount:10}]},"2026-10-01","2026-10-31").excluded,2);
+ assert.equal(api.aggregate({bookings:[{status:"Delivered",ref:"MISSING",deliveryDate:"2026-10-01",amount:999}],expenses:[{date:"bad",amount:10}]},"2026-10-01","2026-10-31").excluded,2);
  assert.ok(api.aggregate({expenses:[{date:"2026-10-01",amount:"bad"}]},"2026-10-01","2026-10-31").error);
 });
 test("London today handles summer midnight and defaults to month-to-date",()=>{
@@ -43,7 +45,7 @@ test("London today handles summer midnight and defaults to month-to-date",()=>{
 test("changing dates recalculates visible totals; bad range clears stale totals",()=>{
  const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
  c.document={getElementById:id=>elements[id]};
- c.ProfitLoss.calculate(store);assert.ok(elements.plResult.innerHTML.includes("£320.00"));
+ c.ProfitLoss.calculate(store);assert.ok(elements.plResult.innerHTML.includes("£270.00"));assert.ok(elements.plResult.innerHTML.includes("Total Revenue"));
  elements.plFrom.value="2026-09-30";elements.plTo.value="2026-09-30";
  c.ProfitLoss.calculate(store);assert.ok(elements.plResult.innerHTML.includes("Net Loss"));assert.ok(elements.plResult.innerHTML.includes("-£999.00"));
  elements.plFrom.value="2026-10-31";c.ProfitLoss.calculate(store);
@@ -52,6 +54,49 @@ test("changing dates recalculates visible totals; bad range clears stale totals"
 test("portal renders and calculates after authorised financial data loads",()=>{
  const html=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
  assert.ok(html.includes('<script src="./profit-loss.js"></script>'));
- assert.match(html,/function drawProfitLoss[\s\S]*?loadPayrollView\(c,drawProfitLoss,loaded\)[\s\S]*?ProfitLoss.render\(\);[\s\S]*?runPL\(\);/);
- assert.match(html,/function runPL\(\)\{\s*ProfitLoss.calculate\(ensureAccountsData\(\)\);/);
+ assert.match(html,/function drawProfitLoss[\s\S]*?loadPayrollView\(c,drawProfitLoss,loaded\)[\s\S]*?ProfitLoss.open\(c,ensureAccountsData\(\),/);
+ assert.match(html,/function runPL\(\)\{\s*ProfitLoss.calculate\(ensureAccountsData\(\),currentSession\?\.user\?\.id\);/);
+});
+test("invoice and payment duplicates, unpaid invoice status and requested dates do not affect revenue",()=>{
+ const api=setup().ProfitLoss,data={...store,transactions:[...store.transactions,...store.transactions],invoices:[...store.invoices,...store.invoices],
+  bookings:[...store.bookings,{ref:"ACTIVE",status:"On Route",amount:500,deliveryDate:"2026-10-15"},{ref:"CANCEL",status:"Cancelled",amount:500,_deliveredAt:"2026-10-15"},{ref:"NO-DATE",status:"Delivered",amount:500,deliveryDate:"2026-10-15"}]};
+ const report=api.aggregate(data,"2026-10-01","2026-10-31");
+ assert.equal(report.income,30030);assert.equal(report.missingDeliveries[0],"NO-DATE");
+ assert.equal(report.deliveries.reduce((sum,x)=>sum+x.pennies,0),report.income);
+});
+test("actual delivery timestamp uses London day, not booked, requested or payment day",()=>{
+ const report=setup().ProfitLoss.aggregate({bookings:[{ref:"TZ",status:"Delivered",amount:75,_deliveredAt:"2026-06-30T23:30:00Z",deliveryDate:"2026-06-30",paidDate:"2026-08-01"}]},"2026-07-01","2026-07-01");
+ assert.equal(report.income,7500);assert.equal(report.deliveries[0].date,"2026-07-01");
+});
+test("identical saved booking copies count once; conflicting copies require correction",()=>{
+ const api=setup().ProfitLoss,b=store.bookings[0];
+ assert.equal(api.aggregate({bookings:[b,b]},"2026-10-01","2026-10-31").income,10010);
+ assert.ok(api.aggregate({bookings:[b,{...b,amount:200}]},"2026-10-01","2026-10-31").error);
+});
+test("missing dates are explicit, and saved booking references cannot inject HTML",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate({bookings:[{ref:"<img src=x>",status:"Delivered",amount:2}]});
+ assert.ok(elements.plResult.innerHTML.includes("totals may be incomplete"));assert.ok(elements.plResult.innerHTML.includes("&lt;img src=x&gt;"));
+ assert.ok(!elements.plResult.innerHTML.includes("<img src=x>"));
+});
+test("read every completed booking page, not only the API's first thousand rows",async()=>{
+ const c=setup(),offsets=[];
+ const client={from(table){assert.equal(table,"bookings");return {select(){return this},eq(k,v){assert.equal(k,"status");assert.equal(v,"Delivered");return this},order(){return this},range(from,to){offsets.push([from,to]);return Promise.resolve({data:from===0?Array.from({length:1000},(_,i)=>({id:"B"+i,reference:"B"+i,status:"Delivered",amount:1,delivered_at:"2026-10-01"})):[{id:"LAST",reference:"LAST",status:"Delivered",amount:2,delivered_at:"2026-10-31"}]})}}}};
+ const rows=await c.ProfitLoss.readBookings(client);
+ assert.equal(rows.length,1001);assert.equal(offsets.length,2);
+ assert.equal(c.ProfitLoss.aggregate({bookings:rows},"2026-10-01","2026-10-31").income,100200);
+});
+test("failed live booking read shows an error, never a cached estimate",async()=>{
+ const c=setup(),container={innerHTML:""};
+ await c.ProfitLoss.open(container,store,{client:{from(){return {select(){return this},eq(){return this},order(){return this},range(){return Promise.resolve({error:{message:"Unavailable"}})}}}},actor:()=>"admin",active:()=>true});
+ assert.ok(container.innerHTML.includes("Profit &amp; Loss could not load"));assert.ok(!container.innerHTML.includes("Total Revenue"));
+});
+test("live normalized records override stale cached bookings, while legacy-only deliveries remain",async()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}},container={innerHTML:""};
+ c.document={getElementById:id=>elements[id]};
+ const client={from(){return {select(){return this},eq(){return this},order(){return this},range(){return Promise.resolve({data:[{id:"live",reference:"A",status:"Delivered",amount:80,delivered_at:"2026-10-02"}]})}}}};
+ await c.ProfitLoss.open(container,{bookings:[{...store.bookings[0],_normalizedId:"live"},{ref:"OLD",status:"Delivered",amount:10,deliveredAt:"2026-10-03"},{_normalizedId:"no-longer-delivered",status:"Delivered",amount:999,_deliveredAt:"2026-10-01"}]},{client,actor:()=>"admin",active:()=>true});
+ assert.ok(elements.plResult.innerHTML.includes("£90.00"));
+ c.ProfitLoss.calculate(store,"another-user");assert.equal(elements.plResult.innerHTML.includes("£270.00"),false);
 });
