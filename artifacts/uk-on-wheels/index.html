@@ -49,6 +49,7 @@
 <script type="module" src="./src/invoice-pdf-entry.js"></script>
 <script src="./invoice-tools.js"></script>
 <script src="./invoice-vehicles.js"></script>
+<script src="./invoice-editor.js"></script>
 <script src="./pickup-checklist.js"></script>
 <script src="./pickup-photo-guides.js"></script>
 <script src="./photo-autosave.js"></script>
@@ -1429,6 +1430,7 @@ function applyAuthenticatedProfile(profile,session){
   window.ExpenseTypes?.reset();
  window.ExpenseReport?.reset();
  window.ExpenseCorrections?.reset();
+ window.InvoiceEditor?.reset();
  window.ProfitLoss?.reset();
  window.StatusCustomerFilter?.reset();
   window.VehicleTrading?.reset();
@@ -1515,6 +1517,7 @@ async function logoutNow(){
  window.ExpenseTypes?.reset();
  window.ExpenseReport?.reset();
  window.ExpenseCorrections?.reset();
+ window.InvoiceEditor?.reset();
  window.ProfitLoss?.reset();
  window.StatusCustomerFilter?.reset();
  window.VehicleTrading?.reset();
@@ -3853,6 +3856,7 @@ function drawInvoices(c,settingsLoaded=false){
  <td>${i.paymentDate||"—"}</td>
  <td>
    <button class="btn secondary" onclick="viewInvoice('${i.invoiceNo}')">View Invoice</button>
+   ${InvoiceEditor.action(i)}
    <button class="btn secondary" onclick="downloadInvoicePdf(${escapeHtml(JSON.stringify(i.invoiceNo))},this)">Download PDF</button>
    ${i.status!=="Paid"?`<button class="btn primary" onclick="openMarkInvoicePaid('${i.invoiceNo}')">Mark Paid</button>`:`<button class="btn secondary" onclick="reopenInvoice('${i.invoiceNo}')">Reopen</button>`}
  </td></tr>`).join("")}
@@ -4109,7 +4113,7 @@ function viewInvoice(invoiceNo,settingsOverride=null){
  page="invoiceView";
  render();
  const c=document.getElementById("content");
- c.innerHTML=`<div class="noPrint" style="margin-bottom:12px"><button class="btn secondary" onclick="backToInvoices()">Back to Invoices</button> <button class="btn primary" onclick="downloadInvoicePdf(${safe(JSON.stringify(original.invoiceNo))},this)">Download PDF</button> <button class="btn secondary" onclick="window.print()">Print</button></div>
+ c.innerHTML=`<div class="noPrint" style="margin-bottom:12px"><button class="btn secondary" onclick="backToInvoices()">Back to Invoices</button> <button class="btn primary" onclick="downloadInvoicePdf(${safe(JSON.stringify(original.invoiceNo))},this)">Download PDF</button> <button class="btn secondary" onclick="window.print()">Print</button> ${typeof InvoiceEditor!=="undefined"?InvoiceEditor.action(original):""}</div>
  <div class="invoiceSheet">
   <div class="invoiceHeader">
    <div>
