@@ -41,7 +41,7 @@ export const NATIVE_EVIDENCE_BRIDGE = `
   if(button)button.disabled=false;
   if(!driver()||statusFor(kind,ref,id)!==status)return;
   if(result.cancelled){
-   say(status,photos.has(k)?'Photo ready — tap Capture & Store.':status.dataset.captured==='1'?'Previous photo is still stored.':'Camera cancelled — no new photo saved.',false);
+   say(status,photos.has(k)?'Photo was not stored. Tap Retry save.':status.dataset.captured==='1'?'Previous photo is still stored.':'Camera cancelled — no new photo saved.',photos.has(k));
    return;
   }
   if(result.error){say(status,result.error,true);return;}
@@ -63,7 +63,8 @@ export const NATIVE_EVIDENCE_BRIDGE = `
    let photo=box?.querySelector('.nativeCameraPreview');
    if(!photo&&preview){photo=document.createElement('img');photo.className='nativeCameraPreview';photo.alt='New camera photo — not stored yet';photo.style.cssText='display:block;width:100%;max-height:360px;object-fit:contain';preview.prepend(photo);}
    if(photo)photo.src=result.image;
-   say(status,'Photo ready — tap Capture & Store to upload it.',false);
+   say(status,'Saving photo automatically…',false);
+   await store(kind,ref,id);
   }catch(error){say(status,error.message,true);}
  };
  async function store(kind,ref,id){
@@ -111,7 +112,7 @@ export const NATIVE_EVIDENCE_BRIDGE = `
    window.UKOWInspectionValidation?.refresh(ref);
   }catch(error){
    status.dataset.captured=previous||'';
-   say(status,'Photo was not stored: '+error.message+'. You can retry Capture & Store.',true);
+   say(status,'Photo was not stored: '+error.message+'. Tap Retry save; your photo is kept here while this job stays open.',true);
   }finally{button.disabled=false;delete status.dataset.nativeBusy;}
  }
  function install(){
