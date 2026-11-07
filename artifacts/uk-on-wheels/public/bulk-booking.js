@@ -400,7 +400,7 @@
       business = selected.name; businessId = selected.id || null;
     } else if (type === "Private") {
       if (!values.privateCustomerName?.trim()) throw new Error(label+"Enter the private customer name.");
-      if (SUPABASE_CONFIGURED && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.privateCustomerEmail?.trim() || "")) throw new Error(label+"Enter the private Client's portal email.");
+      if (SUPABASE_CONFIGURED && values.privateCustomerEmail?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.privateCustomerEmail.trim())) throw new Error(label+"Enter a valid private Client portal email or leave it blank.");
       business = "Private Customer";
     } else throw new Error(label+"Choose a Business or Private customer.");
     for (const [id,label] of [["pickup","collection address"],["dest","delivery address"],["receiver","receiver name"],["mobile","receiver mobile number"]]) {

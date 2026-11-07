@@ -127,7 +127,7 @@ begin
       raise exception 'Choose a registered business with a Client account';
     end if;
     linked_business := p_business_id;
-  else
+  elsif nullif(trim(p_private_client_email), '') is not null then
     select id into matched_client from public.profiles
     where lower(email) = lower(trim(p_private_client_email))
       and lower(role) = 'client' and lower(status) = 'active'
