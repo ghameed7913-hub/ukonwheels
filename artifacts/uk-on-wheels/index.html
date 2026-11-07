@@ -5280,7 +5280,7 @@ function drawBooking(c){
       : `<div id="bookingBusinessField"><label class="booking-field" for="biz"><span>Business</span><select id="biz" aria-label="Saved business" aria-describedby="businessLoadStatus" onchange="showBusinessTariff()">${bookingBusinessOptions()}</select></label><div id="businessLoadStatus" role="status" class="muted"></div></div>`}
   <label id="privateCustomerNameField" class="booking-field full" for="privateCustomerName" hidden><span>Private customer name *</span><input id="privateCustomerName" placeholder="Full name" style="display:none"></label>
   <label id="privateCustomerMobileField" class="booking-field" for="privateCustomerMobile" hidden><span>Private customer mobile number</span><input id="privateCustomerMobile" type="tel" placeholder="e.g. 07123 456789" style="display:none"></label>
-  <label id="privateCustomerEmailField" class="booking-field" for="privateCustomerEmail" hidden><span>Private Client portal email</span><input id="privateCustomerEmail" type="email" placeholder="e.g. client@example.com" style="display:none"></label>
+  <label id="privateCustomerEmailField" class="booking-field" for="privateCustomerEmail" hidden><span>Private Client portal email (optional)</span><input id="privateCustomerEmail" type="email" placeholder="Leave blank if no Client portal account" style="display:none"></label>
 
   <div id="singleVehicleFields" class="full"><div class="form booking-fields">
    <label class="booking-field" for="veh"><span>Vehicle make and model</span><input id="veh" placeholder="e.g. Ford Transit"></label>
@@ -5314,10 +5314,10 @@ async function createLinkedBooking(booking,existingRef=null,driverId=null){
   if(matching.length!==1)throw new Error("Select a registered business with a Client portal account. Manually entered businesses cannot receive shared photos.");
   businessId=matching[0].id;
  }
- if(booking.customerType==="Private"&&!booking.privateCustomerEmail?.trim())throw new Error("Enter the private Client's portal email so the delivery photos can be shared.");
+ const privateEmail=String(booking.privateCustomerEmail||"").trim();
  const parts=String(booking.vehicle||"").trim().split(/\s+/);
  const {data,error}=await sb.rpc("admin_create_delivery_booking",{
-  p_customer_type:booking.customerType||"Business",p_business_id:businessId,p_private_client_email:booking.privateCustomerEmail||null,
+  p_customer_type:booking.customerType||"Business",p_business_id:businessId,p_private_client_email:privateEmail||null,
   p_vehicle_make:parts.shift()||"Vehicle",p_vehicle_model:parts.join(" "),p_vehicle_registration:booking.reg,
   p_service_type:booking.service,p_pickup_address:booking.pickup,p_destination_address:booking.destination,
   p_receiver_name:booking.receiver||null,p_receiver_mobile:booking.receiverMobile||null,

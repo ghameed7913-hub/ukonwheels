@@ -7,7 +7,7 @@ export const columns = [
   ["biz","Business",28,"For Business customers: use an active saved business name or ID from the Businesses sheet. Clients may leave blank."],
   ["privateCustomerName","Private customer name",25,"Required for Private customers. Clients may leave blank to use their own account."],
   ["privateCustomerMobile","Private customer mobile number",27,"Optional. Keep as text, including the leading zero or +."],
-  ["privateCustomerEmail","Private Client portal email",30,"For Admin Private bookings: must match an active Client portal account."],
+  ["privateCustomerEmail","Private Client portal email",30,"Optional for Admin Private bookings. If supplied, must match an active Client portal account."],
   ["vehicle","Vehicle make and model",28,"Required. For example Ford Transit."],
   ["reg","Registration number",23,"Required. Cannot repeat a registration previously booked for the same customer/branch. A different saved customer/branch may book it."],
   ["pickup","Collection address",40,"Required. Include street, town and postcode."],
