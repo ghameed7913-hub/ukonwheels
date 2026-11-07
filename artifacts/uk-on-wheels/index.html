@@ -6098,8 +6098,11 @@ function driverMobileNav(){
   <button class="${driverMobileTab==="profile"?"active":""}" ${driverMobileTab==="profile"?'aria-current="page"':""} onclick="setDriverMobileTab('profile')"><span>${ico("user")}</span>Profile</button>
  </div>`;
 }
+function driverJourneyEvents(b){
+ const financial=/(?:[£$€]|\b(?:amount|payments?|paid|unpaid|invoices?|charges?|tariffs?|prices?|pricing|profits?|costs?|fees?|vat|wages?|salar(?:y|ies)|earnings?|commissions?|advances?|balances?|refunds?)\b)/i;
+ return (b.timeline||[]).filter(e=>!financial.test(`${e.title||""} ${e.text||""}`));
+}
 function driverMobileJobCard(b){
- const payment=b.paymentStatus==="Paid"?"Paid":"Not Paid";
  return `<div class="driverJob">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
    <div><span class="badge">${b.status}</span></div>
@@ -6108,11 +6111,11 @@ function driverMobileJobCard(b){
   <h3>${b.vehicle||"Vehicle"} <span class="muted">${b.reg||""}</span></h3>
   <div class="driverRoute"><b>${b.pickup||"—"}</b><br><span class="muted">↓ deliver to</span><br><b>${b.destination||"—"}</b></div>
   ${VehicleTrackingUI.renderDriver(b)}
+  ${b.driverNotes?`<section class="driverInstructions"><h3>Driver instructions</h3><p style="white-space:pre-wrap">${escapeHtml(b.driverNotes)}</p></section>`:""}
   <details class="driverExtras"><summary>Receiver & booking details</summary><div class="driverMeta">
-   <div><b>Receiver</b><br>${b.receiver||"—"}</div>
-   <div><b>Mobile</b><br>${b.receiverMobile||"—"}</div>
-   <div><b>Miles</b><br>${b.miles||0}</div>
-   <div><b>Amount</b><br>£${Number(b.amount||0).toFixed(2)}</div>
+   <div><b>Receiver</b><br>${escapeHtml(b.receiver||"—")}</div>
+   <div><b>Mobile</b><br>${escapeHtml(b.receiverMobile||"—")}</div>
+   <div><b>Delivery address</b><br>${escapeHtml(b.destination||"—")}</div>
   </div></details>
    ${!b._normalizedId&&SUPABASE_CONFIGURED?`<div class="panel" role="alert">Ask Admin to enable photo evidence for this older booking before taking pictures.</div>`:
      b.status==="Driver Assigned"?pickupSteps(b):
@@ -6122,7 +6125,7 @@ function driverMobileJobCard(b){
     `<p class="muted">Waiting for next stage.</p>`}
   <div class="actions"><button type="button" class="btn secondary" data-incident-booking="${escapeHtml(b.ref)}" onclick="IncidentUI.open(this.dataset.incidentBooking,'Incident')">Full incident report</button></div>
   <details style="margin-top:12px"><summary><b>Journey Timeline</b></summary>
-   ${(b.timeline||[]).map(e=>`<div class="event"><b>${escapeHtml(e.title||"")}</b><div class="muted">${escapeHtml(e.text||"")}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
+   ${driverJourneyEvents(b).map(e=>`<div class="event"><b>${escapeHtml(e.title||"")}</b><div class="muted">${escapeHtml(e.text||"")}</div></div>`).join("")||"<p class='muted'>No timeline events yet.</p>"}
   </details>
  </div>`;
 }
