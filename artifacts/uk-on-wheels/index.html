@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="./expense-report.css">
 <script src="./expense-report.js"></script>
 <script src="./expense-corrections.js"></script>
+<script src="./profit-loss.js"></script>
 <link rel="stylesheet" href="./vehicle-trading.css">
 <script src="./vehicle-trading-ui.js"></script>
 <script src="./vehicle-trading.js"></script>
@@ -1123,7 +1124,7 @@ document.addEventListener("DOMContentLoaded",()=>{
        DriverPayments.acceptScopedStore(STORE_CACHE);
       }
      }
-    if(role==="admin"&&["expenses","buying","selling"].includes(previewParams.get("ui-page"))){
+    if(role==="admin"&&["expenses","buying","selling","pnl"].includes(previewParams.get("ui-page"))){
       currentSession={user:{id:"local-preview-admin"}};
       STORE_CACHE.expenses=[];STORE_CACHE.invoices=[];STORE_CACHE.transactions=[];
       STORE_CACHE.invoiceSettings=ensureInvoiceSettings({}).invoiceSettings;
@@ -3737,7 +3738,7 @@ function loadPayrollView(c,draw,loaded){
 function drawAdminAccounts(c,loaded=false){
  if(loadPayrollView(c,drawAdminAccounts,loaded))return;
  const s=ensureAccountsData();
- const accountSections=hasPermission("reports")?"expenses, invoices, transactions, pending payments, reports and monthly P&L":"expenses, transactions, pending payments and monthly P&L";
+ const accountSections=hasPermission("reports")?"expenses, invoices, transactions, pending payments, reports and date-range P&L":"expenses, transactions, pending payments and date-range P&L";
  const expenses=s.expenses.reduce((a,x)=>a+Number(x.amount||0),0);
  const cash=s.transactions.filter(x=>x.method==="Cash").reduce((a,x)=>a+Number(x.amount||0),0);
  const bank=s.transactions.filter(x=>x.method==="Bank Transfer").reduce((a,x)=>a+Number(x.amount||0),0);
@@ -4259,14 +4260,12 @@ function runReport(){
 
 function drawProfitLoss(c,loaded=false){
  if(loadPayrollView(c,drawProfitLoss,loaded))return;
- c.innerHTML=`<div class="panel"><h2>Monthly Profit & Loss</h2><div class="form"><input id="plMonth" type="month" value="${new Date().toISOString().slice(0,7)}"></div><div class="actions"><button class="btn primary" onclick="runPL()">Calculate Monthly P&L</button></div></div><div id="plResult"></div>`;
+ c.innerHTML=ProfitLoss.render();
+ runPL();
 }
 
 function runPL(){
- const s=ensureAccountsData(),m=plMonth.value;
- const income=s.transactions.filter(x=>monthOf(x.date)===m).reduce((a,x)=>a+Number(x.amount||0),0)+s.invoices.filter(i=>i.status==="Paid"&&monthOf(i.date)===m).reduce((a,i)=>a+Number(i.total||0),0);
- const expenses=s.expenses.filter(x=>monthOf(x.date)===m).reduce((a,x)=>a+Number(x.amount||0),0),net=income-expenses;
- plResult.innerHTML=`<div class="cards" style="margin-top:12px"><div class="card"><b>Total Income</b><strong>${money(income)}</strong></div><div class="card"><b>Total Expenses</b><strong>${money(expenses)}</strong></div><div class="card"><b>Net ${net>=0?"Profit":"Loss"}</b><strong>${money(net)}</strong></div></div>`;
+ ProfitLoss.calculate(ensureAccountsData());
 }
 
 function ensureHRData(){
