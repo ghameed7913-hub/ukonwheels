@@ -13,6 +13,20 @@ async function workbook(records=[sample]){
   return {book,sheet};
 }
 function file(buffer,name="vehicles.xlsx"){return {name,size:buffer.byteLength,arrayBuffer:async()=>buffer};}
+test("Excel customer reference is optional, round-trips as text and accepts older templates",async()=>{
+  const {readFile,columns}=await library;
+  const {book,sheet}=await workbook([{...sample,customerReference:"00012/PO"}]);
+  let rows=await readFile(file(await book.xlsx.writeBuffer()));
+  assert.equal(rows[0].values.customerReference,"00012/PO");
+  const index=columns.findIndex(([key])=>key==="customerReference")+1;
+  sheet.getCell(2,index).value="x".repeat(121);
+  rows=await readFile(file(await book.xlsx.writeBuffer()));
+  assert.match(rows[0].errors.customerReference,/120 characters/);
+  sheet.spliceColumns(index,1);
+  rows=await readFile(file(await book.xlsx.writeBuffer()));
+  assert.equal(rows[0].values.customerReference,"");
+});
+
 test("Download produces a genuine Business Excel template with relevant headings, guides and text phone columns",async()=>{
   const {buildTemplate,templateColumns,recordsFromSheet}=await library;
   const selected=templateColumns("Business");

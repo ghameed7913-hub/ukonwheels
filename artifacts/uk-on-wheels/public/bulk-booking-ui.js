@@ -65,7 +65,7 @@ function renderRows(rows,busy,shared,businesses,linkedOnly,context){
     inp("amount","Charges (£)",client?"":charge,"number",client?"Set by Operations":"0",false,client,client?"Charges are set by Operations after booking.":"")+
     detail("bdate","Collection date","date",false)+detail("ddate","Delivery date","date",false)+
     detail("receiver","Person receiving vehicle","text",true)+detail("mobile","Receiver mobile number","tel",true)+
-    detail("dropoff","Latest drop-off time","time",false)+detail("notes","Special instructions","textarea",false)+
+    detail("dropoff","Latest drop-off time","time",false)+detail("customerReference","Customer reference (optional)","text",false)+detail("notes","Special instructions","textarea",false)+
     '</div></section>';
   }
   var choices=[{value:"",label:"Select Business"}].concat(businesses.filter(function(b){return String(b.accountType||"business").toLowerCase()==="business";}).map(function(b){
@@ -88,7 +88,7 @@ function renderRows(rows,busy,shared,businesses,linkedOnly,context){
    detail("pickup","Collection address","text",true)+detail("dest","Delivery address","text",true)+
    detail("bdate","Booking date","date",false)+detail("ddate","Requested delivery date","date",false)+
    detail("receiver","Person receiving vehicle","text",true)+detail("mobile","Receiver mobile number","tel",true)+
-   detail("dropoff","Latest drop-off time","time",false)+detail("notes","Special instructions","textarea",false)+
+   detail("dropoff","Latest drop-off time","time",false)+detail("customerReference","Customer reference (optional)","text",false)+detail("notes","Special instructions","textarea",false)+
    '</div></details>';
   var msg=r.message?esc(r.message):(st==="uncertain"?"Server result unknown. Retry to reconcile before editing.":"");
   var overview='<div class="bulk-overview"><span><em>Customer</em>'+esc(who)+'</span><span><em>Route</em>'+esc(v.pickup||"-")+' to '+esc(v.dest||"-")+'</span><span><em>Receiver</em>'+esc(v.receiver||"-")+(v.mobile?' / '+esc(v.mobile):'')+'</span><span><em>Delivery</em>'+esc(v.ddate||"-")+(v.dropoff?' by '+esc(v.dropoff):'')+'</span></div>';

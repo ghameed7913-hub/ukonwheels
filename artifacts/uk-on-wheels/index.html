@@ -30,6 +30,7 @@
 <script src="./expense-corrections.js"></script>
 <script src="./profit-loss.js"></script>
 <script src="./status-customer-filter.js"></script>
+<script src="./customer-reference.js"></script>
 <link rel="stylesheet" href="./vehicle-trading.css">
 <script src="./vehicle-trading-ui.js"></script>
 <script src="./vehicle-trading.js"></script>
@@ -2354,7 +2355,7 @@ function drawClientStatusPage(c){
  <div class="panel">
   <div class="scroll"><table style="min-width:1450px">
    <tr><th>Booking Ref</th><th>Vehicle</th><th>Reg No</th><th>Collection</th><th>Delivery</th><th>Service</th><th>Miles</th><th>Booking Date</th><th>Delivery Date</th><th>Receiver</th><th>Mobile</th><th>Drop-off Till</th><th>Driver</th><th>Amount</th><th>Payment</th><th>Invoice</th><th>Status</th><th>Evidence</th></tr>
-   ${rows.map(b=>`<tr><td><b>${b.ref}</b></td><td>${b.vehicle}</td><td>${b.reg}</td><td>${b.pickup}</td><td>${b.destination}</td><td>${b.service}</td><td>${b.miles||0}</td><td>${b.bookingDate||"—"}</td><td>${b.deliveryDate||"—"}</td><td>${b.receiver||"—"}</td><td>${b.receiverMobile||"—"}</td><td>${b.dropoffTill||"—"}</td><td>${b.driver||"Not assigned"}</td><td>£${Number(b.amount||0).toFixed(2)}</td><td><span class="badge ${(b.paymentStatus==="Paid")?"green":"amber"}">${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</span></td><td>${b.invoiceNo||"—"}</td><td><span class="badge">${b.status}</span></td><td><button class="btn secondary" onclick="showEvidence(\'${b.ref}\')">View Pictures</button> ${clientBookingDeleteButton(b)}</td></tr>`).join("")}
+   ${rows.map(b=>`<tr><td><b>${b.ref}</b>${CustomerReference.summary(b)}</td><td>${b.vehicle}</td><td>${b.reg}</td><td>${b.pickup}</td><td>${b.destination}</td><td>${b.service}</td><td>${b.miles||0}</td><td>${b.bookingDate||"—"}</td><td>${b.deliveryDate||"—"}</td><td>${b.receiver||"—"}</td><td>${b.receiverMobile||"—"}</td><td>${b.dropoffTill||"—"}</td><td>${b.driver||"Not assigned"}</td><td>£${Number(b.amount||0).toFixed(2)}</td><td><span class="badge ${(b.paymentStatus==="Paid")?"green":"amber"}">${b.paymentStatus==="Paid"?"Paid":"Not Paid"}</span></td><td>${b.invoiceNo||"—"}</td><td><span class="badge">${b.status}</span></td><td><button class="btn secondary" onclick="showEvidence(\'${b.ref}\')">View Pictures</button> ${clientBookingDeleteButton(b)}</td></tr>`).join("")}
   </table></div>
   ${rows.length?"":"<p class='muted'>No vehicles currently in this status.</p>"}
  </div>`;
@@ -2458,6 +2459,7 @@ function findClientTracking(){
   <div class="form">
    <div><b>Registration</b><p>${b.reg||"—"}</p></div>
    <div><b>Current Status</b><p><span class="badge">${b.status}</span></p></div>
+   ${CustomerReference.detail(b)}
    <div><b>Collection</b><p>${b.pickup||"—"}</p></div>
    <div><b>Delivery</b><p>${b.destination||"—"}</p></div>
    <div><b>Driver</b><p>${b.driver||"Not assigned"}</p></div>
@@ -5041,7 +5043,7 @@ function drawStatusPage(c){
       <th>Action</th>
     </tr>
     ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}" data-customer-key="${escapeHtml(StatusCustomerFilter.customerKey(b,customerModel))}">
-      <td><b>${b.ref}</b></td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${escapeHtml(bookingApprovalLatest(b).approvedBy||"—")}</td><td>${bookingApprovalLatest(b).approvedAt?escapeHtml(bookingApprovalTime(bookingApprovalLatest(b).approvedAt)):"—"}</td>
+      <td><b>${b.ref}</b>${CustomerReference.summary(b)}</td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${escapeHtml(bookingApprovalLatest(b).approvedBy||"—")}</td><td>${bookingApprovalLatest(b).approvedAt?escapeHtml(bookingApprovalTime(bookingApprovalLatest(b).approvedAt)):"—"}</td>
       <td>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</td>
       <td>${b.vehicle||"—"}${bookingDriverAssignmentButton(b)}</td>
       <td>${b.reg||"—"}</td>
@@ -5080,6 +5082,7 @@ function viewStatusBooking(ref){
   <div class="form">
     <div><b>Business Name</b><p>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</p></div>
     <div><b>Registration</b><p>${b.reg||"—"}</p></div>
+    ${CustomerReference.detail(b)}
     <div><b>Collection Address</b><p>${b.pickup||"—"}</p></div>
     <div><b>Delivery Address</b><p>${b.destination||"—"}</p></div>
     <div><b>Service Used</b><p>${b.service||"—"}</p></div>
@@ -5310,6 +5313,7 @@ function drawBooking(c){
   <label class="booking-field" for="mobile"><span>Receiver mobile number</span><input id="mobile" type="tel" placeholder="e.g. 07123 456789"></label>
   <label class="booking-field" for="dropoff"><span>Latest drop-off time</span><input id="dropoff" type="time" title="Latest drop-off time"></label>
   <label class="booking-field" for="amount"><span>Customer charge (£)</span><input id="amount" type="number" placeholder="e.g. 150.00"></label>
+  <label class="booking-field full" for="customerReference"><span>Customer reference (optional)</span><input id="customerReference" maxlength="120" placeholder="Your own reference, e.g. purchase order or job number" aria-describedby="customerReferenceHelp"><small id="customerReferenceHelp" class="muted">Leave blank if not needed. Your UKOW booking number is generated separately.</small></label>
   <label class="booking-field full" for="notes"><span>Special instructions</span><textarea id="notes" placeholder="Collection, delivery or vehicle instructions"></textarea></label>
   </div></div>
  </fieldset>
@@ -5453,7 +5457,7 @@ async function submitBooking(){
   amount:Number(document.getElementById("amount")?.value||0),
   status:"New Booked Vehicle",
   paymentStatus:"Pending",
-   notes:document.getElementById("notes")?.value.trim()||"",
+   notes:CustomerReference.notes(document.getElementById("customerReference")?.value,document.getElementById("notes")?.value.trim()||""),
   driver:"",
   createdBy:role==="client"?(currentUser?.userName||currentUser?.name||"Client"):(currentUser?.name||"Admin"),
   createdAt:new Date().toLocaleString(),
