@@ -29,6 +29,7 @@
 <script src="./expense-report.js"></script>
 <script src="./expense-corrections.js"></script>
 <script src="./profit-loss.js"></script>
+<script src="./status-customer-filter.js"></script>
 <link rel="stylesheet" href="./vehicle-trading.css">
 <script src="./vehicle-trading-ui.js"></script>
 <script src="./vehicle-trading.js"></script>
@@ -1428,6 +1429,7 @@ function applyAuthenticatedProfile(profile,session){
  window.ExpenseReport?.reset();
  window.ExpenseCorrections?.reset();
  window.ProfitLoss?.reset();
+ window.StatusCustomerFilter?.reset();
   window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
@@ -1513,6 +1515,7 @@ async function logoutNow(){
  window.ExpenseReport?.reset();
  window.ExpenseCorrections?.reset();
  window.ProfitLoss?.reset();
+ window.StatusCustomerFilter?.reset();
  window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
@@ -4972,12 +4975,12 @@ function searchStatusVehicles(value){
  const rows=Array.from(document.querySelectorAll("#statusVehicleTable tr[data-vehicle-reference]"));
  let matches=0;
  for(const row of rows){
-  row.hidden=!vehicleMatchesSearch({ref:row.dataset.vehicleReference,reg:row.dataset.vehicleRegistration},statusVehicleSearch);
+  row.hidden=!StatusCustomerFilter.matches(row.dataset.customerKey,selectedStatusPage)||!vehicleMatchesSearch({ref:row.dataset.vehicleReference,reg:row.dataset.vehicleRegistration},statusVehicleSearch);
   if(!row.hidden)matches++;
  }
  const count=document.getElementById("statusVehicleCount"),empty=document.getElementById("statusVehicleEmpty");
  if(count)count.textContent=matches+" of "+rows.length+" vehicles";
- if(empty){empty.hidden=matches>0;empty.textContent=rows.length?"No vehicles match this reference or registration.":"No vehicles currently "+(selectedStatusPage==="All"?"booked.":"in this status.");}
+ if(empty){empty.hidden=matches>0;empty.textContent=rows.length?(StatusCustomerFilter.selected(selectedStatusPage)?"No vehicles match this customer and reference or registration.":"No vehicles match this reference or registration."):"No vehicles currently "+(selectedStatusPage==="All"?"booked.":"in this status.");}
 }
 function clearStatusVehicleSearch(){
  const input=document.getElementById("statusVehicleSearch");
@@ -4986,6 +4989,7 @@ function clearStatusVehicleSearch(){
 }
 function drawStatusPage(c){
  const rows=visibleBookings().filter(b=>selectedStatusPage==="All"||b.status===selectedStatusPage);
+ const customerModel=StatusCustomerFilter.model(rows,selectedStatusPage);
  const activeDrivers=portalProfiles.filter(x=>String(x.role).toLowerCase()==="driver"&&String(x.status||"Active").toLowerCase()==="active");
  const titleMap={
   "All":"Total vehicle",
@@ -5006,6 +5010,7 @@ function drawStatusPage(c){
     <div><span id="statusVehicleCount" class="badge" role="status" aria-live="polite">${rows.length} vehicles</span> <button class="btn secondary" onclick="page='desktop';render()">Back to Dashboard</button></div>
   </div>
   <div style="display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:16px">
+   ${StatusCustomerFilter.controls(customerModel)}
    <label for="statusVehicleSearch" style="flex:1;min-width:0"><span style="display:block;margin-bottom:6px">Search by booking reference or registration number</span><input id="statusVehicleSearch" type="search" style="width:100%;box-sizing:border-box" placeholder="e.g. UKOW-2026-001007 or AB12 CDE" value="${escapeHtml(statusVehicleSearch)}" oninput="searchStatusVehicles(this.value)" aria-controls="statusVehicleTable" aria-describedby="statusVehicleCount"></label>
    <button type="button" class="btn secondary" onclick="clearStatusVehicleSearch()">Clear search</button>
   </div>
@@ -5035,7 +5040,7 @@ function drawStatusPage(c){
       <th>Pickup Evidence</th>
       <th>Action</th>
     </tr>
-    ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}">
+    ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}" data-customer-key="${escapeHtml(StatusCustomerFilter.customerKey(b,customerModel))}">
       <td><b>${b.ref}</b></td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${escapeHtml(bookingApprovalLatest(b).approvedBy||"—")}</td><td>${bookingApprovalLatest(b).approvedAt?escapeHtml(bookingApprovalTime(bookingApprovalLatest(b).approvedAt)):"—"}</td>
       <td>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</td>
       <td>${b.vehicle||"—"}${bookingDriverAssignmentButton(b)}</td>
