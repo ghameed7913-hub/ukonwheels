@@ -138,3 +138,46 @@ test("visible pending card and per-booking amounts update with dates and payment
  assert.ok(elements.plResult.innerHTML.includes("0 completed deliveries awaiting payment"));
  assert.ok(!elements.plResult.innerHTML.includes("£200.20"));
 });
+test("one pending tab switches the same detail panel between unpaid and all revenue bookings",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate(store);
+ const panel=()=>elements.plResult.innerHTML.split('<section id="pl-details"')[1];
+ assert.equal((elements.plResult.innerHTML.match(/id="pl-pending-tab"/g)||[]).length,1);
+ assert.ok(panel().includes("<td>A</td>"));assert.ok(panel().includes("<td>B</td>"));
+ c.ProfitLoss.selectTab("pending");
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-pending-tab" role="tab" aria-selected="true"'));
+ assert.ok(panel().includes("<td>B</td>"));assert.ok(!panel().includes("<td>A</td>"));
+ assert.ok(panel().includes("£200.20"));
+ c.ProfitLoss.selectTab("revenue");
+ assert.ok(panel().includes("<td>A</td>"));assert.ok(panel().includes("<td>B</td>"));
+ assert.ok(panel().includes("£300.30"));
+ assert.ok(elements.plResult.innerHTML.includes("£270.00"));
+});
+test("pending selection persists through date changes, clears empty results, and resets on sign-out",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate(store);c.ProfitLoss.selectTab("pending");
+ elements.plTo.value="2026-10-01";c.ProfitLoss.calculate(store);
+ assert.ok(elements.plResult.innerHTML.includes("No pending payments for completed deliveries in these dates."));
+ assert.ok(!elements.plResult.innerHTML.includes("<td>A</td>"));
+ c.ProfitLoss.reset();c.ProfitLoss.calculate(store);
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-revenue-tab" role="tab" aria-selected="true"'));
+ assert.ok(elements.plResult.innerHTML.includes("<td>A</td>"));
+ elements.plFrom.value="2026-11-01";c.ProfitLoss.calculate(store);
+ c.ProfitLoss.selectTab("pending");
+ assert.ok(elements.plResult.innerHTML.includes('role="alert"'));
+ assert.ok(!elements.plResult.innerHTML.includes('role="tabpanel"'));
+});
+test("keyboard tab switching works and booking details are safely escaped",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate({bookings:[{...store.bookings[1],vehicle:"Ford Transit",reg:"AB12 CDE",pickup:"Leeds",destination:'<img src=x>'}]});
+ let prevented=false;c.ProfitLoss.tabKey({key:"End",preventDefault(){prevented=true}});
+ assert.equal(prevented,true);
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-pending-tab" role="tab" aria-selected="true"'));
+ for(const detail of ["Ford Transit","AB12 CDE","Leeds","&lt;img src=x&gt;"])assert.ok(elements.plResult.innerHTML.includes(detail));
+ assert.ok(!elements.plResult.innerHTML.includes("<img src=x>"));
+ c.ProfitLoss.tabKey({key:"Home",preventDefault(){}});
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-revenue-tab" role="tab" aria-selected="true"'));
+});
