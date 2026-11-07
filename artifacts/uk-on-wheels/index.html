@@ -50,6 +50,7 @@
 <script src="./invoice-tools.js"></script>
 <script src="./invoice-vehicles.js"></script>
 <script src="./invoice-editor.js"></script>
+<script src="./receipt-ledger.js"></script>
 <script src="./pickup-checklist.js"></script>
 <script src="./pickup-photo-guides.js"></script>
 <script src="./photo-autosave.js"></script>
@@ -3750,8 +3751,8 @@ function drawAdminAccounts(c,loaded=false){
  const s=ensureAccountsData();
  const accountSections=hasPermission("reports")?"expenses, invoices, transactions, pending payments, reports and date-range P&L":"expenses, transactions, pending payments and date-range P&L";
  const expenses=s.expenses.reduce((a,x)=>a+Number(x.amount||0),0);
- const cash=s.transactions.filter(x=>x.method==="Cash").reduce((a,x)=>a+Number(x.amount||0),0);
- const bank=s.transactions.filter(x=>x.method==="Bank Transfer").reduce((a,x)=>a+Number(x.amount||0),0);
+ const cash=ReceiptLedger.total(s,"Cash");
+ const bank=ReceiptLedger.total(s,"Bank Transfer");
  const pending=s.bookings.filter(b=>b.paymentStatus!=="Paid").length;
  c.innerHTML=`<div class="cards">
   <div class="card"><b>Total Expenses</b><strong>${money(expenses)}</strong></div>
@@ -3759,7 +3760,7 @@ function drawAdminAccounts(c,loaded=false){
   <div class="card"><b>Bank Received</b><strong>${money(bank)}</strong></div>
   <div class="card"><b>Pending Payments</b><strong>${pending}</strong></div>
   <div class="card"><b>Invoices</b><strong>${s.invoices.length}</strong></div>
- </div><div class="panel"><h3>Accounts</h3><p class="muted">Use the Accounts menu for ${accountSections}.</p></div>`;
+ </div><div class="panel"><h3>Accounts</h3><p class="muted">Bank and cash received include current paid invoices and separate booking receipts, counted once. Reopened invoice receipts are excluded.</p><p class="muted">Use the Accounts menu for ${accountSections}.</p></div>`;
 }
 
 function expenseRegisterHtml(s){
@@ -3858,7 +3859,7 @@ function drawInvoices(c,settingsLoaded=false){
    <button class="btn secondary" onclick="viewInvoice('${i.invoiceNo}')">View Invoice</button>
    ${InvoiceEditor.action(i)}
    <button class="btn secondary" onclick="downloadInvoicePdf(${escapeHtml(JSON.stringify(i.invoiceNo))},this)">Download PDF</button>
-   ${i.status!=="Paid"?`<button class="btn primary" onclick="openMarkInvoicePaid('${i.invoiceNo}')">Mark Paid</button>`:`<button class="btn secondary" onclick="reopenInvoice('${i.invoiceNo}')">Reopen</button>`}
+   ${ReceiptLedger.allowed()?(i.status!=="Paid"?`<button class="btn primary" onclick="openMarkInvoicePaid('${i.invoiceNo}')">Mark Paid</button>`:`<button class="btn secondary" onclick="reopenInvoice('${i.invoiceNo}')">Reopen</button>`):""}
  </td></tr>`).join("")}
  </table></div></div><div id="invoicePaymentArea"></div>`;
  const btn=document.getElementById("loadInvoiceBtn");
@@ -3929,17 +3930,15 @@ function openMarkInvoicePaid(invoiceNo){
  const paidAmount=Number(amountEl?.value||0);
  if(!paymentDate)return alert("Please select the payment date.");
  if(!Number.isFinite(paidAmount)||paidAmount<=0)return alert("Please enter a valid amount paid.");
- if(Math.round(paidAmount*100)<Math.round(Number(i.total)*100))return alert("The invoice is not fully paid. Enter the full outstanding amount before marking it Paid.");
+ if(Math.round(paidAmount*100)!==Math.round(Number(i.total)*100))return alert("Enter the exact invoice total before marking it Paid.");
  if(paymentMethod==="Bank Transfer"&&!paymentRef)return alert("Please enter the bank/payment reference number.");
  if(typeof SUPABASE_CONFIGURED!=="undefined"&&SUPABASE_CONFIGURED){
   markInvoicePaid.pending=markInvoicePaid.pending||new Set();
   if(markInvoicePaid.pending.has(invoiceNo))return;
   markInvoicePaid.pending.add(invoiceNo);
   try{
-   const {error}=await sb.rpc("settle_portal_invoice",{p_invoice_no:invoiceNo,p_amount:paidAmount,p_date:paymentDate,p_method:paymentMethod,p_reference:paymentRef});
-   if(error)return alert("Invoice payment was not saved: "+error.message+" If setup is missing, run supabase/portal-safety-fixes.sql.");
-   await initStoreFromSupabase({role});
-   await loadNormalizedPortalData();
+   const changed=await ReceiptLedger.change(JSON.parse(JSON.stringify(i)),"settle",{amount:paidAmount,date:paymentDate,method:paymentMethod,reference:paymentRef});
+   if(!changed)return;
    alert("Invoice marked Paid successfully.");drawInvoices(document.getElementById("content"));
   }catch(e){alert("Payment could not be confirmed. Reload the invoice before retrying. "+(e.message||"Connection unavailable."))}
   finally{markInvoicePaid.pending.delete(invoiceNo)}
@@ -3990,7 +3989,17 @@ function openMarkInvoicePaid(invoiceNo){
 async function reopenInvoice(invoiceNo){
  let s=ensureAccountsData(),i=s.invoices.find(x=>x.invoiceNo===invoiceNo);
  if(!i)return;
- if(!await crmConfirm(`Reopen ${invoiceNo} and mark it Unpaid?`,"Reopen invoice","Reopen"))return;
+ if(!ReceiptLedger.allowed())return alert("Accounts management permission is required.");
+ const snapshot=JSON.parse(JSON.stringify(i));
+ if(!await crmConfirm(`Reopen ${invoiceNo} and mark it Unpaid? Its current receipt will be removed from Bank Received or Cash Received. This changes portal records only; it does not refund money.`,"Reopen invoice","Reopen"))return;
+ if(SUPABASE_CONFIGURED){
+  try{
+   if(!await ReceiptLedger.change(snapshot,"reopen"))return;
+   drawInvoices(document.getElementById("content"));
+   alert("Invoice reopened. Its previous receipt no longer counts in bank or cash received.");
+  }catch(error){alert("Invoice was not reopened: "+error.message)}
+  return;
+ }
  i.status="Unpaid";
  i.paymentDate="";
  i.paymentMethod="";
@@ -4215,7 +4224,7 @@ function drawPayments(c){
  <input id="payRef" placeholder="Booking Reference" style="width:100%;padding:13px;border:1px solid var(--line);border-radius:8px;text-transform:uppercase" onkeydown="if(event.key==='Enter')findPaymentBooking()">
  <div class="actions"><button class="btn primary" onclick="findPaymentBooking()">Find Booking</button></div></div><div id="payResult"></div>
  <div class="panel" style="margin-top:12px"><h3>Transaction Register</h3><div class="scroll"><table style="min-width:1050px"><tr><th>Date</th><th>Booking</th><th>Business</th><th>Method</th><th>Amount</th><th>Bank Ref</th><th>Status</th></tr>
- ${s.transactions.slice().reverse().map(t=>`<tr><td>${t.date}</td><td>${t.bookingRef}</td><td>${t.business}</td><td>${t.method}</td><td>${money(t.amount)}</td><td>${t.bankReference||"—"}</td><td>${t.status}</td></tr>`).join("")}
+ ${ReceiptLedger.rows(s).slice().reverse().map(t=>`<tr><td>${escapeHtml(t.date)}</td><td>${escapeHtml(t.bookingRef)}</td><td>${escapeHtml(t.business)}</td><td>${escapeHtml(t.method)}</td><td>${money(t.amount)}</td><td>${escapeHtml(t.bankReference||"—")}</td><td>${escapeHtml(t.status)}</td></tr>`).join("")}
  </table></div></div>`;
 }
 
@@ -4237,6 +4246,7 @@ async function persistBookingPayment(booking,status){
  async function savePayment(ref){
  let s=ensureAccountsData(),b=s.bookings.find(x=>x.ref===ref),method=pMethod.value,amount=Number(pAmount.value||0);
   if(!b)return alert("Booking not found.");
+  if(b.invoiceNo||s.invoices.some(i=>(i.items||[]).some(it=>it.ref===ref)))return alert("This booking is linked to an invoice. Record its payment through Invoices → Mark Paid to avoid counting it twice.");
   if(!Number.isFinite(amount)||amount<0)return alert("Enter a valid payment amount.");
  if(method==="Bank Transfer"&&!pBankRef.value.trim())return alert("Bank reference number is required.");
   const bankReference=pBankRef.value.trim(),paymentDate=pDate.value||new Date().toISOString().slice(0,10);
@@ -4262,8 +4272,8 @@ function between(d,f,t){if(!d)return true; if(f&&d<f)return false; if(t&&d>t)ret
 
 function runReport(){
  const s=ensureAccountsData(),type=rType.value,f=rFrom.value,t=rTo.value; let out="";
- if(type==="Cash Report"){const rows=s.transactions.filter(x=>x.method==="Cash"&&between(x.date,f,t));out=`<div class="panel" style="margin-top:12px"><h3>Cash Report</h3><table><tr><th>Date</th><th>Booking</th><th>Business</th><th>Amount</th></tr>${rows.map(x=>`<tr><td>${x.date}</td><td>${x.bookingRef}</td><td>${x.business}</td><td>${money(x.amount)}</td></tr>`).join("")}</table><p><b>Total ${money(rows.reduce((a,x)=>a+Number(x.amount||0),0))}</b></p></div>`}
- else if(type==="Bank Receipt Report"){const rows=s.transactions.filter(x=>x.method==="Bank Transfer"&&between(x.date,f,t));out=`<div class="panel" style="margin-top:12px"><h3>Bank Receipt Report</h3><table><tr><th>Date</th><th>Booking</th><th>Business</th><th>Bank Ref</th><th>Amount</th></tr>${rows.map(x=>`<tr><td>${x.date}</td><td>${x.bookingRef}</td><td>${x.business}</td><td>${x.bankReference||"—"}</td><td>${money(x.amount)}</td></tr>`).join("")}</table></div>`}
+ if(type==="Cash Report"){const rows=ReceiptLedger.rows(s).filter(x=>x.method==="Cash"&&between(x.date,f,t));out=`<div class="panel" style="margin-top:12px"><h3>Cash Report</h3><table><tr><th>Date</th><th>Booking</th><th>Business</th><th>Amount</th></tr>${rows.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.bookingRef)}</td><td>${escapeHtml(x.business)}</td><td>${money(x.amount)}</td></tr>`).join("")}</table><p><b>Total ${money(rows.reduce((a,x)=>a+Number(x.amount||0),0))}</b></p></div>`}
+ else if(type==="Bank Receipt Report"){const rows=ReceiptLedger.rows(s).filter(x=>x.method==="Bank Transfer"&&between(x.date,f,t));out=`<div class="panel" style="margin-top:12px"><h3>Bank Receipt Report</h3><table><tr><th>Date</th><th>Booking</th><th>Business</th><th>Bank Ref</th><th>Amount</th></tr>${rows.map(x=>`<tr><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.bookingRef)}</td><td>${escapeHtml(x.business)}</td><td>${escapeHtml(x.bankReference||"—")}</td><td>${money(x.amount)}</td></tr>`).join("")}</table><p><b>Total ${money(rows.reduce((a,x)=>a+Number(x.amount||0),0))}</b></p></div>`}
  else if(type==="Delivered Vehicle Report"){const rows=s.bookings.filter(b=>b.status==="Delivered"&&between(b.deliveryDate||"",f,t));out=`<div class="panel" style="margin-top:12px"><h3>Delivered Vehicle Report</h3><table><tr><th>Booking</th><th>Business</th><th>Vehicle</th><th>Delivery Date</th><th>Amount</th><th>Payment</th></tr>${rows.map(b=>`<tr><td>${b.ref}</td><td>${b.business}</td><td>${b.vehicle}</td><td>${b.deliveryDate||"—"}</td><td>${money(b.amount)}</td><td>${b.paymentStatus||"Pending"} / ${b.paymentMethod||"Not Set"}</td></tr>`).join("")}</table></div>`}
  else{const rows=s.bookings.filter(b=>b.paymentStatus!=="Paid"&&between(b.deliveryDate||b.bookingDate||"",f,t));out=`<div class="panel" style="margin-top:12px"><h3>Pending Payment Report</h3><table><tr><th>Booking</th><th>Business</th><th>Amount</th><th>Method</th><th>Status</th></tr>${rows.map(b=>`<tr><td>${b.ref}</td><td>${b.business}</td><td>${money(b.amount)}</td><td>${b.paymentMethod||"Not Set"}</td><td>Pending</td></tr>`).join("")}</table></div>`}
  rResult.innerHTML=out;
