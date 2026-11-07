@@ -15,37 +15,50 @@
   if(!validDate(from)||!validDate(to))return {error:"Choose valid From and To dates."};
   if(from>to)return {error:"From date must be on or before To date."};
   let excluded=0,count=0;
-  function total(rows,field){
+  const deliveries=[],expenseRows=[],missingDeliveries=[],seen=new Map();
+  function total(rows,field,dayFor=row=>String(row.date||"").slice(0,10),included=[]){
    return (rows||[]).reduce((sum,row)=>{
-    const date=String(row.date||"").slice(0,10);
-    if(!validDate(date)){excluded++;return sum}
+    const date=dayFor(row);
+    if(!validDate(date)){excluded++;if(field==="amount"&&row.status==="Delivered")missingDeliveries.push(String(row.ref||row._normalizedId||"Unknown booking"));return sum}
     if(date<from||date>to)return sum;
-    const amount=Number(row[field]||0);
+    const amount=row[field]==null||row[field]===""?NaN:Number(row[field]);
     if(!Number.isFinite(amount))throw Error("A matching record has an invalid amount. Correct it before calculating Profit & Loss.");
-    const next=sum+Math.round(amount*100);
+    const pennies=Math.round(amount*100),next=sum+pennies;
     if(!Number.isSafeInteger(next))throw Error("The selected total is too large to calculate safely.");
+    included.push({row,date,pennies});
     count++;return next;
    },0);
   }
   try{
-   // Keep the existing P&L sources: transactions plus paid invoices, less expenses.
-   const income=total(store.transactions,"amount")+total((store.invoices||[]).filter(i=>i.status==="Paid"),"total");
-   const expenses=total(store.expenses,"amount"),net=income-expenses;
+   const bookings=(store.bookings||[]).filter(row=>{
+    if(row.status!=="Delivered")return false;
+    const key=row._normalizedId||row.ref;
+    if(!key)return true;
+    const signature=JSON.stringify([window.InvoiceVehicles.deliveryDay(row),row.amount]);
+    if(seen.has(key)){
+     if(seen.get(key)!==signature)throw Error("Conflicting copies of booking "+key+". Refresh the portal before calculating Profit & Loss.");
+     return false;
+    }
+    seen.set(key,signature);return true;
+   });
+   // Earned revenue: count each delivered booking charge once, never its invoice/payment again.
+   const income=total(bookings,"amount",window.InvoiceVehicles.deliveryDay,deliveries);
+   const expenses=total(store.expenses,"amount",undefined,expenseRows),net=income-expenses;
    if(!Number.isSafeInteger(income)||!Number.isSafeInteger(net))throw Error("The selected total is too large to calculate safely.");
-   return {income,expenses,net,excluded,count};
+   return {income,expenses,net,excluded,count,deliveries,expenseRows,missingDeliveries};
   }catch(e){return {error:e.message}}
  }
  function render(){
   const end=today(),start=end.slice(0,7)+"-01";
   return `<div class="panel"><h2>Profit &amp; Loss</h2>
-   <p>Select a date range to see income, expenses and net profit or loss. Both dates are included.</p>
+   <p>Select a date range to see completed-delivery revenue, expenses and net profit or loss. Both dates are included.</p>
    <div class="form">
     <label>From<input id="plFrom" type="date" value="${start}" required onchange="runPL()"></label>
     <label>To<input id="plTo" type="date" value="${end}" required onchange="runPL()"></label>
    </div>
    <div class="actions"><button class="btn primary" onclick="runPL()">Calculate P&amp;L</button>
    <button class="btn secondary" onclick="document.getElementById('plTo').value=ProfitLoss.today();runPL()">Up to today</button></div>
-   <p class="muted">Income uses transaction dates and paid invoice dates. Expenses use their recorded expense dates. Unpaid invoices are not included.</p>
+   <p class="muted">Revenue is the saved booking charge for each completed delivery, paid or unpaid, using its actual delivery date (UK time). Invoice totals, VAT, invoice-only extras and payments are not added again. Expenses use their recorded expense dates. Profit = revenue − expenses.</p>
    </div><div id="plResult" aria-live="polite"></div>`;
  }
  const escape=text=>String(text).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -56,11 +69,50 @@
   const report=aggregate(store,from,to);
   if(report.error){result.innerHTML=`<div class="panel" style="margin-top:12px" role="alert">${escape(report.error)}</div>`;return}
   result.innerHTML=`<div class="panel" style="margin-top:12px"><h3>${displayDate(from)} to ${displayDate(to)}</h3>
-   ${report.count?"":"<p>No matching income or expense records for these dates.</p>"}
-   <div class="cards"><div class="card"><b>Total Income</b><strong>${cash(report.income)}</strong></div>
+   ${report.count?"":"<p>No matching completed deliveries or expense records for these dates.</p>"}
+   <div class="cards"><div class="card"><b>Total Revenue</b><strong>${cash(report.income)}</strong><small>${report.deliveries.length} completed deliveries · paid and unpaid</small></div>
    <div class="card"><b>Total Expenses</b><strong>${cash(report.expenses)}</strong></div>
    <div class="card"><b>Net ${report.net>=0?"Profit":"Loss"}</b><strong style="color:${report.net>=0?"#15803d":"#b91c1c"}">${cash(report.net)}</strong></div></div>
-   ${report.excluded?`<p role="status">${report.excluded} record(s) without a valid date were excluded. Correct their dates to include them in a date-based report.</p>`:""}</div>`;
+   ${report.excluded?`<p role="alert">${report.excluded} record(s) without a valid actual delivery/expense date were excluded, so these totals may be incomplete. Requested delivery dates are not used.${report.missingDeliveries.length?" Missing actual delivery dates: "+report.missingDeliveries.map(escape).join(", ")+".":""}</p>`:""}
+   <details><summary>Revenue breakdown — ${report.deliveries.length} completed deliveries</summary>
+   <div class="scroll"><table><thead><tr><th>Booking</th><th>Actual delivery date</th><th>Payment</th><th>Revenue</th></tr></thead><tbody>
+   ${report.deliveries.map(x=>`<tr><td>${escape(x.row.ref||"—")}</td><td>${displayDate(x.date)}</td><td>${escape(x.row.paymentStatus||"Unpaid")}</td><td>${cash(x.pennies)}</td></tr>`).join("")}
+   </tbody><tfoot><tr><th colspan="3">Total Revenue</th><td>${cash(report.income)}</td></tr></tfoot></table></div></details></div>`;
  }
- window.ProfitLoss={today,validDate,aggregate,render,calculate};
+ let loadedBookings=null,owner=null,request=0;
+ async function readBookings(client){
+  const rows=[],size=1000;
+  for(let offset=0;;offset+=size){
+   const result=await client.from("bookings").select("id,reference,status,amount,delivered_at,payment_status").eq("status","Delivered").order("id").range(offset,offset+size-1);
+   if(result.error)throw Error(result.error.message||"Completed deliveries could not load.");
+   if(!Array.isArray(result.data))throw Error("Completed deliveries returned an invalid response.");
+   rows.push(...result.data.map(b=>({_normalizedId:b.id,ref:b.reference,status:b.status,amount:b.amount,_deliveredAt:b.delivered_at,paymentStatus:b.payment_status})));
+   if(result.data.length<size)return rows;
+  }
+ }
+ function reset(){request++;owner=null;loadedBookings=null}
+ async function open(container,store,options={}){
+  const token=++request,actor=options.actor?.();
+  owner=actor;loadedBookings=null;
+  container.innerHTML='<div class="panel"><h2>Loading completed deliveries for Profit &amp; Loss…</h2></div>';
+  try{
+   if(options.client){
+    const canonical=await readBookings(options.client);
+    if(token!==request||options.actor?.()!==actor||options.active?.()===false)return;
+    const refs=new Set(canonical.map(b=>b.ref));
+    // Keep legacy-only bookings; the live database is authoritative for normalized bookings.
+    loadedBookings=[...canonical,...(store.bookings||[]).filter(b=>!b._normalizedId&&!refs.has(b.ref))];
+   }
+   if(token!==request||options.active?.()===false)return;
+   container.innerHTML=render();calculate({...store,bookings:loadedBookings||store.bookings});
+  }catch(error){
+   if(token!==request||options.actor?.()!==actor||options.active?.()===false)return;
+   container.innerHTML=`<div class="panel" role="alert"><h2>Profit &amp; Loss could not load</h2><p>${escape(error.message)}</p><p>Reopen Profit &amp; Loss to retry. No estimated totals are shown.</p></div>`;
+  }
+ }
+ function calculateCurrent(store,actor){
+  if(owner!==actor&&loadedBookings){reset();return}
+  calculate({...store,bookings:loadedBookings||store.bookings});
+ }
+ window.ProfitLoss={today,validDate,aggregate,render,calculate:calculateCurrent,open,readBookings,reset};
 })();

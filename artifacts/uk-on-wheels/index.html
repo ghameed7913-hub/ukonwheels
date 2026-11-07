@@ -1427,6 +1427,7 @@ function applyAuthenticatedProfile(profile,session){
   window.ExpenseTypes?.reset();
  window.ExpenseReport?.reset();
  window.ExpenseCorrections?.reset();
+ window.ProfitLoss?.reset();
   window.VehicleTrading?.reset();
   window.DriverIdentityAPI?.reset();
   IncidentUI.reset();
@@ -1511,6 +1512,7 @@ async function logoutNow(){
  window.ExpenseTypes?.reset();
  window.ExpenseReport?.reset();
  window.ExpenseCorrections?.reset();
+ window.ProfitLoss?.reset();
  window.VehicleTrading?.reset();
  window.DriverIdentityAPI?.reset();
  if(sb){
@@ -4260,12 +4262,15 @@ function runReport(){
 
 function drawProfitLoss(c,loaded=false){
  if(loadPayrollView(c,drawProfitLoss,loaded))return;
- c.innerHTML=ProfitLoss.render();
- runPL();
+ ProfitLoss.open(c,ensureAccountsData(),{
+  client:SUPABASE_CONFIGURED&&!window.ExpenseBulk?.isLocalPreview()?sb:null,
+  actor:()=>currentSession?.user?.id,
+  active:()=>page==="pnl"&&c.isConnected
+ });
 }
 
 function runPL(){
- ProfitLoss.calculate(ensureAccountsData());
+ ProfitLoss.calculate(ensureAccountsData(),currentSession?.user?.id);
 }
 
 function ensureHRData(){
