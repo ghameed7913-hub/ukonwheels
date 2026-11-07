@@ -2,6 +2,8 @@ import * as Location from 'expo-location';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 const MAX_LOCATION_AGE = 30_000;
+let recentEvidencePosition: Location.LocationObject | null = null;
+let locationPending: Promise<Location.LocationObject> | null = null;
 
 export function evidenceSize(width: number, height: number) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -22,7 +24,24 @@ export function isRecentPosition(position: Location.LocationObject | null, now =
 }
 
 export async function getEvidencePosition(warmed?: Location.LocationObject): Promise<Location.LocationObject> {
-  if (isRecentPosition(warmed ?? null)) return warmed!;
+  if (isRecentPosition(warmed ?? null)) {
+    recentEvidencePosition = warmed!;
+    return warmed!;
+  }
+  if (isRecentPosition(recentEvidencePosition) && recentEvidencePosition.coords.accuracy! <= 100) return recentEvidencePosition;
+  if (locationPending) return locationPending;
+  const pending = readEvidencePosition();
+  locationPending = pending;
+  try {
+    const position = await pending;
+    recentEvidencePosition = position;
+    return position;
+  } finally {
+    if (locationPending === pending) locationPending = null;
+  }
+}
+
+async function readEvidencePosition(): Promise<Location.LocationObject> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

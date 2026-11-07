@@ -30,6 +30,8 @@ function setup(rows = []) {
     SUPABASE_CONFIGURED: true,
     currentSession: { user: { id: "driver-1" } },
     visibleBookings: () => [booking],
+    clientBookingDeleteButton: () => "",
+    bookingApprovalDetails: () => "",
     document: {
       getElementById: () => null,
       createElement: () => {

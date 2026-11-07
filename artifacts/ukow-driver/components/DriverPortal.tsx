@@ -149,7 +149,7 @@ export default function DriverPortal({ section, request, onHome, pushRegistratio
            const warmed = getEvidencePosition().then(position => position, () => undefined);
            const result = await ImagePicker.launchCameraAsync({
              mediaTypes:['images'],cameraType:ImagePicker.CameraType.back,
-             allowsEditing:false,quality:1,base64:false,exif:false,
+             allowsEditing:false,quality:0.85,base64:false,exif:false,
            });
            if (result.canceled) { reply({cancelled:true}); return; }
            const asset = result.assets[0];

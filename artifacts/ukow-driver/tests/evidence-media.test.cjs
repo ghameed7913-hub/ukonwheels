@@ -77,3 +77,15 @@ test('Native image processing returns a bounded JPEG, with resize and compressio
  assert.equal(call[0],'resize');assert.equal(call[2][0].resize.width,1280);
  assert.equal(call[3].base64,true);assert.equal(call[3].format,'jpeg');
 });
+test('A sequence of evidence photos reuses a recent accurate GPS fix',async()=>{
+ const recent=position(1000,20),h=harness({recent});
+ assert.equal(await h.media.getEvidencePosition(),recent);
+ assert.equal(await h.media.getEvidencePosition(),recent);
+ assert.equal(h.calls.length,1);
+});
+test('Overlapping photo location requests share the same device lookup',async()=>{
+ const recent=position(),h=harness({recent});
+ const results=await Promise.all([h.media.getEvidencePosition(),h.media.getEvidencePosition()]);
+ assert.equal(results[0],recent);assert.equal(results[1],recent);
+ assert.equal(h.calls.length,1);
+});

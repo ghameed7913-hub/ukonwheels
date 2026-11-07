@@ -47,6 +47,7 @@
 <script src="./invoice-vehicles.js"></script>
 <script src="./pickup-checklist.js"></script>
 <script src="./pickup-photo-guides.js"></script>
+<script src="./photo-autosave.js"></script>
   <script src="./hr-screening-api.js"></script>
 <script src="./image-retention.js"></script>
   <script src="./driver-compliance.js"></script>
@@ -6243,7 +6244,7 @@ function cameraSlot(b,id,label,wide=false,required=false){
    <canvas id="c_${ref}_${id}"></canvas>
    <div class="camActions">
      <button class="btn secondary" onclick="startCamera('${ref}','${id}')">${photo?"Retake Photo":"Open Camera"}</button>
-     <button class="btn primary" onclick="captureCamera('${ref}','${id}')">Capture & Store</button>
+     <button class="btn primary" onclick="captureCamera('${ref}','${id}')">Take photo</button>
    </div>
    <div class="captureMeta" id="s_${ref}_${id}" ${photo?.storagePath||(!b._normalizedId&&photo)?'data-captured="1"':""}>${photo?`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${photo.timestamp?new Date(photo.timestamp).toLocaleString("en-GB"):""}</div>`:"Not captured — tap this area to open the camera"}</div>
    </div>
@@ -6318,7 +6319,7 @@ async function startCamera(ref,id){
    cameraStreams[ref+"_"+id]=stream;
    video.srcObject=stream;
    video.style.display="block";
-    const status=document.getElementById(`s_${ref}_${id}`);if(status){status.classList.remove("error");status.textContent="Camera open — position this vehicle area and tap Capture & Store."}
+    const status=document.getElementById(`s_${ref}_${id}`);if(status){status.classList.remove("error");status.textContent="Camera open — tap Take photo. Your picture will save automatically."}
    await video.play();
     getEvidencePosition().catch(()=>{}); // Start GPS while the Driver frames the shot.
  }catch(e){
@@ -6336,6 +6337,13 @@ async function captureCamera(ref,id){
   if(button.disabled)return;
   button.disabled=true;
   const previousCaptured=status.dataset.captured;
+  // Freeze the shutter image immediately; GPS must not delay the actual shot.
+  const now=new Date();
+  const scale=Math.min(1,1280/(video.videoWidth||1280),960/(video.videoHeight||960));
+  canvas.width=Math.round((video.videoWidth||1280)*scale);
+  canvas.height=Math.round((video.videoHeight||720)*scale);
+  const ctx=canvas.getContext("2d");
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
   status.textContent="Preparing photo and location…";
   let latitude=null,longitude=null,accuracy=null;
  try{
@@ -6347,16 +6355,9 @@ async function captureCamera(ref,id){
    return;
  }
 
- const now=new Date();
  const dateText=now.toLocaleDateString("en-GB");
  const timeText=now.toLocaleTimeString("en-GB",{hour12:false});
  const locationText=`GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} ±${Math.round(accuracy)}m`;
-
-  const scale=Math.min(1,1280/(video.videoWidth||1280),960/(video.videoHeight||960));
-  canvas.width=Math.round((video.videoWidth||1280)*scale);
-  canvas.height=Math.round((video.videoHeight||720)*scale);
- const ctx=canvas.getContext("2d");
- ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
  const fontSize=Math.max(18,Math.round(canvas.width/45));
  const pad=Math.max(14,Math.round(canvas.width/80));
@@ -6484,7 +6485,7 @@ function deliveryCameraSlot(b,id,label){
   <canvas id="dcv_${ref}_${id}"></canvas>
   <div class="camActions">
    <button class="btn secondary" onclick="startDeliveryCamera('${ref}','${id}')">${photo?"Retake Photo":"Open Camera"}</button>
-   <button class="btn primary" onclick="captureDeliveryCamera('${ref}','${id}')">Capture & Store</button>
+   <button class="btn primary" onclick="captureDeliveryCamera('${ref}','${id}')">Take photo</button>
   </div>
   <div class="captureMeta" id="ds_${ref}_${id}" ${photo?.storagePath||(!b._normalizedId&&photo)?'data-captured="1"':""}>${photo?`<div class="storedPhotoStatus">✓ Image captured and stored securely<br>${photo.timestamp?new Date(photo.timestamp).toLocaleString("en-GB"):""}</div>`:"Not captured — tap this area to open the camera"}</div>
   </div>
@@ -6516,16 +6517,16 @@ async function captureDeliveryCamera(ref,id){
  if(button.disabled)return;
  button.disabled=true;
  const previousCaptured=status.dataset.captured;
+ const now=new Date(),dateText=now.toLocaleDateString("en-GB"),timeText=now.toLocaleTimeString("en-GB",{hour12:false});
+ const scale=Math.min(1,1280/(video.videoWidth||1280),960/(video.videoHeight||960));
+ canvas.width=Math.round((video.videoWidth||1280)*scale);canvas.height=Math.round((video.videoHeight||720)*scale);
+ const ctx=canvas.getContext("2d");ctx.drawImage(video,0,0,canvas.width,canvas.height);
  status.textContent="Preparing photo and location…";
  let latitude=null,longitude=null,accuracy=null;
  try{
   const p=await getEvidencePosition();
   latitude=p.coords.latitude;longitude=p.coords.longitude;accuracy=p.coords.accuracy;
  }catch(e){status.classList.add("error");status.textContent="Location is unavailable. Enable location and try again.";button.disabled=false;return}
- const now=new Date(),dateText=now.toLocaleDateString("en-GB"),timeText=now.toLocaleTimeString("en-GB",{hour12:false});
- const scale=Math.min(1,1280/(video.videoWidth||1280),960/(video.videoHeight||960));
- canvas.width=Math.round((video.videoWidth||1280)*scale);canvas.height=Math.round((video.videoHeight||720)*scale);
- const ctx=canvas.getContext("2d");ctx.drawImage(video,0,0,canvas.width,canvas.height);
  const fs=Math.max(18,Math.round(canvas.width/45)),pad=14,line=Math.round(fs*1.35),strip=line*3+pad*2;
  ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,canvas.height-strip,canvas.width,strip);
  ctx.fillStyle="#fff";ctx.font=`bold ${fs}px Arial`;ctx.fillText("UK ON WHEELS — LIVE DELIVERY EVIDENCE",pad,canvas.height-strip+pad+fs);
