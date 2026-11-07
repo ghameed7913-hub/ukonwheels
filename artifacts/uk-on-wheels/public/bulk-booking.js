@@ -1,7 +1,7 @@
 /* Bulk booking uses the existing secured booking RPC, one stable reference per vehicle. */
 (() => {
   "use strict";
-  const fieldIds = ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"];
+  const fieldIds = ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","customerReference","notes"];
   const customerFields = ["customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail"];
   let owner = null, mode = "single", rows = [], common = null, busy = false, generation = 0, sourceName = "", countConfirmed = false;
   const el = id => document.getElementById(id);
@@ -413,7 +413,7 @@
       const key = registrationKey({customerType:type,_businessId:businessId,business,privateCustomerEmail:values.privateCustomerEmail,reg});
       if (key && seen.has(key)) throw new Error("Registration "+reg+" appears more than once for this customer/branch in this batch.");
       if (key) seen.add(key);
-       const notes = [values.notes?.trim(),values.dropoff ? "Latest drop-off time: "+values.dropoff : ""].filter(Boolean).join("\n");
+       const notes = CustomerReference.notes(values.customerReference,[values.notes?.trim(),values.dropoff ? "Latest drop-off time: "+values.dropoff : ""].filter(Boolean).join("\n"));
        const service = values.service || "Vehicle Delivery";
        if (!["Vehicle Delivery","Vehicle Collection & Delivery","Recovery / AA"].includes(service)) throw new Error(label+"Choose a valid service type.");
       return {

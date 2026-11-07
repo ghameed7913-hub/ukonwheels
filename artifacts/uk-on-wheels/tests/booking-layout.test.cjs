@@ -26,7 +26,7 @@ function render(role="admin",accountType="business") {
 }
 test("Every visible Create Booking control has exactly one permanent label",()=>{
   const page=render();
-  for(const id of ["bookingMode","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","veh","reg","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes"]) {
+  for(const id of ["bookingMode","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","veh","reg","pickup","dest","miles","bdate","ddate","receiver","mobile","dropoff","amount","customerReference","notes"]) {
     assert.equal((page.match(new RegExp('\\bfor="'+id+'"','g'))||[]).length,1,id);
     assert.equal((page.match(new RegExp('\\bid="'+id+'"','g'))||[]).length,1,id+" input");
   }
@@ -51,7 +51,7 @@ test("Repeated enhancement reuses native associated labels on nested controls",(
     before:label=>{labels.push(label);},
   };
   const c=vm.createContext({
-    role:"admin",getComputedStyle:()=>({display:"block"}),
+    role:"admin",enhanceAdminPageLinks(){},getComputedStyle:()=>({display:"block"}),
     document:{
       querySelectorAll:selector=>selector.startsWith("#content .form")?[control]:[],
       createElement:()=>{generated++;return {};},
@@ -69,7 +69,7 @@ test("Existing manual labels are not duplicated or replaced by auto labels",()=>
     closest:()=>null,getAttribute:()=>null,
   };
   const c=vm.createContext({
-    role:"admin",getComputedStyle:()=>({display:"block"}),
+    role:"admin",enhanceAdminPageLinks(){},getComputedStyle:()=>({display:"block"}),
     document:{querySelectorAll:selector=>selector.startsWith("#content .form")?[control]:[],createElement:()=>{generated++;return {};}},
   });
   vm.runInContext(enhanceSource,c);c.enhancePortalUsability();

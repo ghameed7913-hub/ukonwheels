@@ -37,6 +37,7 @@ function setup(records=statuses.map(fixture),scope=records){
     render:()=>renderCount++,
   });
   c.window=c;c.currentSession={user:{id:"admin-one"}};
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/customer-reference.js"),"utf8"),c);
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/status-customer-filter.js"),"utf8"),c);
   vm.runInContext(part("function bookingApprovalRecords(","function normalizedBookingToPortal("),c);
   vm.runInContext(part("function openStatusPage(","function viewStatusBooking("),c);

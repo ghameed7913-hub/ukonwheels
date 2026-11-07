@@ -11,7 +11,7 @@ const html = fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
 function setup(options = {}) {
   const stored = options.stored || new Map(), saved = options.saved || new Map(), calls = [], rpcCalls=[];
   const fields = {};
-  for (const id of ["bookingCustomerHeading","bookingJourneyFields","bookingVehicleCount","bookingVehicleCountControls","applyVehicleCount","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
+  for (const id of ["bookingCustomerHeading","bookingJourneyFields","bookingVehicleCount","bookingVehicleCountControls","applyVehicleCount","customerType","biz","privateCustomerName","privateCustomerMobile","privateCustomerEmail","pickup","dest","service","miles","bdate","ddate","receiver","mobile","dropoff","amount","customerReference","notes","veh","reg","bulkBookingPanel","singleVehicleFields","bookingMode","bookingSharedFields","bulkBookingEditor","bulkVehicleRows","bulkBookingResults","bulkBookingStatus","bulkNewBatch"]) {
     fields[id] = {value:"",innerHTML:"",textContent:"",disabled:false,isConnected:true,addEventListener() {}};
   }
   const shared = {customerType:"Business",biz:"business-1",pickup:"Collection A",dest:"Delivery B",service:"Vehicle Delivery",miles:"40",amount:"100",receiver:"Test Receiver",mobile:"07000000000",notes:"Handle carefully",dropoff:"18:00"};
@@ -54,6 +54,8 @@ function setup(options = {}) {
     },
   });
   vm.runInContext(ui,context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/customer-reference.js"),"utf8"),context);
+  context.CustomerReference=context.window.CustomerReference;
   context.BulkBookingUI = context.window.BulkBookingUI;
   vm.runInContext(source,context);
   const api=context.window.BulkBooking;
@@ -73,6 +75,27 @@ function setup(options = {}) {
     failAt:n=>{failRow=n;},loseNext:()=>{loseResponse=true;},lookupFail:value=>{lookupFails=value;},
     blockStorage:()=>{writesBlocked=true;},failRefresh:()=>{refreshFails=true;},cancel:()=>{confirmation=false;}};
 }
+
+test("manual vehicles keep their optional customer references separate from UKOW references",async()=>{
+  const s=setup({empty:true});
+  await s.api.setVehicleCount(2);s.fill(0);s.fill(1);
+  s.api.updateDetail(s.state().rows[0].id,"customerReference","0007/PO");
+  await s.api.submit();
+  assert.equal(s.calls.length,2);
+  assert.match(s.calls[0].booking.notes,/^Customer reference: 0007\/PO\n\nHandle carefully/);
+  assert.doesNotMatch(s.calls[1].booking.notes,/Customer reference:/);
+  assert.notEqual(s.calls[0].ref,"0007/PO");
+});
+
+test("Client bulk references use the existing secured Client RPC",async()=>{
+  const s=setup({empty:true,role:"client",user:{name:"Own Client",accountType:"business",businessId:"business-1"}});
+  await s.api.setVehicleCount(2);
+  s.fill(0);s.fill(1);
+  s.api.updateDetail(s.state().rows[0].id,"customerReference","CLIENT-PO");
+  await s.api.submit();
+  assert.equal(s.rpcCalls.length,2);
+  assert.match(s.rpcCalls[0].payload.p_booking.notes,/^Customer reference: CLIENT-PO/);
+});
 
 test("bulk shows canonical short references and recovers a lost response with the internal draft key",async()=>{
   const s=setup({shortReferences:true});

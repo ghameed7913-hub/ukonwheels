@@ -20,6 +20,7 @@ export const columns = [
   ["mobile","Receiver mobile number",25,"Required. Keep as text, including the leading zero or +."],
   ["dropoff","Latest drop-off time",22,"Optional 24-hour HH:mm or HHmm, for example 17:30 or 1730."],
   ["amount","Customer charge (£)",24,"Admin/authorised Staff only: optional non-negative amount. Clients must leave this blank; Operations sets charges."],
+  ["customerReference","Customer reference",28,"Optional own reference, purchase order or job number. Up to 120 characters on one line. Keep as text to preserve leading zeros. The UKOW booking number is generated separately."],
   ["notes","Special instructions",48,"Optional collection, delivery or vehicle instructions."],
 ];
 export function templateColumns(format) {
@@ -91,7 +92,7 @@ export function recordsFromSheet(sheet,date1904=false) {
   const format = has("customerType") || (has("biz") && ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"].some(has))
     ? "legacy" : has("biz") ? "Business" : ["privateCustomerName","privateCustomerMobile","privateCustomerEmail"].some(has) ? "Private" : "legacy";
   const expected = templateColumns(format);
-  for (const [key,label] of expected) if (key!=="service"&&!headers.has(normal(label))) throw new Error('Missing column "'+label+'". Download the complete '+(format==="legacy"?"booking":format==="Private"?"Private Customer":"Business")+' template; do not remove its headings.');
+  for (const [key,label] of expected) if (!["service","customerReference"].includes(key)&&!headers.has(normal(label))) throw new Error('Missing column "'+label+'". Download the complete '+(format==="legacy"?"booking":format==="Private"?"Private Customer":"Business")+' template; do not remove its headings.');
   // Previously downloaded workbooks may still include Service type.
   for (const name of headers.keys()) if (name!==normal("Service type")&&!expected.some(([,label])=>normal(label)===name)) throw new Error('Do not mix Business and Private Customer template columns.');
   const records=[];
@@ -120,6 +121,7 @@ export function recordsFromSheet(sheet,date1904=false) {
           else throw new Error("keep phone numbers as text to preserve leading zeros; enter the full number including its leading zero or +country code");
         }
         else value=String(value).trim();
+        if (field==="customerReference" && (String(value).length>120 || /[\r\n]/.test(value))) throw new Error("enter one line of up to 120 characters");
         if (String(value).length>10000) throw new Error("cell is too long (maximum 10,000 characters)");
         values[field]=value;
       } catch (error) {
