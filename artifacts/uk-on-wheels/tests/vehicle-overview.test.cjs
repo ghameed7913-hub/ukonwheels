@@ -16,7 +16,7 @@ function fixture(status,index){
 }
 function setup(records=statuses.map(fixture),scope=records){
   let markup="",nodes=[],renderCount=0;
-  const store={bookings:records,notifications:[]},fields={statusVehicleCount:{textContent:""},statusVehicleEmpty:{hidden:true,textContent:""},
+  const store={bookings:records,notifications:[]},fields={statusDeliveredCharges:{textContent:""},statusVehicleCount:{textContent:""},statusVehicleEmpty:{hidden:true,textContent:""},
     statusVehicleSearch:{value:"",focus(){this.focused=true;}},statusVehicleCustomer:{selectedOptions:[{textContent:"Movex"}]},statusBookingDetail:{innerHTML:""}};
   const escape=value=>String(value??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const decode=value=>value.replace(/&quot;/g,'"').replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&");
@@ -24,8 +24,8 @@ function setup(records=statuses.map(fixture),scope=records){
     get innerHTML(){return markup;},
     set innerHTML(value){
       markup=value;
-      nodes=Array.from(value.matchAll(/<tr data-vehicle-reference="([^"]*)" data-vehicle-registration="([^"]*)" data-customer-key="([^"]*)">/g),
-        match=>({hidden:false,dataset:{vehicleReference:decode(match[1]),vehicleRegistration:decode(match[2]),customerKey:decode(match[3])}}));
+      nodes=Array.from(value.matchAll(/<tr data-vehicle-reference="([^"]*)" data-vehicle-registration="([^"]*)" data-customer-key="([^"]*)" data-vehicle-charge="([^"]*)">/g),
+        match=>({hidden:false,dataset:{vehicleReference:decode(match[1]),vehicleRegistration:decode(match[2]),customerKey:decode(match[3]),vehicleCharge:decode(match[4])}}));
     }
   };
   const c=vm.createContext({
@@ -172,4 +172,39 @@ test("customer identity keeps same-name accounts separate and links unambiguous 
  assert.notEqual(api.customerKey(rows[0],model),api.customerKey(rows[4],model));
  assert.equal(model.choices.length,4);
  assert.equal(model.choices.find(option=>option.key==="business:one").count,2);
+});
+test("delivered bottom total includes paid and unpaid charges and follows customer and search filters",()=>{
+ const records=[
+  {...fixture("Delivered",0),business:"Movex",amount:"125.10",paymentStatus:"Paid"},
+  {...fixture("Delivered",1),business:"Movex",amount:"74.95",paymentStatus:"Pending"},
+  {...fixture("Delivered",2),business:"Other Motors",amount:300},
+  {...fixture("New Booked Vehicle",3),business:"Movex",amount:9999},
+  {...fixture("Delivered",4),business:"Restricted",amount:8888}
+ ];
+ const s=setup(records,records.slice(0,4));s.c.selectedStatusPage="Delivered";s.c.drawStatusPage(s.target);
+ assert.match(s.target.innerHTML,/Total delivered vehicle charges/);
+ assert.match(s.target.innerHTML,/Paid and unpaid charges/);
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£500.05");
+ s.c.StatusCustomerFilter.change("business:movex");
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£200.05");
+ s.c.searchStatusVehicles("AB12CDE");
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£125.10");
+ s.c.searchStatusVehicles("NO-MATCH");
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£0.00");
+ s.c.clearStatusVehicleSearch();
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£200.05");
+ records[0].amount="150.10";s.c.drawStatusPage(s.target);
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£225.05");
+ s.c.StatusCustomerFilter.change("");
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£525.05");
+ s.c.selectedStatusPage="New Booked Vehicle";s.c.drawStatusPage(s.target);
+ assert.doesNotMatch(s.target.innerHTML,/id="statusDeliveredCharges"/);
+});
+test("delivered total sums decimal charges in pence and handles empty or invalid amounts safely",()=>{
+ const s=setup([0.1,0.2,null,"invalid",Infinity].map((amount,index)=>({...fixture("Delivered",index),amount})));
+ s.c.selectedStatusPage="Delivered";s.c.drawStatusPage(s.target);
+ assert.equal(s.fields.statusDeliveredCharges.textContent,"£0.30");
+ const empty=setup([]);empty.c.selectedStatusPage="Delivered";empty.c.drawStatusPage(empty.target);
+ assert.match(empty.target.innerHTML,/id="statusDeliveredCharges"/);
+ assert.equal(empty.fields.statusDeliveredCharges.textContent,"£0.00");
 });

@@ -4975,11 +4975,17 @@ function vehicleMatchesSearch(booking,query){
 function searchStatusVehicles(value){
  statusVehicleSearch=String(value||"");
  const rows=Array.from(document.querySelectorAll("#statusVehicleTable tr[data-vehicle-reference]"));
- let matches=0;
+ let matches=0,totalPence=0;
  for(const row of rows){
   row.hidden=!StatusCustomerFilter.matches(row.dataset.customerKey,selectedStatusPage)||!vehicleMatchesSearch({ref:row.dataset.vehicleReference,reg:row.dataset.vehicleRegistration},statusVehicleSearch);
-  if(!row.hidden)matches++;
+  if(!row.hidden){
+   matches++;
+   const charge=Number(row.dataset.vehicleCharge||0);
+   if(Number.isFinite(charge))totalPence+=Math.round(charge*100);
+  }
  }
+ const total=document.getElementById("statusDeliveredCharges");
+ if(total)total.textContent=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(totalPence/100);
  const count=document.getElementById("statusVehicleCount"),empty=document.getElementById("statusVehicleEmpty");
  if(count)count.textContent=matches+" of "+rows.length+" vehicles";
  if(empty){empty.hidden=matches>0;empty.textContent=rows.length?(StatusCustomerFilter.selected(selectedStatusPage)?"No vehicles match this customer and reference or registration.":"No vehicles match this reference or registration."):"No vehicles currently "+(selectedStatusPage==="All"?"booked.":"in this status.");}
@@ -5042,7 +5048,7 @@ function drawStatusPage(c){
       <th>Pickup Evidence</th>
       <th>Action</th>
     </tr>
-    ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}" data-customer-key="${escapeHtml(StatusCustomerFilter.customerKey(b,customerModel))}">
+    ${rows.map(b=>`<tr data-vehicle-reference="${escapeHtml(b.ref||"")}" data-vehicle-registration="${escapeHtml(b.reg||"")}" data-customer-key="${escapeHtml(StatusCustomerFilter.customerKey(b,customerModel))}" data-vehicle-charge="${escapeHtml(b.amount??0)}">
       <td><b>${b.ref}</b>${CustomerReference.summary(b)}</td><td>${b.lastUpdatedBy||"—"}</td><td>${b.lastUpdatedAt||"—"}</td><td>${escapeHtml(bookingApprovalLatest(b).approvedBy||"—")}</td><td>${bookingApprovalLatest(b).approvedAt?escapeHtml(bookingApprovalTime(bookingApprovalLatest(b).approvedAt)):"—"}</td>
       <td>${b.customerType==="Private"?(b.privateCustomerName||"Private Customer"):(b.business||"—")}</td>
       <td>${b.vehicle||"—"}${bookingDriverAssignmentButton(b)}</td>
@@ -5068,6 +5074,7 @@ function drawStatusPage(c){
    </table>
   </div>
   <p id="statusVehicleEmpty" class="muted" role="status" hidden></p>
+  ${selectedStatusPage==="Delivered"?`<div style="border-top:1px solid var(--line,#e5e7eb);padding-top:16px;margin-top:16px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap" role="status" aria-live="polite"><div><b>Total delivered vehicle charges</b><p class="muted" style="margin:6px 0 0">Paid and unpaid charges for the vehicles matching your customer and search filters.</p></div><strong id="statusDeliveredCharges" style="font-size:24px">£0.00</strong></div>`:""}
  </div>
  <div id="statusBookingDetail"></div>`;
  searchStatusVehicles(statusVehicleSearch);
