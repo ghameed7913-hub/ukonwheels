@@ -100,3 +100,84 @@ test("live normalized records override stale cached bookings, while legacy-only 
  assert.ok(elements.plResult.innerHTML.includes("£90.00"));
  c.ProfitLoss.calculate(store,"another-user");assert.equal(elements.plResult.innerHTML.includes("£270.00"),false);
 });
+test("pending includes only unpaid completed deliveries in the selected delivery dates",()=>{
+ const api=setup().ProfitLoss,data={...store,bookings:[...store.bookings,
+  {ref:"ACTIVE-UNPAID",status:"On Route",amount:999,_deliveredAt:"2026-10-20"},
+  {ref:"CANCELLED",status:"Cancelled",amount:999,_deliveredAt:"2026-10-20"},
+  {ref:"NO-ACTUAL-DATE",status:"Delivered",amount:999,deliveryDate:"2026-10-20"}]};
+ const r=api.aggregate(data,"2026-10-01","2026-10-31");
+ assert.equal(r.pending,20020);assert.equal(r.pendingCount,1);
+ assert.equal(r.income,30030);assert.equal(r.net,27000);
+ assert.equal(r.deliveries.reduce((sum,x)=>sum+x.pendingPennies,0),r.pending);
+ assert.equal(api.aggregate(data,"2026-10-01","2026-10-01").pending,0);
+ assert.equal(api.aggregate(data,"2026-11-01","2026-11-01").pending,99900);
+});
+test("pending uses current payment state; invoice/payment duplicates never increase it",()=>{
+ const api=setup().ProfitLoss,unpaid={...store.bookings[1],paymentStatus:"Unpaid"};
+ const data={...store,bookings:[store.bookings[0],unpaid,unpaid]};
+ assert.equal(api.aggregate(data,"2026-10-01","2026-10-31").pending,20020);
+ unpaid.paymentStatus=" Paid ";
+ const paid=api.aggregate(data,"2026-10-01","2026-10-31");
+ assert.equal(paid.pending,0);assert.equal(paid.pendingCount,0);assert.equal(paid.income,30030);assert.equal(paid.net,27000);
+});
+test("empty results and zero charge bookings have zero pending",()=>{
+ const api=setup().ProfitLoss;
+ assert.equal(api.aggregate({},"2026-10-01","2026-10-31").pending,0);
+ const r=api.aggregate({bookings:[{ref:"FREE",status:"Delivered",amount:0,deliveredAt:"2026-10-02"}]},"2026-10-01","2026-10-31");
+ assert.equal(r.pending,0);assert.equal(r.pendingCount,0);
+});
+test("visible pending card and per-booking amounts update with dates and payment state",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate(store);
+ assert.ok(elements.plResult.innerHTML.includes("<b>Pending Payment</b>"));
+ assert.ok(elements.plResult.innerHTML.includes("£200.20"));
+ assert.ok(elements.plResult.innerHTML.includes("not deducted from profit"));
+ assert.ok(elements.plResult.innerHTML.includes("<th>Pending Payment</th>"));
+ elements.plTo.value="2026-10-01";c.ProfitLoss.calculate(store);
+ assert.ok(elements.plResult.innerHTML.includes("0 completed deliveries awaiting payment"));
+ assert.ok(!elements.plResult.innerHTML.includes("£200.20"));
+});
+test("one pending tab switches the same detail panel between unpaid and all revenue bookings",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate(store);
+ const panel=()=>elements.plResult.innerHTML.split('<section id="pl-details"')[1];
+ assert.equal((elements.plResult.innerHTML.match(/id="pl-pending-tab"/g)||[]).length,1);
+ assert.ok(panel().includes("<td>A</td>"));assert.ok(panel().includes("<td>B</td>"));
+ c.ProfitLoss.selectTab("pending");
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-pending-tab" role="tab" aria-selected="true"'));
+ assert.ok(panel().includes("<td>B</td>"));assert.ok(!panel().includes("<td>A</td>"));
+ assert.ok(panel().includes("£200.20"));
+ c.ProfitLoss.selectTab("revenue");
+ assert.ok(panel().includes("<td>A</td>"));assert.ok(panel().includes("<td>B</td>"));
+ assert.ok(panel().includes("£300.30"));
+ assert.ok(elements.plResult.innerHTML.includes("£270.00"));
+});
+test("pending selection persists through date changes, clears empty results, and resets on sign-out",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate(store);c.ProfitLoss.selectTab("pending");
+ elements.plTo.value="2026-10-01";c.ProfitLoss.calculate(store);
+ assert.ok(elements.plResult.innerHTML.includes("No pending payments for completed deliveries in these dates."));
+ assert.ok(!elements.plResult.innerHTML.includes("<td>A</td>"));
+ c.ProfitLoss.reset();c.ProfitLoss.calculate(store);
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-revenue-tab" role="tab" aria-selected="true"'));
+ assert.ok(elements.plResult.innerHTML.includes("<td>A</td>"));
+ elements.plFrom.value="2026-11-01";c.ProfitLoss.calculate(store);
+ c.ProfitLoss.selectTab("pending");
+ assert.ok(elements.plResult.innerHTML.includes('role="alert"'));
+ assert.ok(!elements.plResult.innerHTML.includes('role="tabpanel"'));
+});
+test("keyboard tab switching works and booking details are safely escaped",()=>{
+ const c=setup(),elements={plFrom:{value:"2026-10-01"},plTo:{value:"2026-10-31"},plResult:{innerHTML:""}};
+ c.document={getElementById:id=>elements[id]};
+ c.ProfitLoss.calculate({bookings:[{...store.bookings[1],vehicle:"Ford Transit",reg:"AB12 CDE",pickup:"Leeds",destination:'<img src=x>'}]});
+ let prevented=false;c.ProfitLoss.tabKey({key:"End",preventDefault(){prevented=true}});
+ assert.equal(prevented,true);
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-pending-tab" role="tab" aria-selected="true"'));
+ for(const detail of ["Ford Transit","AB12 CDE","Leeds","&lt;img src=x&gt;"])assert.ok(elements.plResult.innerHTML.includes(detail));
+ assert.ok(!elements.plResult.innerHTML.includes("<img src=x>"));
+ c.ProfitLoss.tabKey({key:"Home",preventDefault(){}});
+ assert.ok(elements.plResult.innerHTML.includes('id="pl-revenue-tab" role="tab" aria-selected="true"'));
+});
