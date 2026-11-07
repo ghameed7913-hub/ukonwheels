@@ -34,7 +34,7 @@
     if(row.status!=="Delivered")return false;
     const key=row._normalizedId||row.ref;
     if(!key)return true;
-    const signature=JSON.stringify([window.InvoiceVehicles.deliveryDay(row),row.amount]);
+    const signature=JSON.stringify([window.InvoiceVehicles.deliveryDay(row),row.amount,row.paymentStatus]);
     if(seen.has(key)){
      if(seen.get(key)!==signature)throw Error("Conflicting copies of booking "+key+". Refresh the portal before calculating Profit & Loss.");
      return false;
@@ -45,7 +45,14 @@
    const income=total(bookings,"amount",window.InvoiceVehicles.deliveryDay,deliveries);
    const expenses=total(store.expenses,"amount",undefined,expenseRows),net=income-expenses;
    if(!Number.isSafeInteger(income)||!Number.isSafeInteger(net))throw Error("The selected total is too large to calculate safely.");
-   return {income,expenses,net,excluded,count,deliveries,expenseRows,missingDeliveries};
+   let pending=0,pendingCount=0;
+   for(const delivery of deliveries){
+    delivery.pendingPennies=String(delivery.row.paymentStatus||"").trim().toLowerCase()==="paid"?0:Math.max(0,delivery.pennies);
+    if(delivery.pendingPennies>0)pendingCount++;
+    pending+=delivery.pendingPennies;
+    if(!Number.isSafeInteger(pending))throw Error("The pending payment total is too large to calculate safely.");
+   }
+   return {income,expenses,net,pending,pendingCount,excluded,count,deliveries,expenseRows,missingDeliveries};
   }catch(e){return {error:e.message}}
  }
  function render(){
@@ -72,12 +79,14 @@
    ${report.count?"":"<p>No matching completed deliveries or expense records for these dates.</p>"}
    <div class="cards"><div class="card"><b>Total Revenue</b><strong>${cash(report.income)}</strong><small>${report.deliveries.length} completed deliveries · paid and unpaid</small></div>
    <div class="card"><b>Total Expenses</b><strong>${cash(report.expenses)}</strong></div>
-   <div class="card"><b>Net ${report.net>=0?"Profit":"Loss"}</b><strong style="color:${report.net>=0?"#15803d":"#b91c1c"}">${cash(report.net)}</strong></div></div>
+   <div class="card"><b>Net ${report.net>=0?"Profit":"Loss"}</b><strong style="color:${report.net>=0?"#15803d":"#b91c1c"}">${cash(report.net)}</strong></div>
+   <div class="card"><b>Pending Payment</b><strong style="color:#92400e">${cash(report.pending)}</strong><small>${report.pendingCount} completed deliveries awaiting payment</small></div></div>
+   <p class="muted">Pending Payment is the booking value not currently marked Paid, for deliveries completed within these dates. It is already included in revenue and is not deducted from profit. This is the current payment status, not a historical balance at the end date.</p>
    ${report.excluded?`<p role="alert">${report.excluded} record(s) without a valid actual delivery/expense date were excluded, so these totals may be incomplete. Requested delivery dates are not used.${report.missingDeliveries.length?" Missing actual delivery dates: "+report.missingDeliveries.map(escape).join(", ")+".":""}</p>`:""}
    <details><summary>Revenue breakdown — ${report.deliveries.length} completed deliveries</summary>
-   <div class="scroll"><table><thead><tr><th>Booking</th><th>Actual delivery date</th><th>Payment</th><th>Revenue</th></tr></thead><tbody>
-   ${report.deliveries.map(x=>`<tr><td>${escape(x.row.ref||"—")}</td><td>${displayDate(x.date)}</td><td>${escape(x.row.paymentStatus||"Unpaid")}</td><td>${cash(x.pennies)}</td></tr>`).join("")}
-   </tbody><tfoot><tr><th colspan="3">Total Revenue</th><td>${cash(report.income)}</td></tr></tfoot></table></div></details></div>`;
+   <div class="scroll"><table><thead><tr><th>Booking</th><th>Actual delivery date</th><th>Payment</th><th>Revenue</th><th>Pending Payment</th></tr></thead><tbody>
+   ${report.deliveries.map(x=>`<tr><td>${escape(x.row.ref||"—")}</td><td>${displayDate(x.date)}</td><td>${escape(x.row.paymentStatus||"Unpaid")}</td><td>${cash(x.pennies)}</td><td>${cash(x.pendingPennies)}</td></tr>`).join("")}
+   </tbody><tfoot><tr><th colspan="3">Totals</th><td>${cash(report.income)}</td><td>${cash(report.pending)}</td></tr></tfoot></table></div></details></div>`;
  }
  let loadedBookings=null,owner=null,request=0;
  async function readBookings(client){
