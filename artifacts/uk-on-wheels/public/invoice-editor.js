@@ -4,6 +4,7 @@ window.InvoiceEditor=(()=>{
  const uid=()=>typeof currentSession!=="undefined"?currentSession?.user?.id:null;
  const allowed=()=>!!uid()&&(role==="admin"||(role==="staff"&&hasPermission("accounts")));
  const billingFields=["name","address","postcode","email","phone","vatNumber","companyReg"];
+ const companyFields={companyName:"Company name",companyAddress:"Company address",companyPostcode:"Company postcode",companyEmail:"Company email",companyPhone:"Company phone",companyRegistration:"Company registration",vatNumber:"Company VAT number",bankName:"Bank name",bankAccountName:"Bank account name",bankSortCode:"Sort code",bankAccountNumber:"Account number",iban:"IBAN"};
  const clone=v=>JSON.parse(JSON.stringify(v));
  let busy=false;
  function reset(){document.getElementById("invoiceEditDialog")?.remove()}
@@ -33,7 +34,17 @@ window.InvoiceEditor=(()=>{
   const reason=String(values.reason||"").trim(),description=String(values.otherDescription||"").trim();
   if(!reason||reason.length>1000)throw Error("Enter an amendment reason, up to 1,000 characters.");
   if(description.length>2000)throw Error("Other charges description must be 2,000 characters or fewer.");
+  let companyDetails=original.companyDetails;
+  if(values.companyDetails!==undefined){
+   companyDetails={...original.companyDetails};
+   for(const key of Object.keys(companyFields)){
+    if(typeof values.companyDetails?.[key]!=="string"||values.companyDetails[key].trim().length>500)throw Error("Company details must be text, up to 500 characters per field.");
+    companyDetails[key]=values.companyDetails[key].trim();
+   }
+   if(!companyDetails.companyName)throw Error("Enter the company name.");
+  }
   const revised={...original,date:values.date,dueDate:values.dueDate||"",billTo,
+   ...(companyDetails?{companyDetails}:{}),
    items:original.items.map((it,n)=>({...it,charge:charges[n]})),...totals,
    extraPhrasal:extra,otherCharges:other,otherDescription:description};
   if(original.status==="Paid"&&(charges.some((v,n)=>v!==Number(original.items[n].charge))||
@@ -41,7 +52,8 @@ window.InvoiceEditor=(()=>{
     values.vatEnabled!==(original.vatEnabled!==false)||rate!==Number(original.vatPct||0)||
     totals.total!==Number(original.total)))throw Error("This invoice is paid. Recorded charges and VAT cannot be changed; only dates, billing details and the description can be amended.");
   return {values:{date:revised.date,dueDate:revised.dueDate,billTo,charges,vatEnabled:values.vatEnabled,vatPct:rate,
-   extraPhrasal:extra,otherCharges:other,otherDescription:description,reason},revised};
+   extraPhrasal:extra,otherCharges:other,otherDescription:description,reason,
+   ...(values.companyDetails!==undefined?{companyDetails}: {})},revised};
  }
  async function commit(original,values){
   if(!allowed())throw Error("Accounts management permission is required.");
@@ -55,6 +67,7 @@ window.InvoiceEditor=(()=>{
   if(error)throw Error(error.message+((error.code==="PGRST202"||error.code==="42883")?" Ask Admin to run supabase/invoice-amendments.sql.":""));
   if(actor!==uid())throw Error("Your sign-in changed while saving. Reload to check the invoice.");
   if(!data||data.invoiceNo!==original.invoiceNo||!Number.isInteger(data.amendmentRevision))throw Error("The server did not confirm the amendment. Reload the invoice before retrying.");
+  if(checked.values.companyDetails&&Object.keys(companyFields).some(k=>data.companyDetails?.[k]!==checked.values.companyDetails[k]))throw Error("The server did not save the company details. Ask Admin to run the updated supabase/invoice-amendments.sql, then reload the invoice before retrying.");
   // Patch only the saved invoice, not a whole-portal snapshot.
   const store=getStore(),index=(store.invoices||[]).findIndex(i=>i.invoiceNo===original.invoiceNo);
   if(index>=0)store.invoices[index]=data;
@@ -70,8 +83,12 @@ window.InvoiceEditor=(()=>{
   dialog.style.cssText="width:min(900px,94vw);max-height:90vh;overflow:auto;border:1px solid #cbd5e1;border-radius:14px;padding:24px;background:var(--panel,#fff);color:inherit";
   const input=(name,label,value,type="text",extra="")=>`<label>${label}<input name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`;
   const billTo=original.billTo||getStore().businesses?.find(b=>b.name===original.business)||{name:original.business};
+  const company=original.companyDetails||getStore().invoiceSettings||{};
   dialog.innerHTML=`<form><h2>Edit Invoice ${esc(invoiceNo)}</h2><p>${esc(original.business)} · ${esc(original.status||"Unpaid")}. Invoice number, linked client and booked vehicles stay unchanged.</p>
-   ${paid?'<p role="note">This invoice is paid. You can correct dates, billing details and the description, but recorded charges, VAT and payments are protected.</p>':""}
+   ${paid?'<p role="note">This invoice is paid. You can correct company and billing details, dates and the description, but recorded charges, VAT and payments are protected.</p>':""}
+   <h3>Your company details</h3><p>These changes apply only to this invoice and its PDF. Saved company defaults and other invoices will not change. The existing logo is retained.</p>
+   <div class="form">${Object.entries(companyFields).map(([k,label])=>input("company_"+k,label,company[k],"text",'maxlength="500"'+(k==="companyName"?" required":""))).join("")}</div>
+   <h3>Customer billing details</h3>
    <div class="form">${input("date","Invoice date *",original.date,"date","required")}${input("dueDate","Due date",original.dueDate,"date")}
    ${billingFields.map(k=>input("bill_"+k,({name:"Billing name",address:"Billing address",postcode:"Postcode",email:"Billing email",phone:"Phone",vatNumber:"VAT number",companyReg:"Company registration"})[k],billTo[k],"text",'maxlength="500"'+(k==="name"?" required":""))).join("")}</div>
    <h3>Vehicle charges</h3><div class="scroll"><table><thead><tr><th>Booking</th><th>Vehicle</th><th>Registration</th><th>Charge (£)</th></tr></thead><tbody>
@@ -88,6 +105,7 @@ window.InvoiceEditor=(()=>{
   const form=dialog.querySelector("form"),field=name=>form.elements.namedItem(name);
   const read=()=>({date:field("date").value,dueDate:field("dueDate").value,
    billTo:Object.fromEntries(billingFields.map(k=>[k,field("bill_"+k).value])),
+   companyDetails:Object.fromEntries(Object.keys(companyFields).map(k=>[k,field("company_"+k).value])),
    charges:original.items.map((_,n)=>field("charge_"+n).value),vatEnabled:field("vatEnabled").checked,
    vatPct:field("vatPct").value,extraPhrasal:field("extraPhrasal").value,otherCharges:field("otherCharges").value,
    otherDescription:field("otherDescription").value,reason:field("reason").value});
