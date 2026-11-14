@@ -97,3 +97,40 @@ test("PDF generation consumes the amended invoice and billing snapshot",async()=
  const pdf=buildInvoicePdf(revised,{companyName:"Issuer",showLogo:false},revised.billTo).output();
  assert.match(pdf,/Correct address/);assert.match(pdf,/175.80/);assert.doesNotMatch(pdf,/VAT \(/);
 });
+function companyValues(){
+ return Object.fromEntries(["companyName","companyAddress","companyPostcode","companyEmail","companyPhone","companyRegistration","vatNumber","bankName","bankAccountName","bankSortCode","bankAccountNumber","iban"].map(k=>[k,k==="companyName"?"Corrected issuer":k==="bankAccountNumber"?"12345678":""]));
+}
+test("company amendments round-trip through the RPC without changing other invoices or defaults",async()=>{
+ const {editor,store,calls}=setup();
+ store.invoiceSettings={companyName:"Global issuer"};
+ store.invoices.push(structuredClone(original));
+ const v={...values(),companyDetails:companyValues()};
+ const result=await editor.commit(structuredClone(original),v);
+ assert.equal(result.companyDetails.companyName,"Corrected issuer");
+ assert.equal(calls[0].args.p_values.companyDetails.bankAccountNumber,"12345678");
+ assert.equal(store.invoiceSettings.companyName,"Global issuer");
+ assert.equal(store.invoices[1].companyDetails.companyName,"Original issuer");
+ assert.equal(original.companyDetails.companyName,"Original issuer");
+});
+test("company corrections on paid invoices preserve receipts, totals and the logo",()=>{
+ const {editor}=setup();
+ const paid={...original,status:"Paid",paidAmount:180,paymentMethod:"Bank",companyDetails:{...original.companyDetails,logoPath:"logos/existing.png",showLogo:false}};
+ const v={...values(),charges:[100,50],vatEnabled:true,vatPct:20,extraPhrasal:0,otherCharges:0,companyDetails:companyValues()};
+ const r=editor.validate(paid,v).revised;
+ assert.equal(r.total,180);assert.equal(r.paidAmount,180);assert.equal(r.paymentMethod,"Bank");
+ assert.equal(r.companyDetails.logoPath,"logos/existing.png");assert.equal(r.companyDetails.showLogo,false);
+ for(const companyDetails of [{}, {...companyValues(),companyName:" "},{...companyValues(),companyAddress:"x".repeat(501)}])
+  assert.throws(()=>editor.validate(paid,{...v,companyDetails}),/Company details|company name/);
+});
+test("outdated SQL cannot silently report that company changes were saved",async()=>{
+ const {c,editor,store}=setup();
+ c.sb.rpc=async()=>({data:{...original,amendmentRevision:1}});
+ await assert.rejects(editor.commit(original,{...values(),companyDetails:companyValues()}),/updated supabase\/invoice-amendments.sql/);
+ assert.equal(store.invoices[0].companyDetails.companyName,"Original issuer");
+});
+test("PDF includes the corrected issuer and bank account",async()=>{
+ const {buildInvoicePdf}=await import("../src/invoice-pdf.js");
+ const {editor}=setup(),r=editor.validate(original,{...values(),companyDetails:companyValues()}).revised;
+ const pdf=buildInvoicePdf(r,{...r.companyDetails,showLogo:false},r.billTo).output();
+ assert.match(pdf,/Corrected issuer/);assert.match(pdf,/12345678/);
+});

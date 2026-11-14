@@ -18,7 +18,7 @@ returns jsonb language plpgsql security definer set search_path=pg_catalog,publi
 declare source jsonb; original jsonb; replacement jsonb; items jsonb:='[]'::jsonb;
  item jsonb; charge numeric; subtotal numeric:=0; vat_pct numeric; vat numeric;
  extra numeric; other numeric; total numeric; enabled boolean; issue_date date; due_date date;
- bill jsonb:='{}'::jsonb; field text; reason text; count_matches integer; idx integer:=0;
+ bill jsonb:='{}'::jsonb; company jsonb; field text; reason text; count_matches integer; idx integer:=0;
 begin
  if not exists(select 1 from public.profiles where id=auth.uid() and lower(status)='active' and role in ('admin','staff'))
    or not (public.is_portal_admin() or public.has_portal_permission('accounts:manage')) then
@@ -72,6 +72,18 @@ begin
   bill:=bill||jsonb_build_object(field,trim(p_values->'billTo'->>field));
  end loop;
  if nullif(bill->>'name','') is null then raise exception 'Enter the billing name'; end if;
+ -- Amend only the invoice snapshot, never the company-wide defaults or logo.
+ if p_values ? 'companyDetails' then
+  if jsonb_typeof(p_values->'companyDetails') is distinct from 'object' then raise exception 'Company details are required'; end if;
+  company:=coalesce(nullif(original->'companyDetails','null'::jsonb),nullif(source->'invoiceSettings','null'::jsonb),'{}'::jsonb);
+  foreach field in array array['companyName','companyAddress','companyPostcode','companyEmail','companyPhone','companyRegistration','vatNumber','bankName','bankAccountName','bankSortCode','bankAccountNumber','iban'] loop
+   if jsonb_typeof(p_values->'companyDetails'->field) is distinct from 'string' or length(p_values->'companyDetails'->>field)>500 then
+    raise exception 'Company details must be text, up to 500 characters per field';
+   end if;
+   company:=company||jsonb_build_object(field,trim(p_values->'companyDetails'->>field));
+  end loop;
+  if nullif(company->>'companyName','') is null then raise exception 'Enter the company name'; end if;
+ end if;
  reason:=trim(p_values->>'reason');
  if reason is null or reason='' or length(reason)>1000 then raise exception 'Enter an amendment reason, up to 1000 characters'; end if;
  if jsonb_typeof(p_values->'otherDescription') is distinct from 'string' or length(p_values->>'otherDescription')>2000 then raise exception 'Enter a description up to 2000 characters'; end if;
@@ -90,6 +102,7 @@ begin
   'vatEnabled',enabled,'vatPct',vat_pct,'vatAmount',vat,'extraPhrasal',extra,'otherCharges',other,
   'extraTotal',extra+other,'otherDescription',trim(p_values->>'otherDescription'),'total',total,
   'amendmentRevision',coalesce((original->>'amendmentRevision')::integer,0)+1,'amendedBy',auth.uid(),'amendedAt',now());
+ if company is not null then replacement:=replacement||jsonb_build_object('companyDetails',company); end if;
  select jsonb_set(source,'{invoices}',jsonb_agg(case when i->>'invoiceNo'=p_invoice_no then replacement else i end order by n))
  into source from jsonb_array_elements(source->'invoices') with ordinality a(i,n);
  update public.app_store set data=source,updated_at=now() where id='main';
