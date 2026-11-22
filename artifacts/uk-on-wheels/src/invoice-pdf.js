@@ -72,7 +72,7 @@ export function buildInvoicePdf(invoice, settings = {}, billTo = {}, logoBytes) 
   }
   tableHeader();
   for (const item of invoice.items || []) {
-    const cells = [item.ref, item.vehicle || "Vehicle delivery", item.reg || "—",
+    const cells = [item.ref + (item.customerReference ? "\nCustomer ref: " + item.customerReference : ""), item.vehicle || "Vehicle delivery", item.reg || "—",
       "Vehicle collection and delivery service", money(item.charge)];
     doc.setFont("helvetica", "normal"); doc.setFontSize(8);
     const rows = cells.map((value, index) => doc.splitTextToSize(text(value), widths[index] - 4));

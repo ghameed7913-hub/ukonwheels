@@ -20,6 +20,8 @@ function prepareSelection(c,inputs,store){
  Object.assign(store.bookings[0],{business:inputs.invBiz.value,status:"Delivered",_deliveredAt:"2030-01-10T12:00:00Z"});
  c.window={};vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/invoice-vehicles.js"),"utf8"),c);
  c.InvoiceVehicles=c.window.InvoiceVehicles;c.loadInvoiceVehicles=()=>{};
+ vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/customer-reference.js"),"utf8"),c);
+ c.CustomerReference=c.window.CustomerReference;
  c.loadInvoiceVehicles.selection={key:c.InvoiceVehicles.readRange(c.document).key,refs:["BOOKING"]};
 }
 test("company and bank details are saved through one global server call, not per Client", async()=>{
