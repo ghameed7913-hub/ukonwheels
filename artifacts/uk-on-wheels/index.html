@@ -3790,7 +3790,7 @@ function saveExpense(){
  return ExpenseMonth.saveSingle();
 }
 
-function drawInvoices(c,settingsLoaded=false){
+function drawInvoices(c,settingsLoaded=false,invoiceDraft=null){
  if(role==="client")return drawClientInvoices(c);
  if(role==="driver"){c.innerHTML='<div class="panel"><h2>Access Restricted</h2></div>';return;}
  if(typeof SUPABASE_CONFIGURED!=="undefined"&&SUPABASE_CONFIGURED&&!settingsLoaded){
@@ -3801,7 +3801,7 @@ function drawInvoices(c,settingsLoaded=false){
      const current=getStore();
      current.invoiceSettings={...ensureInvoiceSettings({}).invoiceSettings,...(settings||{})};
      STORE_CACHE=current;
-     drawInvoices(c,true);
+     drawInvoices(c,true,invoiceDraft);
    }).catch(error=>{
      if(drawInvoices.requestId!==requestId||page!=="invoices")return;
      c.innerHTML=`<div class="panel"><h2>Invoices could not load</h2><p>${escapeHtml(error.message)}</p><button class="btn secondary" onclick="drawInvoices(document.getElementById('content'))">Retry</button></div>`;
@@ -3868,6 +3868,7 @@ function drawInvoices(c,settingsLoaded=false){
    document.getElementById("invoiceCompanyForm")?.querySelectorAll("input,textarea").forEach(input=>input.disabled=true);
    const saveButton=document.getElementById("saveInvoiceSettingsBtn");if(saveButton)saveButton.hidden=true;
  }
+ if(invoiceDraft)restoreInvoiceDates(invoiceDraft);
 }
 
 async function saveInvoiceSettings(){
@@ -4043,6 +4044,15 @@ function selectInvoiceVehicles(checked){
  (loadInvoiceVehicles.selection?.refs||[]).forEach((ref,i)=>{const input=document.getElementById("ii_"+i);if(input)input.checked=checked});
 }
 
+function restoreInvoiceDates(draft){
+ if(draft.actorId!==currentSession?.user?.id)return;
+ for(const [id,value] of Object.entries({invBiz:draft.client,invDeliveredFrom:draft.from,invDeliveredTo:draft.to,invDate:draft.date,invDue:draft.due})){
+  const input=document.getElementById(id);
+  if(input)input.value=value;
+ }
+ loadInvoiceVehicles();
+}
+
 function makeSingleVehicleInvoice(ref){
  const refs=loadInvoiceVehicles.selection?.refs;
  if(!refs||!refs.includes(ref))return alert("Reload the delivered vehicles before generating this invoice.");
@@ -4108,7 +4118,7 @@ async function makeInvoice(refs,singleRef=null){
  try{
    if(!await saveStore(s))return;
    alert(`Invoice ${invoiceNo} generated successfully for ${items.length} vehicle(s). Use Download PDF to save a copy.`);
-   drawInvoices(document.getElementById("content"));
+   drawInvoices(document.getElementById("content"),false,{actorId,client:range.client,from:range.from,to:range.to,date:dateEl?.value||"",due:dueEl?.value||""});
  }finally{makeInvoice.saving=false;}
 }
 
