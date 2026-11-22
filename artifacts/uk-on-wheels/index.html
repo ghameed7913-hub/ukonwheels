@@ -4030,10 +4030,10 @@ function loadInvoiceVehicles(){
    return;
  }
  loadInvoiceVehicles.selection={key:range.key,refs:rows.map(b=>b.ref)};
- area.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Delivered Vehicles for ${escapeHtml(biz)}</h3><p class="muted">${rows.length} vehicle(s) delivered from ${escapeHtml(range.from)} to ${escapeHtml(range.to)}. Tick only the vehicles to include.</p>${missingNotice}
+ area.innerHTML=`<div class="panel" style="margin-top:12px"><h3>Delivered Vehicles for ${escapeHtml(biz)}</h3><p class="muted">${rows.length} vehicle(s) delivered from ${escapeHtml(range.from)} to ${escapeHtml(range.to)}. Generate an invoice for one vehicle using its row button, or tick vehicles to invoice together. Both options use the invoice dates, VAT and extra charges entered above.</p>${missingNotice}
  <div class="actions"><button class="btn secondary" type="button" onclick="selectInvoiceVehicles(true)">Select all</button><button class="btn secondary" type="button" onclick="selectInvoiceVehicles(false)">Clear selection</button></div>
- <div class="scroll"><table style="min-width:1150px"><tr><th>Include</th><th>Booking</th><th>Customer reference</th><th>Vehicle</th><th>Reg</th><th>Actual delivery date</th><th>Manual Charge (£)</th></tr>
- ${rows.map((b,i)=>`<tr><td><input id="ii_${i}" type="checkbox" aria-label="Include ${escapeHtml(b.ref)}"></td><td>${escapeHtml(b.ref)}</td><td>${escapeHtml(CustomerReference.value(b)||"—")}</td><td>${escapeHtml(b.vehicle)}</td><td>${escapeHtml(b.reg||"—")}</td><td>${InvoiceVehicles.deliveryDay(b)}</td><td><input id="ic_${i}" type="number" min="0" step="0.01" aria-label="Charge for ${escapeHtml(b.ref)}" value="${Number(b.amount||0).toFixed(2)}"></td></tr>`).join("")}
+ <div class="scroll"><table style="min-width:1150px"><tr><th>Include</th><th>Booking</th><th>Customer reference</th><th>Vehicle</th><th>Reg</th><th>Actual delivery date</th><th>Manual Charge (£)</th><th>Action</th></tr>
+ ${rows.map((b,i)=>`<tr><td><input id="ii_${i}" type="checkbox" aria-label="Include ${escapeHtml(b.ref)}"></td><td>${escapeHtml(b.ref)}</td><td>${escapeHtml(CustomerReference.value(b)||"—")}</td><td>${escapeHtml(b.vehicle)}</td><td>${escapeHtml(b.reg||"—")}</td><td>${InvoiceVehicles.deliveryDay(b)}</td><td><input id="ic_${i}" type="number" min="0" step="0.01" aria-label="Charge for ${escapeHtml(b.ref)}" value="${Number(b.amount||0).toFixed(2)}"></td><td><button type="button" class="btn secondary" data-booking-ref="${escapeHtml(b.ref)}" aria-label="Generate invoice for ${escapeHtml(b.ref)}" onclick="makeSingleVehicleInvoice(this.dataset.bookingRef)">Generate Invoice</button></td></tr>`).join("")}
  </table></div><div class="actions"><button class="btn primary" id="generateInvoiceBtn">Generate Invoice</button></div></div>`;
  const gen=document.getElementById("generateInvoiceBtn");
  if(gen)gen.addEventListener("click",()=>makeInvoice(rows.map(b=>b.ref)));
@@ -4041,6 +4041,12 @@ function loadInvoiceVehicles(){
 
 function selectInvoiceVehicles(checked){
  (loadInvoiceVehicles.selection?.refs||[]).forEach((ref,i)=>{const input=document.getElementById("ii_"+i);if(input)input.checked=checked});
+}
+
+function makeSingleVehicleInvoice(ref){
+ const refs=loadInvoiceVehicles.selection?.refs;
+ if(!refs||!refs.includes(ref))return alert("Reload the delivered vehicles before generating this invoice.");
+ return makeInvoice(refs,ref);
 }
 
 function toggleInvoiceVat(){
@@ -4055,7 +4061,7 @@ function calculateInvoiceTotals(subtotal,vatEnabled,vatRate,extra=0,other=0){
  const vatAmount=vatEnabled?round(subtotal*vatPct/100):0;
  return {subtotal:round(subtotal),vatEnabled,vatPct,vatAmount,extraTotal:round(extra+other),total:round(subtotal+vatAmount+extra+other)};
 }
-async function makeInvoice(refs){
+async function makeInvoice(refs,singleRef=null){
  const actorId=typeof currentSession!=="undefined"?currentSession?.user?.id:null;
  let s=ensureAccountsData(),items=[],subtotal=0;
  let range;
@@ -4063,11 +4069,12 @@ async function makeInvoice(refs){
   range=InvoiceVehicles.readRange(document);
   const selection=loadInvoiceVehicles.selection;
   if(!selection||selection.key!==range.key||JSON.stringify(selection.refs)!==JSON.stringify(refs))throw new Error("Reload the delivered vehicles for the selected client and dates before generating.");
+  if(singleRef!==null&&!refs.includes(singleRef))throw new Error("Reload the delivered vehicles before generating this invoice.");
  }catch(error){return alert(error.message)}
  refs.forEach((ref,i)=>{
    const include=document.getElementById("ii_"+i);
    const chargeEl=document.getElementById("ic_"+i);
-   if(include&&include.checked&&chargeEl){
+   if((singleRef!==null?ref===singleRef:include&&include.checked)&&chargeEl){
      const charge=Number(chargeEl.value||0),b=s.bookings.find(x=>x.ref===ref);
       if(b){items.push({ref,vehicle:b.vehicle,reg:b.reg||"",charge,deliveredDate:InvoiceVehicles.deliveryDay(b)});subtotal+=charge;}
       else items.push({ref,charge});

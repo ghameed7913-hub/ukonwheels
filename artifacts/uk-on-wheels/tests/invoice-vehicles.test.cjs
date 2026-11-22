@@ -118,3 +118,56 @@ test("Delivered invoice candidates show saved customer references separately fro
  s.load();
  assert.ok(s.fields.invVehicleArea.innerHTML.includes('<td>START</td><td>CLIENT-456</td>'));
 });
+test("Each delivered row offers a single-vehicle invoice without changing bulk selections",async()=>{
+ const s=setup();s.load();
+ assert.match(s.fields.invVehicleArea.innerHTML,/data-booking-ref="END"[^>]+onclick="makeSingleVehicleInvoice\(this.dataset.bookingRef\)"/);
+ s.fields.ii_0.checked=true;
+ s.fields.ic_1.value="87.65";
+ s.fields.invVatEnabled.checked=true;
+ s.fields.invVat.value="20";
+ s.fields.invExtra={value:"5"};
+ s.fields.invDate={value:"2026-11-01"};
+ s.fields.invDue={value:"2026-11-30"};
+ await s.c.makeSingleVehicleInvoice("END");
+ assert.equal(s.saves.length,1);
+ const invoice=s.saves[0].invoices[0];
+ assert.deepEqual(invoice.items.map(i=>i.ref),["END"]);
+ assert.equal(invoice.vehicleCount,1);
+ assert.equal(invoice.subtotal,87.65);
+ assert.equal(invoice.total,110.18);
+ assert.equal(invoice.date,"2026-11-01");
+ assert.equal(invoice.dueDate,"2026-11-30");
+ assert.equal(s.store.bookings[0].invoiceNo,undefined);
+ assert.equal(s.store.bookings[1].invoiceNo,invoice.invoiceNo);
+ assert.equal(s.fields.ii_0.checked,true);
+ assert.equal(s.fields.ii_1.checked,false);
+});
+test("Single-vehicle invoices reject stale, already invoiced or unavailable vehicles",async()=>{
+ for(const mutate of [
+  s=>{s.fields.invBiz.value="Client B"},
+  s=>{s.fields.invDeliveredTo.value="2026-10-30"},
+  s=>{s.store.bookings[1].invoiceNo="OTHER"},
+  s=>{s.store.bookings[1].paymentStatus="Paid"},
+  s=>{s.fields.ic_1.value="-1"},
+  s=>{s.store.bookings.splice(1,1)},
+  s=>{s.c.loadInvoiceVehicles.selection=null},
+ ]){
+  const s=setup();s.load();mutate(s);
+  await s.c.makeSingleVehicleInvoice("END");
+  assert.equal(s.saves.length,0);
+ }
+ const s=setup();const refs=s.load();
+ await s.c.makeSingleVehicleInvoice("UNKNOWN");
+ await s.c.makeInvoice(refs,"UNKNOWN");
+ assert.equal(s.saves.length,0);
+});
+test("Single-vehicle invoice cannot be generated twice or after an async eligibility change",async()=>{
+ const s=setup();s.load();
+ await s.c.makeSingleVehicleInvoice("END");
+ await s.c.makeSingleVehicleInvoice("END");
+ assert.equal(s.saves.length,1);
+ const a=setup();a.load();a.c.SUPABASE_CONFIGURED=true;a.c.sb={};
+ a.c.InvoiceTools={readSettings:async()=>{a.store.bookings[1].invoiceNo="OTHER";return {companyName:"Issuer"}}};
+ await a.c.makeSingleVehicleInvoice("END");
+ assert.equal(a.saves.length,0);
+});
