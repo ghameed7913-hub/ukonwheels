@@ -24,6 +24,7 @@ function setup(){
   escapeHtml:v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch])),
   saveStore:async s=>{saves.push(JSON.parse(JSON.stringify(s)));return true},drawInvoices(){},go(){}});
  vm.runInContext(helper,c);c.InvoiceVehicles=c.window.InvoiceVehicles;
+ vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/customer-reference.js"),"utf8"),c);c.CustomerReference=c.window.CustomerReference;
  vm.runInContext(html.slice(html.indexOf("function loadInvoiceVehicles("),html.indexOf("function viewInvoice(")),c);
  const load=()=>{
   c.loadInvoiceVehicles();
@@ -102,4 +103,18 @@ test("Client and date controls reload candidates automatically and vehicle text 
  const s=setup();s.store.bookings[0].vehicle='<img src=x onerror="bad()">';
  s.load();assert.match(s.fields.invVehicleArea.innerHTML,/&lt;img/);
  assert.doesNotMatch(s.fields.invVehicleArea.innerHTML,/<img/);
+});
+test("Delivered invoice candidates show saved customer references separately from booking numbers",()=>{
+ const s=setup();
+ s.store.bookings[0].notes='Customer reference: MOVEX-<123>&"\n\nHandle with care';
+ s.load();
+ const markup=s.fields.invVehicleArea.innerHTML;
+ assert.match(markup,/<th>Booking<\/th><th>Customer reference<\/th>/);
+ assert.ok(markup.includes('<td>START</td><td>MOVEX-&lt;123&gt;&amp;&quot;</td>'));
+ assert.ok(markup.includes('<td>END</td><td>—</td>'));
+ assert.doesNotMatch(markup,/Handle with care/);
+ delete s.store.bookings[0].notes;
+ s.store.bookings[0].client_notes="Customer reference: CLIENT-456\n\nInstructions";
+ s.load();
+ assert.ok(s.fields.invVehicleArea.innerHTML.includes('<td>START</td><td>CLIENT-456</td>'));
 });
