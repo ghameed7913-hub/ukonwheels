@@ -34,6 +34,8 @@ function setup(enabled = true, rate = "20") {
   });
   c.window={};vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/invoice-vehicles.js"),"utf8"),c);
   c.InvoiceVehicles=c.window.InvoiceVehicles;
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../public/customer-reference.js"),"utf8"),c);
+  c.CustomerReference=c.window.CustomerReference;
   c.loadInvoiceVehicles=()=>{};
   c.loadInvoiceVehicles.selection={key:c.InvoiceVehicles.readRange(c.document).key,refs:["TEST-1"]};
   vm.runInContext(generationCode + "\n" + viewCode, c);

@@ -23,5 +23,13 @@
     const reference = value(booking);
     return reference ? '<div><b>Customer reference</b><p>' + escape(reference) + '</p></div>' : "";
   }
-  window.CustomerReference = {notes, value, summary, detail};
+  function invoiceItem(item, bookings = []) {
+    if (Object.prototype.hasOwnProperty.call(item, "customerReference")) return String(item.customerReference || "");
+    return value(bookings.find(booking => booking.ref === item.ref));
+  }
+  function invoiceSummary(invoice, bookings = []) {
+    const references = [...new Set((invoice.items || []).map(item => invoiceItem(item, bookings)).filter(Boolean))];
+    return references.length ? references.map(escape).join("<br>") : "—";
+  }
+  window.CustomerReference = {notes, value, summary, detail, invoiceItem, invoiceSummary};
 })();

@@ -208,3 +208,16 @@ test("Date restoration stays scoped to the generating account and survives async
  assert.match(draw,/drawInvoices\(c,true,invoiceDraft\)/);
  assert.match(draw,/if\(invoiceDraft\)restoreInvoiceDates\(invoiceDraft\)/);
 });
+test("Generated invoices save each customer reference and keep it after booking notes change",async()=>{
+ const s=setup();const refs=s.load();
+ s.store.bookings[0].notes="Customer reference: PO-001\n\nInstructions";
+ s.store.bookings[1].notes="Customer reference: MOVEX-002";
+ s.fields.ii_0.checked=true;s.fields.ii_1.checked=true;
+ await s.c.makeInvoice(refs);
+ const invoice=s.saves[0].invoices[0];
+ assert.deepEqual(invoice.items.map(i=>i.customerReference),["PO-001","MOVEX-002"]);
+ s.store.bookings[0].notes="Customer reference: CHANGED";
+ assert.equal(s.c.CustomerReference.invoiceSummary(invoice,s.store.bookings),"PO-001<br>MOVEX-002");
+ assert.equal(invoice.vehicleCount,2);
+ assert.equal(invoice.total,200);
+});

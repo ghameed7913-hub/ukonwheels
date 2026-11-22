@@ -52,3 +52,23 @@ test("Reference displays safely to operations and Clients, with legacy rows unch
   assert.match(part("function viewStatusBooking(","function findBookingByRef("),/CustomerReference\.detail\(b\)/);
   assert.match(html,/CustomerReference\.summary\(b\)/);
 });
+test("Invoice references include all vehicles, preserve snapshots and safely support older invoices",()=>{
+ const bookings=[{ref:"UKOW1",notes:api.notes("PO-<001>")},{ref:"UKOW2",notes:api.notes("000456")}];
+ const invoice={items:[{ref:"UKOW1"},{ref:"UKOW2"},{ref:"UKOW1"}]};
+ assert.equal(api.invoiceSummary(invoice,bookings),"PO-&lt;001&gt;<br>000456");
+ assert.equal(api.invoiceItem({ref:"UKOW1",customerReference:"SAVED"},bookings),"SAVED");
+ assert.equal(api.invoiceItem({ref:"UKOW1",customerReference:""},bookings),"");
+ assert.equal(api.invoiceSummary({items:[{ref:"missing"}]},bookings),"—");
+ for(const [start,end]of [["function drawClientInvoices(","function drawClientReports("],["function drawInvoices(","async function saveInvoiceSettings("],["function openMarkInvoicePaid(","async function markInvoicePaid("]]){
+  assert.match(part(start,end),/CustomerReference\.invoiceSummary\(i,s\.bookings\)/);
+ }
+ assert.match(part("function viewInvoice(","async function downloadInvoicePdf("),/safe\(CustomerReference\.invoiceItem/);
+ assert.match(part("async function downloadInvoicePdf(","function drawPayments("),/customerReference:CustomerReference\.invoiceItem/);
+});
+test("Downloaded invoice PDFs contain customer references beside booking numbers",async()=>{
+ const {buildInvoicePdf}=await import("../src/invoice-pdf.js");
+ const pdf=buildInvoicePdf({invoiceNo:"INV-REF",items:[{ref:"UKOW1",customerReference:"PO-000123",charge:100}],subtotal:100,total:100,vatEnabled:false},{showLogo:false});
+ const data=pdf.output();
+ assert.match(data,/Customer ref: PO-000123/);
+ assert.match(data,/UKOW1/);
+});
