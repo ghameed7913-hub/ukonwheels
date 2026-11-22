@@ -171,3 +171,40 @@ test("Single-vehicle invoice cannot be generated twice or after an async eligibi
  await a.c.makeSingleVehicleInvoice("END");
  assert.equal(a.saves.length,0);
 });
+test("Generating consecutive invoices retains the client and all dates and reloads only remaining vehicles",async()=>{
+ for(const single of [true,false]){
+  const s=setup();s.load();
+  s.fields.invDate={value:"2026-11-01"};s.fields.invDue={value:"2026-11-30"};
+  s.c.drawInvoices=(_area,_loaded,draft)=>{
+   assert.ok(draft);
+   for(const id of ["invBiz","invDeliveredFrom","invDeliveredTo","invDate","invDue"])s.fields[id].value="";
+   s.c.restoreInvoiceDates(draft);
+  };
+  s.fields.ii_0.checked=true;
+  if(single)await s.c.makeSingleVehicleInvoice("START");
+  else await s.c.makeInvoice(s.c.loadInvoiceVehicles.selection.refs);
+  assert.equal(s.fields.invBiz.value,"Client A");
+  assert.equal(s.fields.invDeliveredFrom.value,"2026-10-01");
+  assert.equal(s.fields.invDeliveredTo.value,"2026-10-31");
+  assert.equal(s.fields.invDate.value,"2026-11-01");
+  assert.equal(s.fields.invDue.value,"2026-11-30");
+  assert.deepEqual(Array.from(s.c.loadInvoiceVehicles.selection.refs),["END"]);
+  assert.doesNotMatch(s.fields.invVehicleArea.innerHTML,/data-booking-ref="START"/);
+  s.fields.ic_0.value="100";s.fields.ii_0.checked=false;
+  await s.c.makeSingleVehicleInvoice("END");
+  assert.equal(s.saves.length,2);
+  assert.equal(s.fields.invDeliveredFrom.value,"2026-10-01");
+  assert.equal(s.fields.invDeliveredTo.value,"2026-10-31");
+  assert.equal(s.c.loadInvoiceVehicles.selection,null);
+  assert.match(s.fields.invVehicleArea.innerHTML,/No Delivered Vehicles Available/);
+ }
+});
+test("Date restoration stays scoped to the generating account and survives async settings rendering",()=>{
+ const s=setup();
+ s.c.restoreInvoiceDates({actorId:"different-account",client:"Client B",from:"2026-01-01",to:"2026-02-01",date:"",due:""});
+ assert.equal(s.fields.invBiz.value,"Client A");
+ assert.equal(s.fields.invDeliveredFrom.value,"2026-10-01");
+ const draw=html.slice(html.indexOf("function drawInvoices("),html.indexOf("async function saveInvoiceSettings("));
+ assert.match(draw,/drawInvoices\(c,true,invoiceDraft\)/);
+ assert.match(draw,/if\(invoiceDraft\)restoreInvoiceDates\(invoiceDraft\)/);
+});
